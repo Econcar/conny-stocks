@@ -975,7 +975,7 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
 
   try {
     const selectedModel = document.getElementById('model-select')?.value || 'claude-sonnet-4-6';
-    const response = await fetch('/api/claude', {
+    const response = await fetch('/.netlify/functions/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
       body: JSON.stringify({
@@ -1005,7 +1005,7 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
 // Hämta tillåtna modeller från servern och fyll select
 async function loadModels() {
   try {
-    const res = await fetch('/api/models');
+    const res = await fetch('/.netlify/functions/models');
     const data = await res.json();
     const sel = document.getElementById('model-select');
     sel.innerHTML = '';
