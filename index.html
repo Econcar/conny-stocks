@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Investeringsanalys – AI-driven aktieplattform</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #181c27;
+    --surface2: #1e2334;
+    --border: rgba(255,255,255,0.08);
+    --border2: rgba(255,255,255,0.14);
+    --text: #e8eaf0;
+    --text2: #8b91a8;
+    --text3: #555c72;
+    --accent: #4f8ef7;
+    --accent2: #3a6fd4;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --purple: #a78bfa;
+    --font: 'Inter', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --radius: 10px;
+    --radius-lg: 16px;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; }
+  body { min-height: 100vh; display: flex; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 220px; flex-shrink: 0; background: var(--surface);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    padding: 0; position: fixed; top: 0; left: 0; height: 100vh; z-index: 100; overflow-y: auto;
+  }
+  .sidebar-logo {
+    padding: 18px 16px 14px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-mark {
+    width: 28px; height: 28px; background: var(--accent); border-radius: 7px;
+    display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: #fff; flex-shrink: 0;
+  }
+  .logo-text { font-size: 13px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+  .logo-sub { font-size: 10px; color: var(--text3); letter-spacing: 0.04em; }
+  .nav-section { padding: 10px 8px 4px; }
+  .nav-label { font-size: 10px; font-weight: 500; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; padding: 0 8px 6px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px;
+    cursor: pointer; color: var(--text2); font-size: 13px; transition: all 0.15s; user-select: none;
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+  .nav-item.active { background: rgba(79,142,247,0.15); color: var(--accent); }
+  .nav-icon { font-size: 15px; width: 18px; text-align: center; }
+  .watchlist-section { padding: 10px 8px; flex: 1; }
+  .watchlist-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px; border-radius: 7px; cursor: pointer; transition: background 0.12s;
+  }
+  .watchlist-item:hover { background: rgba(255,255,255,0.04); }
+  .wl-name { font-size: 12px; font-weight: 500; color: var(--text); }
+  .wl-ticker { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+  .wl-price { font-size: 12px; font-family: var(--mono); }
+
+  /* ── Main ── */
+  #main { margin-left: 220px; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* ── Topbar ── */
+  #topbar {
+    height: 56px; background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 20px; gap: 12px; position: sticky; top: 0; z-index: 50;
+  }
+  #search-wrap { flex: 1; max-width: 480px; position: relative; }
+  #search {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px;
+    padding: 8px 14px 8px 36px; color: var(--text); font-size: 13px; font-family: var(--font); outline: none; transition: border 0.15s;
+  }
+  #search::placeholder { color: var(--text3); }
+  #search:focus { border-color: var(--accent); }
+  .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text3); font-size: 14px; pointer-events: none; }
+  #search-results {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--surface2);
+    border: 1px solid var(--border2); border-radius: 10px; overflow: hidden; z-index: 200; display: none;
+  }
+  .sr-item { padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); transition: background 0.1s; }
+  .sr-item:last-child { border-bottom: none; }
+  .sr-item:hover { background: rgba(255,255,255,0.04); }
+  .sr-name { font-size: 13px; font-weight: 500; }
+  .sr-meta { font-size: 11px; color: var(--text2); font-family: var(--mono); }
+  .topbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .badge-btn {
+    padding: 6px 12px; border-radius: 7px; background: rgba(79,142,247,0.15);
+    color: var(--accent); font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid rgba(79,142,247,0.3); transition: all 0.15s;
+  }
+  .badge-btn:hover { background: rgba(79,142,247,0.25); }
+
+  /* ── Content ── */
+  #content { flex: 1; padding: 24px; overflow-y: auto; }
+
+  /* ── Sections ── */
+  .section { display: none; }
+  .section.active { display: block; }
+
+  /* ── Dashboard ── */
+  .page-title { font-size: 20px; font-weight: 600; letter-spacing: -0.03em; margin-bottom: 20px; }
+  .page-title span { color: var(--text2); font-weight: 400; }
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .kpi-label { font-size: 11px; color: var(--text3); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; }
+  .kpi-value { font-size: 22px; font-weight: 600; font-family: var(--mono); letter-spacing: -0.02em; }
+  .kpi-sub { font-size: 11px; margin-top: 3px; }
+  .green { color: var(--green); }
+  .red { color: var(--red); }
+  .muted { color: var(--text2); }
+  .amber { color: var(--amber); }
+  .purple { color: var(--purple); }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; }
+  .card-title { font-size: 12px; font-weight: 500; color: var(--text2); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 14px; }
+  .chart-wrap { position: relative; height: 200px; }
+
+  /* ── Stock table ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { border-bottom: 1px solid var(--border); }
+  th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 500; color: var(--text3); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; cursor: pointer; user-select: none; }
+  th:hover { color: var(--text2); }
+  th.sorted { color: var(--accent); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  tr.selected td { background: rgba(79,142,247,0.07); }
+  .td-name { font-weight: 500; color: var(--text); }
+  .td-ticker { font-family: var(--mono); font-size: 11px; color: var(--text3); }
+  .td-mono { font-family: var(--mono); }
+  .sector-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 500;
+  }
+  .chk { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: all 0.1s; }
+  .chk.on { background: var(--accent); border-color: var(--accent); }
+  .bar-bottom { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-top: 12px; }
+  .action-btn { padding: 8px 18px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: background 0.15s; font-family: var(--font); }
+  .action-btn:hover { background: var(--accent2); }
+  .action-btn:disabled { background: var(--surface2); color: var(--text3); cursor: not-allowed; }
+  .ghost-btn { padding: 8px 14px; border-radius: 8px; background: transparent; color: var(--text2); font-size: 13px; cursor: pointer; border: 1px solid var(--border2); transition: all 0.15s; font-family: var(--font); }
+  .ghost-btn:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+
+  /* ── Screener filters ── */
+  .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .filter-chip { padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border2); background: var(--surface2); color: var(--text2); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .filter-chip.on { background: rgba(79,142,247,0.15); color: var(--accent); border-color: rgba(79,142,247,0.4); }
+  .filter-input { background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; padding: 6px 10px; color: var(--text); font-size: 12px; font-family: var(--font); outline: none; width: 110px; }
+  .filter-input:focus { border-color: var(--accent); }
+
+  /* ── Stock detail ── */
+  .detail-hero { display: flex; align-items: flex-start; gap: 24px; margin-bottom: 24px; }
+  .detail-info h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.03em; }
+  .detail-price { font-size: 36px; font-weight: 600; font-family: var(--mono); letter-spacing: -0.03em; margin-top: 8px; }
+  .detail-change { font-size: 14px; margin-top: 4px; font-family: var(--mono); }
+  .detail-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .meta-pill { padding: 3px 10px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); font-size: 11px; color: var(--text2); }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+  .kpi-mini { background: var(--surface2); border-radius: 8px; padding: 12px; }
+  .kpi-mini-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .kpi-mini-val { font-size: 16px; font-weight: 600; font-family: var(--mono); }
+
+  /* ── AI Chat ── */
+  #ai-panel {
+    width: 380px; flex-shrink: 0; background: var(--surface); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; position: fixed; top: 0; right: 0; height: 100vh; z-index: 80;
+    transform: translateX(100%); transition: transform 0.25s ease;
+  }
+  #ai-panel.open { transform: translateX(0); }
+  .ai-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .ai-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .ai-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .ai-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 100%; }
+  .msg.user .msg-bubble { background: rgba(79,142,247,0.15); border: 1px solid rgba(79,142,247,0.25); border-radius: 10px 10px 4px 10px; padding: 10px 14px; color: var(--text); font-size: 13px; line-height: 1.6; margin-left: auto; max-width: 85%; }
+  .msg.ai .msg-bubble { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px 10px 10px 10px; padding: 10px 14px; color: var(--text); font-size: 13px; line-height: 1.7; }
+  .msg.ai .msg-bubble strong { color: var(--accent); }
+  .msg-label { font-size: 10px; color: var(--text3); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .msg.user .msg-label { text-align: right; }
+  .typing { display: flex; gap: 4px; align-items: center; padding: 8px 0; }
+  .typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--text3); animation: blink 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
+  .ai-input-area { padding: 12px; border-top: 1px solid var(--border); }
+  .ai-suggestions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .ai-sug { padding: 4px 10px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border2); color: var(--text2); font-size: 11px; cursor: pointer; transition: all 0.12s; }
+  .ai-sug:hover { color: var(--accent); border-color: rgba(79,142,247,0.4); }
+  .ai-input-row { display: flex; gap: 8px; }
+  #ai-input {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px;
+    padding: 9px 12px; color: var(--text); font-size: 13px; font-family: var(--font); outline: none; resize: none; height: 40px;
+  }
+  #ai-input:focus { border-color: var(--accent); }
+  .send-btn { padding: 9px 14px; background: var(--accent); border: none; border-radius: 8px; color: #fff; cursor: pointer; font-size: 14px; transition: background 0.15s; }
+  .send-btn:hover { background: var(--accent2); }
+  .send-btn:disabled { background: var(--surface2); color: var(--text3); cursor: not-allowed; }
+
+  /* ── Context bar ── */
+  #context-bar { padding: 8px 12px; background: rgba(79,142,247,0.08); border-bottom: 1px solid rgba(79,142,247,0.2); font-size: 11px; color: var(--accent); display: none; }
+
+  /* ── Misc ── */
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--text3); }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; }
+  .empty-text { font-size: 14px; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 10px; font-weight: 500; font-family: var(--mono); }
+  .error-msg { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fca5a5; margin-bottom: 12px; }
+  .info-msg { background: rgba(79,142,247,0.08); border: 1px solid rgba(79,142,247,0.2); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--accent); margin-bottom: 12px; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    #sidebar { width: 180px; }
+    #main { margin-left: 180px; }
+    .kpi-row { grid-template-columns: 1fr 1fr; }
+    .kpi-grid { grid-template-columns: 1fr 1fr; }
+    #ai-panel { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════ SIDEBAR ══════════════ -->
+<nav id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">A</div>
+    <div>
+      <div class="logo-text">Aktieanalys</div>
+      <div class="logo-sub">AI-driven plattform</div>
+    </div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-label">Navigering</div>
+    <div class="nav-item active" onclick="showSection('dashboard')"><span class="nav-icon">◈</span> Översikt</div>
+    <div class="nav-item" onclick="showSection('screener')"><span class="nav-icon">⊞</span> Aktie­screener</div>
+    <div class="nav-item" onclick="showSection('detail')" id="nav-detail" style="display:none"><span class="nav-icon">◎</span> <span id="nav-detail-name">Aktiedetalj</span></div>
+    <div class="nav-item" onclick="showSection('compare')"><span class="nav-icon">⇄</span> Jämförelse</div>
+    <div class="nav-item" onclick="showSection('macro')"><span class="nav-icon">◎</span> Makro</div>
+  </div>
+
+  <div class="watchlist-section">
+    <div class="nav-label">Bevakningslista</div>
+    <div id="watchlist-items">
+      <div class="watchlist-item" onclick="loadStock('AAPL','Apple Inc')">
+        <div><div class="wl-name">Apple</div><div class="wl-ticker">AAPL · NASDAQ</div></div>
+        <div class="wl-price green">$196</div>
+      </div>
+      <div class="watchlist-item" onclick="loadStock('NVDA','NVIDIA')">
+        <div><div class="wl-name">NVIDIA</div><div class="wl-ticker">NVDA · NASDAQ</div></div>
+        <div class="wl-price green">$134</div>
+      </div>
+      <div class="watchlist-item" onclick="loadStock('VOLV-B.ST','Volvo B')">
+        <div><div class="wl-name">Volvo B</div><div class="wl-ticker">VOLV-B · OMX</div></div>
+        <div class="wl-price red">228 kr</div>
+      </div>
+      <div class="watchlist-item" onclick="loadStock('ERIC-B.ST','Ericsson B')">
+        <div><div class="wl-name">Ericsson B</div><div class="wl-ticker">ERIC-B · OMX</div></div>
+        <div class="wl-price green">86 kr</div>
+      </div>
+      <div class="watchlist-item" onclick="loadStock('ABB.ST','ABB')">
+        <div><div class="wl-name">ABB</div><div class="wl-ticker">ABB · OMX</div></div>
+        <div class="wl-price green">620 kr</div>
+      </div>
+      <div class="watchlist-item" onclick="loadStock('NOVO-B.CO','Novo Nordisk B')">
+        <div><div class="wl-name">Novo Nordisk</div><div class="wl-ticker">NOVO-B · CPH</div></div>
+        <div class="wl-price red">498 DKK</div>
+      </div>
+      <div class="watchlist-item" onclick="loadStock('ASML.AS','ASML')">
+        <div><div class="wl-name">ASML</div><div class="wl-ticker">ASML · AMS</div></div>
+        <div class="wl-price green">€788</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════════ MAIN ══════════════ -->
+<div id="main">
+  <div id="topbar">
+    <div id="search-wrap">
+      <span class="search-icon">⊕</span>
+      <input type="text" id="search" placeholder="Sök aktie: Apple, NVDA, Volvo, AAPL.ST..." autocomplete="off">
+      <div id="search-results"></div>
+    </div>
+    <div class="topbar-right">
+      <div class="badge-btn" onclick="toggleAI()">✦ AI-analys</div>
+    </div>
+  </div>
+
+  <div id="content">
+
+    <!-- ── DASHBOARD ── -->
+    <div class="section active" id="section-dashboard">
+      <div class="page-title">Marknadsöversikt <span>· 14 juni 2026</span></div>
+      <div class="kpi-row" id="market-kpis">
+        <div class="kpi-card"><div class="kpi-label">S&P 500</div><div class="kpi-value" id="k-sp500">7 431</div><div class="kpi-sub green">+8,4% ÅTD · +0,5% idag</div></div>
+        <div class="kpi-card"><div class="kpi-label">Nasdaq</div><div class="kpi-value" id="k-nasdaq">25 889</div><div class="kpi-sub green">+10,9% ÅTD · +0,3% idag</div></div>
+        <div class="kpi-card"><div class="kpi-label">OMXS30</div><div class="kpi-value" id="k-omxs">3 070</div><div class="kpi-sub red">−1,0% ÅTD · −1,2% idag</div></div>
+        <div class="kpi-card"><div class="kpi-label">USD/SEK</div><div class="kpi-value" id="k-usdsek">9,48</div><div class="kpi-sub muted">EUR/SEK 10,94</div></div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Toppbolag – USA (klicka för analys)</div>
+          <div id="top-usa-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Toppbolag – Norden (klicka för analys)</div>
+          <div id="top-nordic-list"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Sektorer – ÅTD 2026</div>
+        <div class="chart-wrap"><canvas id="sectorChart" role="img" aria-label="Sektorprestanda ÅTD 2026"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ── SCREENER ── -->
+    <div class="section" id="section-screener">
+      <div class="page-title">Aktie­screener <span>· Filtrera bland globala aktier</span></div>
+      <div class="filter-row" id="region-filters">
+        <div class="filter-chip on" data-r="alla" onclick="setFilter(this,'region')">Alla marknader</div>
+        <div class="filter-chip" data-r="usa" onclick="setFilter(this,'region')">🇺🇸 USA</div>
+        <div class="filter-chip" data-r="se" onclick="setFilter(this,'region')">🇸🇪 Sverige</div>
+        <div class="filter-chip" data-r="eu" onclick="setFilter(this,'region')">🇪🇺 Europa</div>
+        <div class="filter-chip" data-r="no" onclick="setFilter(this,'region')">🇳🇴 Norge</div>
+        <div class="filter-chip" data-r="dk" onclick="setFilter(this,'region')">🇩🇰 Danmark</div>
+        <div class="filter-chip" data-r="as" onclick="setFilter(this,'region')">🌏 Asien</div>
+      </div>
+      <div class="filter-row" id="sector-filters">
+        <div class="filter-chip on" data-s="alla" onclick="setFilter(this,'sector')">Alla sektorer</div>
+        <div class="filter-chip" data-s="Teknik" onclick="setFilter(this,'sector')">Teknik</div>
+        <div class="filter-chip" data-s="Halvledare" onclick="setFilter(this,'sector')">Halvledare</div>
+        <div class="filter-chip" data-s="Hälsovård" onclick="setFilter(this,'sector')">Hälsovård</div>
+        <div class="filter-chip" data-s="Finans" onclick="setFilter(this,'sector')">Finans</div>
+        <div class="filter-chip" data-s="Industri" onclick="setFilter(this,'sector')">Industri</div>
+        <div class="filter-chip" data-s="Energi" onclick="setFilter(this,'sector')">Energi</div>
+        <div class="filter-chip" data-s="Konsument" onclick="setFilter(this,'sector')">Konsument</div>
+        <div class="filter-chip" data-s="Försvar" onclick="setFilter(this,'sector')">Försvar</div>
+      </div>
+      <div class="filter-row">
+        <input class="filter-input" type="text" id="name-search" placeholder="Sök namn/ticker..." oninput="renderScreener()">
+        <select class="filter-input" id="sort-select" onchange="renderScreener()" style="width:140px">
+          <option value="mcap">Sortera: Mkt cap</option>
+          <option value="ytd">Sortera: ÅTD %</option>
+          <option value="pe">Sortera: P/E</option>
+          <option value="div">Sortera: Utdelning</option>
+          <option value="name">Sortera: Namn</option>
+        </select>
+      </div>
+      <div class="card" style="padding:0">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th style="width:28px"></th>
+              <th>Bolag</th>
+              <th>Marknad</th>
+              <th>Sektor</th>
+              <th style="text-align:right">Kurs</th>
+              <th style="text-align:right">ÅTD %</th>
+              <th style="text-align:right">P/E</th>
+              <th style="text-align:right">Utd.%</th>
+              <th style="text-align:right">Mkt cap</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="screener-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="bar-bottom">
+        <span style="font-size:13px;color:var(--text2)"><span id="sel-count" style="color:var(--text);font-weight:600">0</span> valda</span>
+        <div style="display:flex;gap:8px">
+          <button class="ghost-btn" onclick="clearScreenerSel()">Rensa val</button>
+          <button class="action-btn" id="analyze-btn" disabled onclick="analyzeSelected()">Analysera med AI</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DETAIL ── -->
+    <div class="section" id="section-detail">
+      <div id="detail-loading" style="text-align:center;padding:60px"><div class="spinner"></div><div style="margin-top:12px;color:var(--text3)">Hämtar data...</div></div>
+      <div id="detail-content" style="display:none">
+        <div class="detail-hero">
+          <div class="detail-info">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+              <button class="ghost-btn" onclick="showSection('screener')" style="padding:4px 10px;font-size:11px">← Tillbaka</button>
+              <span id="d-exchange" class="tag" style="background:rgba(79,142,247,0.15);color:var(--accent)"></span>
+              <span id="d-sector-tag" class="tag" style="background:var(--surface2);color:var(--text2)"></span>
+            </div>
+            <h1 id="d-name"></h1>
+            <div id="d-fullname" style="font-size:13px;color:var(--text2);margin-top:2px"></div>
+            <div class="detail-price" id="d-price"></div>
+            <div class="detail-change" id="d-change"></div>
+            <div class="detail-meta" id="d-meta"></div>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="ghost-btn" onclick="addToWatchlist()">+ Bevakningslista</button>
+            <button class="action-btn" onclick="aiAnalyzeStock()">✦ Analysera med AI</button>
+          </div>
+        </div>
+        <div class="kpi-grid" id="d-kpis"></div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title" id="d-chart-title">Kursutveckling – 1 år</div>
+            <div class="filter-row" style="margin-bottom:10px">
+              <div class="filter-chip on" onclick="setPeriod(this,'1mo')">1M</div>
+              <div class="filter-chip" onclick="setPeriod(this,'3mo')">3M</div>
+              <div class="filter-chip" onclick="setPeriod(this,'6mo')">6M</div>
+              <div class="filter-chip" onclick="setPeriod(this,'1y')">1Å</div>
+              <div class="filter-chip" onclick="setPeriod(this,'2y')">2Å</div>
+              <div class="filter-chip" onclick="setPeriod(this,'5y')">5Å</div>
+            </div>
+            <div class="chart-wrap"><canvas id="priceChart" role="img" aria-label="Kursutveckling"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Bolagsfakta</div>
+            <div id="d-facts" style="font-size:12px;line-height:2;color:var(--text2)"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-title">Bolagsbeskrivning</div>
+          <div id="d-description" style="font-size:13px;color:var(--text2);line-height:1.8;max-height:120px;overflow:hidden;"></div>
+        </div>
+      </div>
+      <div id="detail-error" style="display:none" class="error-msg"></div>
+    </div>
+
+    <!-- ── COMPARE ── -->
+    <div class="section" id="section-compare">
+      <div class="page-title">Jämförelse <span>· Analysera upp till 5 aktier sida vid sida</span></div>
+      <div class="info-msg">Välj aktier i screener­n och klicka "Analysera med AI" – eller skriv i AI-chatten: "Jämför NVIDIA, ASML och TSMC"</div>
+      <div id="compare-content">
+        <div class="empty-state"><div class="empty-icon">⇄</div><div class="empty-text">Inga aktier valda för jämförelse ännu</div></div>
+      </div>
+    </div>
+
+    <!-- ── MACRO ── -->
+    <div class="section" id="section-macro">
+      <div class="page-title">Makro­ekonomi <span>· Globalt läge juni 2026</span></div>
+      <div class="kpi-row">
+        <div class="kpi-card"><div class="kpi-label">Fed Funds Rate</div><div class="kpi-value amber">4,50%</div><div class="kpi-sub muted">Oförändrad · Wells Fargo: håller</div></div>
+        <div class="kpi-card"><div class="kpi-label">Riksbankens ränta</div><div class="kpi-value amber">2,25%</div><div class="kpi-sub muted">KPIF 1,5% maj 2026</div></div>
+        <div class="kpi-card"><div class="kpi-label">ECB</div><div class="kpi-value amber">2,40%</div><div class="kpi-sub muted">Sänkte i april 2026</div></div>
+        <div class="kpi-card"><div class="kpi-label">Brent råolja</div><div class="kpi-value">$91</div><div class="kpi-sub red">+Iran-oro tyngde marknaden</div></div>
+      </div>
+      <div class="grid-3">
+        <div class="card"><div class="card-title">USA</div><div id="macro-usa" style="font-size:12px;line-height:2;color:var(--text2)">BNP-tillväxt: ~2,4% 2026<br>Inflation (CPI): ~2,9% maj<br>Arbetslöshet: 4,2%<br>10-årsränta: 4,48%<br>ISM Manufacturing: 54 (maj)</div></div>
+        <div class="card"><div class="card-title">Sverige</div><div id="macro-se" style="font-size:12px;line-height:2;color:var(--text2)">BNP-tillväxt: återhämtning 2026<br>KPIF: 1,5% maj 2026<br>Riksbanksränta: 2,25%<br>10-årsränta: 2,76%<br>USD/SEK: 9,48</div></div>
+        <div class="card"><div class="card-title">Geopolitik & risker</div><div id="macro-geo" style="font-size:12px;line-height:2;color:var(--text2)">Iran-USA konflikt · Oljepriser<br>Trump-tullar · Handelskrig<br>NATO-upprustning Europa<br>AI-kapplöpning · Halvledare<br>SpaceX IPO $1,75T (jun 2026)</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Globala index – ÅTD jämförelse 2026</div>
+        <div class="chart-wrap" style="height:240px"><canvas id="macroChart" role="img" aria-label="Globala index ÅTD 2026"></canvas></div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- ══════════════ AI PANEL ══════════════ -->
+<div id="ai-panel">
+  <div class="ai-header">
+    <div class="ai-title"><div class="ai-dot" id="ai-status-dot" style="background:var(--red)"></div> AI-analytiker</div>
+    <button onclick="toggleAI()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px">×</button>
+  </div>
+
+  <div id="api-key-section" style="padding:14px 16px;border-bottom:1px solid var(--border);background:rgba(79,142,247,0.05)">
+    <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Anthropic API-nyckel</div>
+    <div style="display:flex;gap:8px">
+      <input type="password" id="api-key-input" placeholder="sk-ant-api03-..." style="flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;font-family:var(--mono);outline:none">
+      <button onclick="saveApiKey()" style="padding:8px 12px;background:var(--accent);border:none;border-radius:8px;color:#fff;font-size:12px;cursor:pointer;font-family:var(--font);white-space:nowrap">Spara</button>
+    </div>
+    <div id="api-key-status" style="font-size:11px;color:var(--text3);margin-top:6px">Ingen nyckel sparad. Hämta din nyckel på console.anthropic.com</div>
+  </div>
+
+  <div id="context-bar">Kontext: <span id="context-label">–</span></div>
+  <div class="ai-messages" id="ai-messages">
+    <div class="msg ai">
+      <div class="msg-label">AI-analytiker</div>
+      <div class="msg-bubble">Hej! Klistra in din Anthropic API-nyckel ovanför för att aktivera AI-analysen.<br><br>Nyckeln sparas bara lokalt i din webbläsare och skickas aldrig någon annanstans.</div>
+    </div>
+  </div>
+  <div class="ai-input-area">
+    <div class="ai-suggestions" id="ai-suggestions">
+      <div class="ai-sug" onclick="sendSuggestion(this)">Analysera NVIDIA</div>
+      <div class="ai-sug" onclick="sendSuggestion(this)">Jämför ASML och NVDA</div>
+      <div class="ai-sug" onclick="sendSuggestion(this)">Makroläget 2026</div>
+      <div class="ai-sug" onclick="sendSuggestion(this)">Bästa utdelningsaktier</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <label style="font-size:12px;color:var(--text2);margin-right:6px">Model:</label>
+      <select id="model-select" style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:6px 8px;border-radius:8px;font-family:var(--font)"></select>
+      <div id="model-status" style="font-size:12px;color:var(--text3);margin-left:8px">Läser modeller...</div>
+    </div>
+    <div class="ai-input-row">
+      <textarea id="ai-input" placeholder="Ställ en fråga om aktier, marknader, nyckeltal..." rows="1" onkeydown="handleAIKey(event)"></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendAIMessage()">↑</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════ STATE ══════════
+let currentSection = 'dashboard';
+let currentTicker = null;
+let currentStockName = null;
+let currentPriceChart = null;
+let currentPeriod = '1y';
+let screenerSel = new Set();
+let activeRegion = 'alla';
+let activeSector = 'alla';
+let aiOpen = false;
+let aiContext = '';
+let aiHistory = [];
+
+// ══════════ STOCK DATABASE ══════════
+const stocks = [
+  // USA
+  {name:'NVIDIA',ticker:'NVDA',r:'usa',sektor:'Halvledare',kurs:'$134',ytd:20.1,pe:38.2,div:0.0,mcap:3280,flag:'🇺🇸'},
+  {name:'Apple',ticker:'AAPL',r:'usa',sektor:'Teknik',kurs:'$196',ytd:-5.2,pe:31.4,div:0.5,mcap:2970,flag:'🇺🇸'},
+  {name:'Microsoft',ticker:'MSFT',r:'usa',sektor:'Teknik',kurs:'$448',ytd:12.8,pe:35.1,div:0.7,mcap:3330,flag:'🇺🇸'},
+  {name:'Alphabet',ticker:'GOOGL',r:'usa',sektor:'Teknik',kurs:'$172',ytd:-3.1,pe:21.8,div:0.0,mcap:2090,flag:'🇺🇸'},
+  {name:'Amazon',ticker:'AMZN',r:'usa',sektor:'Konsument',kurs:'$212',ytd:8.4,pe:41.2,div:0.0,mcap:2240,flag:'🇺🇸'},
+  {name:'Meta Platforms',ticker:'META',r:'usa',sektor:'Teknik',kurs:'$614',ytd:18.3,pe:27.6,div:0.4,mcap:1560,flag:'🇺🇸'},
+  {name:'Broadcom',ticker:'AVGO',r:'usa',sektor:'Halvledare',kurs:'$248',ytd:31.4,pe:44.2,div:1.1,mcap:1170,flag:'🇺🇸'},
+  {name:'Tesla',ticker:'TSLA',r:'usa',sektor:'Konsument',kurs:'$248',ytd:-14.8,pe:88.4,div:0.0,mcap:796,flag:'🇺🇸'},
+  {name:'JPMorgan Chase',ticker:'JPM',r:'usa',sektor:'Finans',kurs:'$268',ytd:14.6,pe:13.8,div:2.1,mcap:770,flag:'🇺🇸'},
+  {name:'Berkshire Hathaway',ticker:'BRK-B',r:'usa',sektor:'Finans',kurs:'$492',ytd:9.2,pe:21.1,div:0.0,mcap:1080,flag:'🇺🇸'},
+  {name:'Johnson & Johnson',ticker:'JNJ',r:'usa',sektor:'Hälsovård',kurs:'$162',ytd:2.1,pe:16.4,div:3.1,mcap:391,flag:'🇺🇸'},
+  {name:'Palantir',ticker:'PLTR',r:'usa',sektor:'Teknik',kurs:'$128',ytd:62.3,pe:218,div:0.0,mcap:278,flag:'🇺🇸'},
+  {name:'ExxonMobil',ticker:'XOM',r:'usa',sektor:'Energi',kurs:'$118',ytd:4.2,pe:14.1,div:3.4,mcap:478,flag:'🇺🇸'},
+  {name:'Lockheed Martin',ticker:'LMT',r:'usa',sektor:'Försvar',kurs:'$498',ytd:22.8,pe:18.4,div:2.7,mcap:124,flag:'🇺🇸'},
+  // Sverige
+  {name:'Atlas Copco',ticker:'ATCO-A.ST',r:'se',sektor:'Industri',kurs:'182 kr',ytd:-14.2,pe:33.5,div:1.6,mcap:852,flag:'🇸🇪'},
+  {name:'Investor A',ticker:'INVE-A.ST',r:'se',sektor:'Finans',kurs:'341 kr',ytd:3.2,pe:6.6,div:1.7,mcap:1020,flag:'🇸🇪'},
+  {name:'Volvo B',ticker:'VOLV-B.ST',r:'se',sektor:'Industri',kurs:'228 kr',ytd:-8.1,pe:11.3,div:4.2,mcap:471,flag:'🇸🇪'},
+  {name:'ABB',ticker:'ABB.ST',r:'se',sektor:'Industri',kurs:'620 kr',ytd:-5.2,pe:28.4,div:2.1,mcap:1310,flag:'🇸🇪'},
+  {name:'AstraZeneca',ticker:'AZN.L',r:'se',sektor:'Hälsovård',kurs:'1540 kr',ytd:6.8,pe:22.1,div:1.8,mcap:2450,flag:'🇸🇪'},
+  {name:'SAAB B',ticker:'SAAB-B.ST',r:'se',sektor:'Försvar',kurs:'706 kr',ytd:41.2,pe:43.3,div:0.3,mcap:379,flag:'🇸🇪'},
+  {name:'Ericsson B',ticker:'ERIC-B.ST',r:'se',sektor:'Teknik',kurs:'86 kr',ytd:4.1,pe:11.4,div:3.1,mcap:282,flag:'🇸🇪'},
+  {name:'Nordea',ticker:'NDA-SE.ST',r:'se',sektor:'Finans',kurs:'148 kr',ytd:11.1,pe:9.1,div:7.2,mcap:580,flag:'🇸🇪'},
+  {name:'Hexagon',ticker:'HEXA-B.ST',r:'se',sektor:'Teknik',kurs:'101 kr',ytd:-12.3,pe:38.0,div:1.5,mcap:271,flag:'🇸🇪'},
+  // Europa
+  {name:'ASML',ticker:'ASML.AS',r:'eu',sektor:'Halvledare',kurs:'€788',ytd:22.4,pe:34.8,div:0.7,mcap:310,flag:'🇳🇱'},
+  {name:'SAP',ticker:'SAP.DE',r:'eu',sektor:'Teknik',kurs:'€284',ytd:28.1,pe:48.2,div:0.7,mcap:329,flag:'🇩🇪'},
+  {name:'Siemens',ticker:'SIE.DE',r:'eu',sektor:'Industri',kurs:'€224',ytd:14.8,pe:19.4,div:2.1,mcap:200,flag:'🇩🇪'},
+  {name:'LVMH',ticker:'MC.PA',r:'eu',sektor:'Konsument',kurs:'€688',ytd:4.2,pe:21.4,div:2.2,mcap:347,flag:'🇫🇷'},
+  {name:'Shell',ticker:'SHEL.L',r:'eu',sektor:'Energi',kurs:'£28,4',ytd:6.8,pe:11.2,div:4.1,mcap:198,flag:'🇬🇧'},
+  {name:'HSBC',ticker:'HSBA.L',r:'eu',sektor:'Finans',kurs:'£9,12',ytd:11.4,pe:8.4,div:5.8,mcap:162,flag:'🇬🇧'},
+  // Norge
+  {name:'Equinor',ticker:'EQNR.OL',r:'no',sektor:'Energi',kurs:'298 NOK',ytd:8.1,pe:9.8,div:5.8,mcap:980,flag:'🇳🇴'},
+  {name:'Norsk Hydro',ticker:'NHY.OL',r:'no',sektor:'Industri',kurs:'68 NOK',ytd:12.4,pe:14.2,div:4.4,mcap:138,flag:'🇳🇴'},
+  // Danmark
+  {name:'Novo Nordisk',ticker:'NOVO-B.CO',r:'dk',sektor:'Hälsovård',kurs:'498 DKK',ytd:-28.4,pe:22.1,div:1.7,mcap:1120,flag:'🇩🇰'},
+  {name:'Vestas Wind',ticker:'VWS.CO',r:'dk',sektor:'Energi',kurs:'118 DKK',ytd:14.2,pe:28.4,div:0.8,mcap:124,flag:'🇩🇰'},
+  // Asien
+  {name:'TSMC',ticker:'TSM',r:'as',sektor:'Halvledare',kurs:'$188',ytd:38.4,pe:28.4,div:1.4,mcap:978,flag:'🇹🇼'},
+  {name:'Samsung Electronics',ticker:'005930.KS',r:'as',sektor:'Halvledare',kurs:'₩74 000',ytd:22.8,pe:14.2,div:2.8,mcap:440,flag:'🇰🇷'},
+  {name:'Toyota',ticker:'7203.T',r:'as',sektor:'Konsument',kurs:'¥2 840',ytd:9.8,pe:9.2,div:3.1,mcap:368,flag:'🇯🇵'},
+  {name:'Alibaba',ticker:'BABA',r:'as',sektor:'Teknik',kurs:'$92',ytd:42.1,pe:14.8,div:0.0,mcap:238,flag:'🇭🇰'},
+];
+
+const sectorColors = {
+  'Halvledare': ['rgba(167,139,250,0.2)','#a78bfa'],
+  'Teknik': ['rgba(79,142,247,0.2)','#4f8ef7'],
+  'Hälsovård': ['rgba(244,114,182,0.2)','#f472b6'],
+  'Finans': ['rgba(34,197,94,0.2)','#22c55e'],
+  'Industri': ['rgba(96,165,250,0.2)','#60a5fa'],
+  'Konsument': ['rgba(245,158,11,0.2)','#f59e0b'],
+  'Energi': ['rgba(251,146,60,0.2)','#fb923c'],
+  'Försvar': ['rgba(52,211,153,0.2)','#34d399'],
+};
+
+// ══════════ NAVIGATION ══════════
+function showSection(s) {
+  document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.getElementById('section-' + s).classList.add('active');
+  const navItems = document.querySelectorAll('.nav-item');
+  navItems.forEach(el => { if(el.getAttribute('onclick') && el.getAttribute('onclick').includes("'"+s+"'")) el.classList.add('active'); });
+  currentSection = s;
+  if(s === 'dashboard') renderDashboard();
+  if(s === 'screener') renderScreener();
+  if(s === 'macro') renderMacro();
+}
+
+// ══════════ DASHBOARD ══════════
+function renderDashboard() {
+  const usaList = document.getElementById('top-usa-list');
+  const nordicList = document.getElementById('top-nordic-list');
+  const usa = stocks.filter(s=>s.r==='usa').sort((a,b)=>b.mcap-a.mcap).slice(0,7);
+  const nordic = stocks.filter(s=>['se','no','dk'].includes(s.r)).sort((a,b)=>b.mcap-a.mcap).slice(0,7);
+  usaList.innerHTML = usa.map(s=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 2px;border-bottom:1px solid var(--border);cursor:pointer" onclick="loadStock('${s.ticker}','${s.name}')" onmouseenter="this.style.background='rgba(255,255,255,0.02)'" onmouseleave="this.style.background=''">
+      <div><div style="font-size:13px;font-weight:500">${s.name}</div><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${s.ticker}</div></div>
+      <div style="text-align:right">
+        <div style="font-size:12px;font-family:var(--mono)">${s.kurs}</div>
+        <div style="font-size:11px;color:${s.ytd>=0?'var(--green)':'var(--red)'}">${s.ytd>=0?'+':''}${s.ytd.toFixed(1)}% ÅTD</div>
+      </div>
+    </div>`).join('');
+  nordicList.innerHTML = nordic.map(s=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 2px;border-bottom:1px solid var(--border);cursor:pointer" onclick="loadStock('${s.ticker}','${s.name}')" onmouseenter="this.style.background='rgba(255,255,255,0.02)'" onmouseleave="this.style.background=''">
+      <div><div style="font-size:13px;font-weight:500">${s.flag} ${s.name}</div><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${s.ticker}</div></div>
+      <div style="text-align:right">
+        <div style="font-size:12px;font-family:var(--mono)">${s.kurs}</div>
+        <div style="font-size:11px;color:${s.ytd>=0?'var(--green)':'var(--red)'}">${s.ytd>=0?'+':''}${s.ytd.toFixed(1)}% ÅTD</div>
+      </div>
+    </div>`).join('');
+  renderSectorChart();
+}
+
+function renderSectorChart() {
+  const sectorData = {};
+  stocks.forEach(s => {
+    if(!sectorData[s.sektor]) sectorData[s.sektor] = [];
+    sectorData[s.sektor].push(s.ytd);
+  });
+  const labels = Object.keys(sectorData);
+  const avgs = labels.map(l => { const arr=sectorData[l]; return +(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1); });
+  const colors = labels.map(l => (sectorColors[l]||['rgba(100,100,100,0.2)','#666'])[1]);
+  const ctx = document.getElementById('sectorChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ data: avgs, backgroundColor: colors.map(c=>c+'44'), borderColor: colors, borderWidth: 1.5, borderRadius: 4 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 11 } } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 11 }, callback: v=>v+'%' } } } }
+  });
+}
+
+// ══════════ SCREENER ══════════
+function setFilter(el, type) {
+  const group = type === 'region' ? '#region-filters' : '#sector-filters';
+  document.querySelectorAll(group + ' .filter-chip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');
+  if(type==='region') activeRegion = el.dataset.r;
+  else activeSector = el.dataset.s;
+  renderScreener();
+}
+
+function renderScreener() {
+  const q = document.getElementById('name-search').value.toLowerCase();
+  const sortBy = document.getElementById('sort-select').value;
+  let rows = stocks.filter(s => {
+    if(activeRegion !== 'alla' && s.r !== activeRegion) return false;
+    if(activeSector !== 'alla' && s.sektor !== activeSector) return false;
+    if(q && !s.name.toLowerCase().includes(q) && !s.ticker.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  rows.sort((a,b) => sortBy==='name'?a.name.localeCompare(b.name,'sv'):sortBy==='ytd'?(b.ytd-a.ytd):sortBy==='pe'?(a.pe-b.pe):sortBy==='div'?(b.div-a.div):(b.mcap-a.mcap));
+  const tbody = document.getElementById('screener-tbody');
+  tbody.innerHTML = rows.map(s => {
+    const idx = stocks.indexOf(s);
+    const sel = screenerSel.has(idx);
+    const [bg, tc] = sectorColors[s.sektor] || ['rgba(100,100,100,0.15)','#888'];
+    return `<tr class="${sel?'selected':''}" onclick="toggleScreenerRow(${idx})">
+      <td><div class="chk ${sel?'on':''}">${sel?'✓':''}</div></td>
+      <td><div class="td-name">${s.flag} ${s.name}</div><div class="td-ticker">${s.ticker}</div></td>
+      <td style="color:var(--text2);font-size:12px">${s.r.toUpperCase()}</td>
+      <td><span class="sector-pill" style="background:${bg};color:${tc}">${s.sektor}</span></td>
+      <td style="text-align:right" class="td-mono">${s.kurs}</td>
+      <td style="text-align:right;color:${s.ytd>=0?'var(--green)':'var(--red)'}" class="td-mono">${s.ytd>=0?'+':''}${s.ytd.toFixed(1)}%</td>
+      <td style="text-align:right" class="td-mono">${s.pe?s.pe.toFixed(1):'–'}</td>
+      <td style="text-align:right" class="td-mono">${s.div>0?s.div.toFixed(1)+'%':'–'}</td>
+      <td style="text-align:right;color:var(--text2);font-size:12px">${s.mcap>=1000?(s.mcap/1000).toFixed(1)+'T':'$'+s.mcap+'B'}</td>
+      <td><button onclick="event.stopPropagation();loadStock('${s.ticker}','${s.name}')" style="background:none;border:1px solid var(--border2);color:var(--text2);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer">Detalj</button></td>
+    </tr>`;
+  }).join('');
+  updateSelBar();
+}
+
+function toggleScreenerRow(idx) {
+  if(screenerSel.has(idx)) screenerSel.delete(idx);
+  else screenerSel.add(idx);
+  renderScreener();
+}
+
+function clearScreenerSel() { screenerSel.clear(); renderScreener(); }
+
+function updateSelBar() {
+  const n = screenerSel.size;
+  document.getElementById('sel-count').textContent = n;
+  document.getElementById('analyze-btn').disabled = n === 0;
+}
+
+function analyzeSelected() {
+  const names = [...screenerSel].map(i=>stocks[i].name);
+  const tickers = [...screenerSel].map(i=>stocks[i].ticker);
+  openAI();
+  const prompt = names.length === 1
+    ? `Analysera ${names[0]} (${tickers[0]}) – ge mig nyckeltal, styrkor, risker och en sammanfattande bedömning.`
+    : `Jämför och analysera dessa aktier: ${names.join(', ')}. Visa styrkor, risker och vilken som ser mest attraktiv ut.`;
+  setTimeout(()=>sendAIWithText(prompt), 100);
+}
+
+// ══════════ STOCK DETAIL ══════════
+async function loadStock(ticker, name) {
+  currentTicker = ticker;
+  currentStockName = name;
+  document.getElementById('nav-detail').style.display = 'flex';
+  document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
+  showSection('detail');
+  document.getElementById('detail-loading').style.display = 'block';
+  document.getElementById('detail-content').style.display = 'none';
+  document.getElementById('detail-error').style.display = 'none';
+  setAIContext(`Aktuell aktie: ${name} (${ticker})`);
+  try {
+    await Promise.all([loadStockQuote(ticker, name), loadPriceChart(ticker, currentPeriod)]);
+    document.getElementById('detail-loading').style.display = 'none';
+    document.getElementById('detail-content').style.display = 'block';
+  } catch(e) {
+    document.getElementById('detail-loading').style.display = 'none';
+    document.getElementById('detail-error').style.display = 'block';
+    document.getElementById('detail-error').textContent = `Kunde inte hämta data för ${ticker}. Yahoo Finance-proxyn kan ha temporära problem. Försök igen eller klicka på en annan aktie.`;
+    loadStockFallback(ticker, name);
+  }
+}
+
+async function fetchYahoo(url) {
+  const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+  const r = await fetch(proxy);
+  const j = await r.json();
+  return JSON.parse(j.contents);
+}
+
+async function loadStockQuote(ticker, name) {
+  const local = stocks.find(s=>s.ticker===ticker);
+  try {
+    const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5d`);
+    const q = data.chart.result[0];
+    const meta = q.meta;
+    const price = meta.regularMarketPrice;
+    const prev = meta.previousClose || meta.chartPreviousClose;
+    const change = price - prev;
+    const changePct = (change/prev)*100;
+    const currency = meta.currency;
+    document.getElementById('d-name').textContent = name;
+    document.getElementById('d-fullname').textContent = meta.longName || meta.shortName || '';
+    document.getElementById('d-exchange').textContent = meta.exchangeName || ticker;
+    document.getElementById('d-sector-tag').textContent = local?.sektor || 'Aktie';
+    document.getElementById('d-price').textContent = price.toLocaleString('sv-SE', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ' + currency;
+    const chEl = document.getElementById('d-change');
+    chEl.textContent = `${change>=0?'+':''}${change.toFixed(2)} (${changePct>=0?'+':''}${changePct.toFixed(2)}%) idag`;
+    chEl.className = 'detail-change ' + (change>=0?'green':'red');
+    const yr52hi = meta['52WeekHigh'] || meta.fiftyTwoWeekHigh;
+    const yr52lo = meta['52WeekLow'] || meta.fiftyTwoWeekLow;
+    document.getElementById('d-meta').innerHTML = [
+      `<span class="meta-pill">Volym: ${(meta.regularMarketVolume||0).toLocaleString('sv-SE')}</span>`,
+      yr52hi?`<span class="meta-pill">52v Hög: ${yr52hi.toFixed(2)}</span>`:'',
+      yr52lo?`<span class="meta-pill">52v Låg: ${yr52lo.toFixed(2)}</span>`:'',
+    ].join('');
+    const kpis = [
+      {l:'Senaste kurs',v: price.toFixed(2)+' '+currency},
+      {l:'Dagens förändring',v: (change>=0?'+':'')+change.toFixed(2), cls: change>=0?'green':'red'},
+      {l:'ÅTD (portfölj)', v: local?(local.ytd>=0?'+':'')+local.ytd.toFixed(1)+'%':'–', cls: local&&local.ytd>=0?'green':'red'},
+      {l:'P/E-tal', v: local?.pe?local.pe.toFixed(1):'–'},
+      {l:'Direktavkastning', v: local?.div?local.div.toFixed(1)+'%':'–'},
+      {l:'Marknadsv.', v: local?((local.mcap>=1000?(local.mcap/1000).toFixed(1)+'T':'$'+local.mcap+'B')+' USD'):'–'},
+      {l:'Sektor', v: local?.sektor||'–'},
+      {l:'Marknad', v: meta.exchangeName||ticker},
+    ];
+    document.getElementById('d-kpis').innerHTML = kpis.map(k=>`<div class="kpi-mini"><div class="kpi-mini-label">${k.l}</div><div class="kpi-mini-val ${k.cls||''}">${k.v}</div></div>`).join('');
+    document.getElementById('d-facts').innerHTML = [
+      `Ticker: <span style="color:var(--text);font-family:var(--mono)">${ticker}</span>`,
+      `Valuta: <span style="color:var(--text)">${currency}</span>`,
+      `Marknad: <span style="color:var(--text)">${meta.exchangeName||'–'}</span>`,
+      local?`ÅTD 2026: <span style="color:${local.ytd>=0?'var(--green)':'var(--red)'}">${local.ytd>=0?'+':''}${local.ytd.toFixed(1)}%</span>`:'',
+      local?.div?`Direktavkastning: <span style="color:var(--text)">${local.div.toFixed(1)}%</span>`:'',
+    ].filter(Boolean).map(l=>`<div>${l}</div>`).join('');
+    document.getElementById('d-description').textContent = `${name} är ett bolag noterat på ${meta.exchangeName||ticker}. Klicka "Analysera med AI" för en fullständig bolagsanalys.`;
+  } catch(e) {
+    loadStockFallback(ticker, name);
+  }
+}
+
+function loadStockFallback(ticker, name) {
+  const local = stocks.find(s=>s.ticker===ticker);
+  if(!local) return;
+  document.getElementById('d-name').textContent = name;
+  document.getElementById('d-fullname').textContent = ticker;
+  document.getElementById('d-exchange').textContent = ticker;
+  document.getElementById('d-sector-tag').textContent = local.sektor;
+  document.getElementById('d-price').textContent = local.kurs;
+  document.getElementById('d-change').textContent = `${local.ytd>=0?'+':''}${local.ytd.toFixed(1)}% ÅTD`;
+  document.getElementById('d-change').className = 'detail-change ' + (local.ytd>=0?'green':'red');
+  document.getElementById('d-meta').innerHTML = `<span class="meta-pill">Data från lokal databas</span>`;
+  const kpis = [
+    {l:'Kurs',v:local.kurs},{l:'ÅTD 2026',v:(local.ytd>=0?'+':'')+local.ytd.toFixed(1)+'%',cls:local.ytd>=0?'green':'red'},
+    {l:'P/E',v:local.pe?local.pe.toFixed(1):'–'},{l:'Direktavkastning',v:local.div?local.div.toFixed(1)+'%':'–'},
+    {l:'Mkt cap',v:local.mcap>=1000?(local.mcap/1000).toFixed(1)+'T USD':'$'+local.mcap+'B'},{l:'Sektor',v:local.sektor},
+    {l:'Region',v:local.r.toUpperCase()},{l:'Marknad',v:ticker.split('.')[1]||'NASDAQ'},
+  ];
+  document.getElementById('d-kpis').innerHTML = kpis.map(k=>`<div class="kpi-mini"><div class="kpi-mini-label">${k.l}</div><div class="kpi-mini-val ${k.cls||''}">${k.v}</div></div>`).join('');
+  document.getElementById('d-facts').innerHTML = `<div>Ticker: <span style="color:var(--text);font-family:var(--mono)">${ticker}</span></div><div>Sektor: <span style="color:var(--text)">${local.sektor}</span></div>`;
+  document.getElementById('d-description').textContent = `Klicka "Analysera med AI" för en fullständig bolagsanalys av ${name}.`;
+  document.getElementById('detail-loading').style.display = 'none';
+  document.getElementById('detail-content').style.display = 'block';
+}
+
+async function loadPriceChart(ticker, period) {
+  const rangeMap = {'1mo':'1mo','3mo':'3mo','6mo':'6mo','1y':'1y','2y':'2y','5y':'5y'};
+  const intervalMap = {'1mo':'1d','3mo':'1d','6mo':'1wk','1y':'1wk','2y':'1wk','5y':'1mo'};
+  try {
+    const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=${intervalMap[period]}&range=${rangeMap[period]}`);
+    const result = data.chart.result[0];
+    const timestamps = result.timestamp;
+    const closes = result.indicators.quote[0].close;
+    const labels = timestamps.map(t=>new Date(t*1000).toLocaleDateString('sv-SE',{month:'short',day:'numeric'}));
+    const validCloses = closes.map(v=>v!==null?+v.toFixed(2):null);
+    if(currentPriceChart) currentPriceChart.destroy();
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    const first = validCloses.find(v=>v!==null);
+    const last = validCloses.filter(v=>v!==null).slice(-1)[0];
+    const isUp = last >= first;
+    const color = isUp ? '#22c55e' : '#ef4444';
+    currentPriceChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets: [{ data: validCloses, borderColor: color, borderWidth: 2, backgroundColor: color+'18', fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+        scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, maxTicksLimit: 8 } },
+          y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 } } } } }
+    });
+  } catch(e) {}
+}
+
+async function setPeriod(el, period) {
+  document.querySelectorAll('#section-detail .filter-chip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');
+  currentPeriod = period;
+  if(currentTicker) await loadPriceChart(currentTicker, period);
+}
+
+function aiAnalyzeStock() {
+  openAI();
+  const local = stocks.find(s=>s.ticker===currentTicker);
+  const ctx = local ? `Nyckeltal: P/E ${local.pe||'–'}, direktavkastning ${local.div||0}%, ÅTD ${local.ytd}%, mkt cap ${local.mcap}B USD, sektor: ${local.sektor}.` : '';
+  setTimeout(()=>sendAIWithText(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation.`), 100);
+}
+
+// ══════════ MACRO CHART ══════════
+function renderMacro() {
+  const ctx = document.getElementById('macroChart');
+  if(!ctx) return;
+  new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: ['S&P 500','Nasdaq','Dow Jones','MSCI EM','MSCI EAFE','OMXS30','DAX','FTSE 100'],
+      datasets: [{ data: [8.4,10.9,6.6,22.0,7.9,-1.0,11.2,4.7],
+        backgroundColor: [8.4,10.9,6.6,22.0,7.9,-1.0,11.2,4.7].map(v=>v>=0?'rgba(34,197,94,0.25)':'rgba(239,68,68,0.25)'),
+        borderColor: [8.4,10.9,6.6,22.0,7.9,-1.0,11.2,4.7].map(v=>v>=0?'#22c55e':'#ef4444'),
+        borderWidth: 1.5, borderRadius: 4 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 11 } } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 11 }, callback: v=>v+'%' } } } }
+  });
+}
+
+// ══════════ SEARCH ══════════
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  if(q.length < 1) { searchResults.style.display = 'none'; return; }
+  const matches = stocks.filter(s=>s.name.toLowerCase().includes(q)||s.ticker.toLowerCase().includes(q)).slice(0,8);
+  if(!matches.length) { searchResults.style.display = 'none'; return; }
+  searchResults.innerHTML = matches.map(s=>`
+    <div class="sr-item" onclick="selectSearch('${s.ticker}','${s.name}')">
+      <div><div class="sr-name">${s.flag} ${s.name}</div><div class="sr-meta">${s.ticker} · ${s.sektor}</div></div>
+      <div style="text-align:right"><div style="font-size:12px;font-family:var(--mono)">${s.kurs}</div><div class="sr-meta ${s.ytd>=0?'green':'red'}">${s.ytd>=0?'+':''}${s.ytd.toFixed(1)}%</div></div>
+    </div>`).join('');
+  searchResults.style.display = 'block';
+});
+
+function selectSearch(ticker, name) {
+  searchInput.value = '';
+  searchResults.style.display = 'none';
+  loadStock(ticker, name);
+}
+
+document.addEventListener('click', e => { if(!e.target.closest('#search-wrap')) searchResults.style.display = 'none'; });
+
+// ══════════ AI PANEL ══════════
+function toggleAI() { aiOpen = !aiOpen; document.getElementById('ai-panel').classList.toggle('open', aiOpen); }
+function openAI() { aiOpen = true; document.getElementById('ai-panel').classList.add('open'); }
+
+function setAIContext(text) {
+  aiContext = text;
+  const bar = document.getElementById('context-bar');
+  const label = document.getElementById('context-label');
+  if(text) { bar.style.display = 'block'; label.textContent = text; }
+  else { bar.style.display = 'none'; }
+}
+
+function sendSuggestion(el) { sendAIWithText(el.textContent); }
+
+function handleAIKey(e) { if(e.key==='Enter'&&!e.shiftKey) { e.preventDefault(); sendAIMessage(); } }
+
+function sendAIMessage() {
+  const input = document.getElementById('ai-input');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  sendAIWithText(text);
+}
+
+function sendAIWithText(text) {
+  openAI();
+  appendMsg('user', text);
+  aiHistory.push({role:'user', content: text});
+  const typingId = appendTyping();
+  document.getElementById('send-btn').disabled = true;
+  document.getElementById('ai-suggestions').style.display = 'none';
+  callClaudeAPI(text, typingId);
+}
+
+function appendMsg(role, text) {
+  const msgs = document.getElementById('ai-messages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = `<div class="msg-label">${role==='user'?'Du':'AI-analytiker'}</div><div class="msg-bubble">${formatAIText(text)}</div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function appendTyping() {
+  const msgs = document.getElementById('ai-messages');
+  const id = 'typing-' + Date.now();
+  msgs.innerHTML += `<div class="msg ai" id="${id}"><div class="msg-label">AI-analytiker</div><div class="msg-bubble"><div class="typing"><span></span><span></span><span></span></div></div></div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+  return id;
+}
+
+function formatAIText(text) {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/^### (.+)$/gm, '<div style="font-size:13px;font-weight:600;color:var(--accent);margin:10px 0 4px">$1</div>')
+    .replace(/^## (.+)$/gm, '<div style="font-size:14px;font-weight:600;margin:12px 0 6px">$1</div>')
+    .replace(/^- (.+)$/gm, '<div style="padding-left:12px;margin:2px 0">· $1</div>')
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+}
+
+async function callClaudeAPI(userMsg, typingId) {
+  const systemPrompt = `Du är en professionell aktieanalytiker och investeringsrådgivare som hjälper svenska investerare. Du analyserar aktier, nyckeltal, sektorer och makroekonomiska faktorer med ett pedagogiskt och nyanserat tillvägagångssätt.
+
+Svara alltid på svenska. Var konkret och faktabaserad. Använd nyckeltal som P/E, EV/EBITDA, direktavkastning, omsättningstillväxt etc. när det är relevant. Presentera alltid både styrkor och risker. Avsluta analyser med en kort sammanfattning.
+
+${aiContext ? 'Nuvarande kontext: ' + aiContext : ''}
+
+Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. Håll svaren strukturerade men lättlästa. OBS: Detta är inte personlig finansiell rådgivning.`;
+
+  const messages = [
+    ...aiHistory.slice(-8).slice(0,-1),
+    {role:'user', content: userMsg}
+  ];
+
+  try {
+    const selectedModel = document.getElementById('model-select')?.value || 'claude-sonnet-4-6';
+    const response = await fetch('/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
+      body: JSON.stringify({
+        model: selectedModel,
+        max_tokens: 1000,
+        system: systemPrompt,
+        messages: messages
+      })
+    });
+    const data = await response.json();
+    const reply = data.content?.[0]?.text || 'Kunde inte hämta svar. Kontrollera din API-nyckel.';
+    aiHistory.push({role:'assistant', content: reply});
+    const typingEl = document.getElementById(typingId);
+    if(typingEl) typingEl.remove();
+    appendMsg('ai', reply);
+  } catch(e) {
+    const typingEl = document.getElementById(typingId);
+    if(typingEl) typingEl.remove();
+    const noKey = !getApiKey();
+    appendMsg('ai', noKey
+      ? '**Ingen API-nyckel:** Klistra in din nyckel i fältet längst upp i AI-panelen för att aktivera AI-analysen.'
+      : '**Anslutningsfel:** Kontrollera att nyckeln är korrekt och försök igen.');
+  }
+  document.getElementById('send-btn').disabled = false;
+}
+
+// Hämta tillåtna modeller från servern och fyll select
+async function loadModels() {
+  try {
+    const res = await fetch('/api/models');
+    const data = await res.json();
+    const sel = document.getElementById('model-select');
+    sel.innerHTML = '';
+    (data.allowed || []).forEach(m => {
+      const opt = document.createElement('option'); opt.value = m; opt.textContent = m; sel.appendChild(opt);
+    });
+    if(data.default) sel.value = data.default;
+    document.getElementById('model-status').textContent = '';
+  } catch (e) {
+    document.getElementById('model-status').textContent = 'Kunde inte hämta modeller';
+  }
+}
+
+// Kör vid laddning
+window.addEventListener('load', () => { loadModels(); });
+
+// ══════════ API KEY MANAGEMENT ══════════
+function saveApiKey() {
+  const input = document.getElementById('api-key-input');
+  const key = input.value.trim();
+  if(!key.startsWith('sk-ant-')) {
+    document.getElementById('api-key-status').textContent = '⚠ Nyckeln verkar inte vara korrekt – den ska börja med sk-ant-';
+    document.getElementById('api-key-status').style.color = 'var(--red)';
+    return;
+  }
+  localStorage.setItem('anthropic_api_key', key);
+  input.value = '●'.repeat(20);
+  document.getElementById('api-key-status').textContent = '✓ Nyckel sparad – AI-analysen är aktiv!';
+  document.getElementById('api-key-status').style.color = 'var(--green)';
+  document.getElementById('ai-status-dot').style.background = 'var(--green)';
+  const msgs = document.getElementById('ai-messages');
+  msgs.innerHTML = '';
+  appendMsg('ai', 'Perfekt! Nyckeln är sparad och AI-analysen är nu aktiv.\n\nJag kan analysera enskilda aktier, jämföra bolag, förklara nyckeltal och ge marknadsöversikter.\n\nKlicka på en aktie och tryck **Analysera med AI**, eller skriv din fråga nedan.');
+}
+
+function getApiKey() {
+  return localStorage.getItem('anthropic_api_key') || '';
+}
+
+// ══════════ WATCHLIST ══════════
+function addToWatchlist() {
+  if(!currentTicker || !currentStockName) return;
+  const existing = document.querySelector(`[onclick*="${currentTicker}"]`);
+  if(existing) return;
+  const item = document.createElement('div');
+  item.className = 'watchlist-item';
+  item.setAttribute('onclick', `loadStock('${currentTicker}','${currentStockName}')`);
+  item.innerHTML = `<div><div class="wl-name">${currentStockName}</div><div class="wl-ticker">${currentTicker}</div></div><div class="wl-price muted">–</div>`;
+  document.getElementById('watchlist-items').appendChild(item);
+}
+
+// ══════════ INIT ══════════
+renderDashboard();
+renderScreener();
+
+// Kolla om nyckel redan finns sparad sedan tidigare
+const savedKey = getApiKey();
+if(savedKey) {
+  document.getElementById('api-key-input').value = '●'.repeat(20);
+  document.getElementById('api-key-status').textContent = '✓ Nyckel sparad – AI-analysen är aktiv!';
+  document.getElementById('api-key-status').style.color = 'var(--green)';
+  document.getElementById('ai-status-dot').style.background = 'var(--green)';
+  const msgs = document.getElementById('ai-messages');
+  msgs.innerHTML = '';
+  appendMsg('ai', 'Välkommen tillbaka! Din API-nyckel är sparad och AI-analysen är aktiv.\n\nKlicka på en aktie och tryck **Analysera med AI**, eller skriv din fråga nedan.');
+}
+</script>
+</body>
+</html>
