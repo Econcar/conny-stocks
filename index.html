@@ -386,7 +386,7 @@
         <span style="font-size:13px;color:var(--text2)"><span id="sel-count" style="color:var(--text);font-weight:600">0</span> valda</span>
         <div style="display:flex;gap:8px">
           <button class="ghost-btn" onclick="clearScreenerSel()">Rensa val</button>
-          <button class="ghost-btn" id="compare-btn" disabled onclick="showSection('compare')">Jämför valda</button>
+          <button class="ghost-btn" id="compare-btn" disabled onclick="compareSelected()">Jämför valda</button>
           <button class="action-btn" id="analyze-btn" disabled onclick="analyzeSelected()">Analysera med AI</button>
         </div>
       </div>
@@ -411,6 +411,7 @@
           </div>
           <div style="margin-left:auto;display:flex;gap:8px">
             <button class="ghost-btn" onclick="addToWatchlist()">+ Bevakningslista</button>
+            <button class="ghost-btn" onclick="addToCompare()">+ Jämförelse</button>
             <button class="action-btn" onclick="aiAnalyzeStock()">✦ Analysera med AI</button>
           </div>
         </div>
@@ -522,6 +523,8 @@ let currentStockName = null;
 let currentPriceChart = null;
 let currentPeriod = '1y';
 let screenerSel = new Set();
+let compareList = [];
+let currentStockMeta = {};
 let activeRegion = 'alla';
 let activeSector = 'alla';
 let aiOpen = false;
@@ -711,24 +714,51 @@ function analyzeSelected() {
 }
 
 // ══════════ COMPARE ══════════
+function compareSelected() {
+  [...screenerSel].forEach(i=>{
+    const s = stocks[i];
+    if(s && compareList.length < 5 && !compareList.some(c=>c.ticker===s.ticker)) compareList.push(s);
+  });
+  showSection('compare');
+}
+
+function addToCompare() {
+  if(!currentTicker) return;
+  if(compareList.some(c=>c.ticker===currentTicker)) { showSection('compare'); return; }
+  if(compareList.length >= 5) { alert('Du kan jämföra max 5 aktier åt gången. Ta bort en först.'); return; }
+  const local = stocks.find(s=>s.ticker===currentTicker);
+  compareList.push(local || {
+    name: currentStockName, ticker: currentTicker,
+    flag: currentStockMeta.flag || '', r: currentStockMeta.r || '',
+    sektor: currentStockMeta.sektor || 'Aktie', kurs: currentStockMeta.kurs || '–',
+    ytd: currentStockMeta.ytd, pe: currentStockMeta.pe, div: currentStockMeta.div, mcap: currentStockMeta.mcap
+  });
+  showSection('compare');
+}
+
+function removeFromCompare(ticker) {
+  compareList = compareList.filter(c=>c.ticker!==ticker);
+  renderCompare();
+}
+
 function renderCompare() {
   const content = document.getElementById('compare-content');
-  const sel = [...screenerSel].map(i=>stocks[i]).filter(Boolean).slice(0,5);
+  const sel = compareList.slice(0,5);
   if(sel.length === 0) {
-    content.innerHTML = `<div class="empty-state"><div class="empty-icon">⇄</div><div class="empty-text">Inga aktier valda ännu.<br>Gå till <strong>Aktiescreener</strong>, bocka i aktier och klicka <strong>"Jämför valda"</strong>.</div></div>`;
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">⇄</div><div class="empty-text">Inga aktier valda ännu.<br>Bocka i aktier i <strong>Aktiescreener</strong> och klicka <strong>"Jämför valda"</strong>, eller klicka <strong>"+ Jämförelse"</strong> på en aktiesida.</div></div>`;
     return;
   }
   const rows = [
-    ['Marknad', s=>`${s.flag} ${s.r.toUpperCase()}`],
-    ['Sektor', s=>s.sektor],
-    ['Kurs', s=>s.kurs],
-    ['ÅTD %', s=>({v:(s.ytd>=0?'+':'')+s.ytd.toFixed(1)+'%', cls:s.ytd>=0?'green':'red'})],
-    ['P/E-tal', s=>s.pe?s.pe.toFixed(1):'–'],
-    ['Direktavkastning', s=>s.div>0?s.div.toFixed(1)+'%':'–'],
-    ['Marknadsvärde', s=>s.mcap>=1000?(s.mcap/1000).toFixed(1)+'T USD':'$'+s.mcap+'B'],
+    ['Marknad', s=> s.r ? `${s.flag||''} ${s.r.toUpperCase()}` : '–'],
+    ['Sektor', s=> s.sektor || '–'],
+    ['Kurs', s=> s.kurs || '–'],
+    ['ÅTD %', s=> (s.ytd===null||s.ytd===undefined) ? '–' : {v:(s.ytd>=0?'+':'')+s.ytd.toFixed(1)+'%', cls:s.ytd>=0?'green':'red'}],
+    ['P/E-tal', s=> s.pe ? s.pe.toFixed(1) : '–'],
+    ['Direktavkastning', s=> s.div>0 ? s.div.toFixed(1)+'%' : '–'],
+    ['Marknadsvärde', s=> s.mcap ? (s.mcap>=1000?(s.mcap/1000).toFixed(1)+'T USD':'$'+s.mcap+'B') : '–'],
   ];
   let html = '<div class="card" style="padding:0"><div class="table-wrap"><table>';
-  html += '<thead><tr><th></th>' + sel.map(s=>`<th style="color:var(--text)">${s.flag} ${s.name}<div class="td-ticker">${s.ticker}</div></th>`).join('') + '</tr></thead><tbody>';
+  html += '<thead><tr><th></th>' + sel.map(s=>`<th style="color:var(--text)">${s.flag||''} ${s.name}<div class="td-ticker">${s.ticker}</div><div onclick="removeFromCompare('${escQuote(s.ticker)}')" style="font-size:10px;color:var(--text3);cursor:pointer;margin-top:2px">✕ ta bort</div></th>`).join('') + '</tr></thead><tbody>';
   rows.forEach(([label, fn])=>{
     html += `<tr><td style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.04em">${label}</td>`;
     sel.forEach(s=>{
@@ -739,14 +769,28 @@ function renderCompare() {
     html += '</tr>';
   });
   html += '</tbody></table></div></div>';
-  html += `<div style="margin-top:14px;display:flex;gap:8px"><button class="ghost-btn" onclick="showSection('screener')">← Ändra urval</button><button class="action-btn" onclick="analyzeSelected()">✦ Analysera jämförelsen med AI</button></div>`;
+  html += `<div style="margin-top:14px;display:flex;gap:8px"><button class="ghost-btn" onclick="showSection('screener')">← Till screener</button><button class="action-btn" onclick="analyzeCompareList()">✦ Analysera jämförelsen med AI</button></div>`;
+  if(sel.some(s=>s.pe===null||s.pe===undefined)) {
+    html += `<div class="info-msg" style="margin-top:12px">Vissa nyckeltal saknas för aktier som hämtats via Yahoo-sökningen. AI-analysen fyller i bilden.</div>`;
+  }
   content.innerHTML = html;
+}
+
+function analyzeCompareList() {
+  if(compareList.length === 0) return;
+  const names = compareList.map(c=>c.name);
+  openAI();
+  const prompt = names.length === 1
+    ? `Analysera ${names[0]} – ge mig nyckeltal, styrkor, risker och en sammanfattande bedömning.`
+    : `Jämför och analysera dessa aktier: ${names.join(', ')}. Visa styrkor, risker och vilken som ser mest attraktiv ut.`;
+  setTimeout(()=>sendAIWithText(prompt), 100);
 }
 
 // ══════════ STOCK DETAIL ══════════
 async function loadStock(ticker, name) {
   currentTicker = ticker;
   currentStockName = name;
+  currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Aktie', flag:'', r:'' };
   document.getElementById('nav-detail').style.display = 'flex';
   document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
   showSection('detail');
@@ -783,6 +827,16 @@ async function loadStockQuote(ticker, name) {
     const change = price - prev;
     const changePct = (change/prev)*100;
     const currency = meta.currency;
+    currentStockMeta = {
+      kurs: price.toFixed(2) + ' ' + currency,
+      ytd: local ? local.ytd : null,
+      pe: local ? (local.pe || null) : null,
+      div: local ? (local.div || null) : null,
+      mcap: local ? (local.mcap || null) : null,
+      sektor: local ? local.sektor : 'Aktie',
+      flag: local ? local.flag : '',
+      r: local ? local.r : ''
+    };
     document.getElementById('d-name').textContent = name;
     document.getElementById('d-fullname').textContent = meta.longName || meta.shortName || '';
     document.getElementById('d-exchange').textContent = meta.exchangeName || ticker;
