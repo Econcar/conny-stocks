@@ -913,7 +913,7 @@ searchInput.addEventListener('input', () => {
       if(seq !== searchSeq) return; // en nyare sökning har redan startat
       const localTickers = new Set(local.map(s=>s.ticker.toUpperCase()));
       const remote = (data.quotes||[])
-        .filter(r=>r.symbol && (r.quoteType==='EQUITY' || r.quoteType==='ETF'))
+        .filter(r=>r.symbol && (r.quoteType==='EQUITY' || r.quoteType==='ETF' || r.quoteType==='MUTUALFUND'))
         .filter(r=>!localTickers.has(r.symbol.toUpperCase()))
         .map(r=>({ symbol: r.symbol, name: r.shortname || r.longname || r.symbol, exchange: r.exchDisp }))
         .slice(0,8);
