@@ -386,6 +386,7 @@
         <span style="font-size:13px;color:var(--text2)"><span id="sel-count" style="color:var(--text);font-weight:600">0</span> valda</span>
         <div style="display:flex;gap:8px">
           <button class="ghost-btn" onclick="clearScreenerSel()">Rensa val</button>
+          <button class="ghost-btn" id="compare-btn" disabled onclick="showSection('compare')">Jämför valda</button>
           <button class="action-btn" id="analyze-btn" disabled onclick="analyzeSelected()">Analysera med AI</button>
         </div>
       </div>
@@ -442,8 +443,7 @@
 
     <!-- ── COMPARE ── -->
     <div class="section" id="section-compare">
-      <div class="page-title">Jämförelse <span>· Analysera upp till 5 aktier sida vid sida</span></div>
-      <div class="info-msg">Välj aktier i screener­n och klicka "Analysera med AI" – eller skriv i AI-chatten: "Jämför NVIDIA, ASML och TSMC"</div>
+      <div class="page-title">Jämförelse <span>· Valda aktier sida vid sida</span></div>
       <div id="compare-content">
         <div class="empty-state"><div class="empty-icon">⇄</div><div class="empty-text">Inga aktier valda för jämförelse ännu</div></div>
       </div>
@@ -597,6 +597,7 @@ function showSection(s) {
   if(s === 'dashboard') renderDashboard();
   if(s === 'screener') renderScreener();
   if(s === 'macro') renderMacro();
+  if(s === 'compare') renderCompare();
 }
 
 // ══════════ DASHBOARD ══════════
@@ -696,6 +697,7 @@ function updateSelBar() {
   const n = screenerSel.size;
   document.getElementById('sel-count').textContent = n;
   document.getElementById('analyze-btn').disabled = n === 0;
+  document.getElementById('compare-btn').disabled = n === 0;
 }
 
 function analyzeSelected() {
@@ -706,6 +708,39 @@ function analyzeSelected() {
     ? `Analysera ${names[0]} (${tickers[0]}) – ge mig nyckeltal, styrkor, risker och en sammanfattande bedömning.`
     : `Jämför och analysera dessa aktier: ${names.join(', ')}. Visa styrkor, risker och vilken som ser mest attraktiv ut.`;
   setTimeout(()=>sendAIWithText(prompt), 100);
+}
+
+// ══════════ COMPARE ══════════
+function renderCompare() {
+  const content = document.getElementById('compare-content');
+  const sel = [...screenerSel].map(i=>stocks[i]).filter(Boolean).slice(0,5);
+  if(sel.length === 0) {
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">⇄</div><div class="empty-text">Inga aktier valda ännu.<br>Gå till <strong>Aktiescreener</strong>, bocka i aktier och klicka <strong>"Jämför valda"</strong>.</div></div>`;
+    return;
+  }
+  const rows = [
+    ['Marknad', s=>`${s.flag} ${s.r.toUpperCase()}`],
+    ['Sektor', s=>s.sektor],
+    ['Kurs', s=>s.kurs],
+    ['ÅTD %', s=>({v:(s.ytd>=0?'+':'')+s.ytd.toFixed(1)+'%', cls:s.ytd>=0?'green':'red'})],
+    ['P/E-tal', s=>s.pe?s.pe.toFixed(1):'–'],
+    ['Direktavkastning', s=>s.div>0?s.div.toFixed(1)+'%':'–'],
+    ['Marknadsvärde', s=>s.mcap>=1000?(s.mcap/1000).toFixed(1)+'T USD':'$'+s.mcap+'B'],
+  ];
+  let html = '<div class="card" style="padding:0"><div class="table-wrap"><table>';
+  html += '<thead><tr><th></th>' + sel.map(s=>`<th style="color:var(--text)">${s.flag} ${s.name}<div class="td-ticker">${s.ticker}</div></th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach(([label, fn])=>{
+    html += `<tr><td style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.04em">${label}</td>`;
+    sel.forEach(s=>{
+      const r = fn(s);
+      if(typeof r === 'object') html += `<td class="td-mono ${r.cls||''}">${r.v}</td>`;
+      else html += `<td class="td-mono">${r}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div></div>';
+  html += `<div style="margin-top:14px;display:flex;gap:8px"><button class="ghost-btn" onclick="showSection('screener')">← Ändra urval</button><button class="action-btn" onclick="analyzeSelected()">✦ Analysera jämförelsen med AI</button></div>`;
+  content.innerHTML = html;
 }
 
 // ══════════ STOCK DETAIL ══════════
