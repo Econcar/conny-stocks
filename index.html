@@ -527,6 +527,7 @@ let compareList = [];
 let currentStockMeta = {};
 let currentIsFund = false;
 let currentFundId = null;
+let detailRefreshTimer = null;
 let activeRegion = 'alla';
 let activeSector = 'alla';
 let aiOpen = false;
@@ -591,8 +592,88 @@ const sectorColors = {
   'Försvar': ['rgba(52,211,153,0.2)','#34d399'],
 };
 
+// ══════════ LIVE-PRISER I LISTOR ══════════
+function fmtPrice(p, cur) {
+  const n = p >= 100 ? Math.round(p).toLocaleString('sv-SE') : p.toFixed(2);
+  switch(cur) {
+    case 'USD': return '$' + n;
+    case 'EUR': return '€' + n;
+    case 'GBP': return '£' + n;
+    case 'GBp': return n + ' p';
+    case 'SEK': return n + ' kr';
+    case 'NOK': return n + ' NOK';
+    case 'DKK': return n + ' DKK';
+    case 'JPY': return '¥' + n;
+    case 'KRW': return '₩' + n;
+    default: return n + (cur ? (' ' + cur) : '');
+  }
+}
+
+async function refreshLivePrices() {
+  try {
+    const symbols = stocks.map(s=>s.ticker).join(',');
+    const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${encodeURIComponent(symbols)}&range=ytd&interval=1d`;
+    const data = await fetchYahoo(url);
+    const results = (data.spark && data.spark.result) || [];
+    let changed = false;
+    results.forEach(r => {
+      const resp = r.response && r.response[0];
+      if(!resp) return;
+      const meta = resp.meta || {};
+      const closes = ((resp.indicators && resp.indicators.quote[0] && resp.indicators.quote[0].close) || []).filter(v=>v!=null);
+      const price = meta.regularMarketPrice != null ? meta.regularMarketPrice : (closes.length ? closes[closes.length-1] : null);
+      if(price == null) return;
+      const stock = stocks.find(s=>s.ticker === r.symbol);
+      if(!stock) return;
+      stock.kurs = fmtPrice(price, meta.currency);
+      if(closes.length > 1) {
+        const ytd = ((price - closes[0]) / closes[0]) * 100;
+        if(isFinite(ytd)) stock.ytd = +ytd.toFixed(1);
+      }
+      changed = true;
+    });
+    if(changed) {
+      if(currentSection === 'dashboard') renderDashboard();
+      if(currentSection === 'screener') renderScreener();
+      updateWatchlistPrices();
+    }
+  } catch(e) { /* behåll hårdkodade värden om Yahoo strular */ }
+}
+
+function updateWatchlistPrices() {
+  document.querySelectorAll('#watchlist-items .watchlist-item').forEach(item => {
+    const oc = item.getAttribute('onclick') || '';
+    const m = oc.match(/loadStock\('([^']+)'/);
+    if(!m) return;
+    const stock = stocks.find(s=>s.ticker === m[1]);
+    if(!stock) return;
+    const priceEl = item.querySelector('.wl-price');
+    if(priceEl) {
+      priceEl.textContent = stock.kurs;
+      priceEl.className = 'wl-price ' + (stock.ytd >= 0 ? 'green' : 'red');
+    }
+  });
+}
+
+// ══════════ AUTO-UPPDATERING PÅ DETALJSIDAN ══════════
+function stopDetailAutoRefresh() {
+  if(detailRefreshTimer) { clearInterval(detailRefreshTimer); detailRefreshTimer = null; }
+}
+
+function startStockAutoRefresh() {
+  stopDetailAutoRefresh();
+  detailRefreshTimer = setInterval(() => {
+    if(currentSection === 'detail' && !currentIsFund && currentTicker) {
+      loadStockQuote(currentTicker, currentStockName); // tyst uppdatering, ingen spinner
+    } else {
+      stopDetailAutoRefresh();
+    }
+  }, 30000);
+}
+
 // ══════════ NAVIGATION ══════════
 function showSection(s) {
+  if(s !== 'detail') stopDetailAutoRefresh();
   document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.getElementById('section-' + s).classList.add('active');
@@ -726,6 +807,7 @@ async function loadFund(orderBookId, name) {
   currentStockName = name;
   currentIsFund = true;
   currentFundId = orderBookId;
+  stopDetailAutoRefresh(); // fonder prissätts en gång per dag – ingen auto-uppdatering
   currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Fond', flag:'🇸🇪', r:'' };
   currentPeriod = '3mo';
   document.getElementById('nav-detail').style.display = 'flex';
@@ -905,6 +987,7 @@ async function loadStock(ticker, name) {
     await Promise.all([loadStockQuote(ticker, name), loadPriceChart(ticker, currentPeriod)]);
     document.getElementById('detail-loading').style.display = 'none';
     document.getElementById('detail-content').style.display = 'block';
+    startStockAutoRefresh();
   } catch(e) {
     document.getElementById('detail-loading').style.display = 'none';
     document.getElementById('detail-error').style.display = 'block';
@@ -951,6 +1034,7 @@ async function loadStockQuote(ticker, name) {
     const yr52hi = meta['52WeekHigh'] || meta.fiftyTwoWeekHigh;
     const yr52lo = meta['52WeekLow'] || meta.fiftyTwoWeekLow;
     document.getElementById('d-meta').innerHTML = [
+      `<span class="meta-pill" style="color:var(--green)">⟳ Live · var 30:e sek</span>`,
       `<span class="meta-pill">Volym: ${(meta.regularMarketVolume||0).toLocaleString('sv-SE')}</span>`,
       yr52hi?`<span class="meta-pill">52v Hög: ${yr52hi.toFixed(2)}</span>`:'',
       yr52lo?`<span class="meta-pill">52v Låg: ${yr52lo.toFixed(2)}</span>`:'',
@@ -1350,6 +1434,10 @@ function addToWatchlist() {
 // ══════════ INIT ══════════
 renderDashboard();
 renderScreener();
+
+// Hämta live-priser direkt och uppdatera listorna var 60:e sekund
+refreshLivePrices();
+setInterval(refreshLivePrices, 60000);
 
 // Kolla om nyckel redan finns sparad sedan tidigare
 const savedKey = getApiKey();
