@@ -1048,7 +1048,7 @@ function getApiKey() {
 // ══════════ WATCHLIST ══════════
 function addToWatchlist() {
   if(!currentTicker || !currentStockName) return;
-  const existing = document.querySelector(`[onclick*="${currentTicker}"]`);
+  const existing = document.querySelector(`#watchlist-items [onclick*="${currentTicker}"]`);
   if(existing) return;
   const item = document.createElement('div');
   item.className = 'watchlist-item';
