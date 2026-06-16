@@ -1232,9 +1232,22 @@ function formatAIText(text) {
 }
 
 async function callClaudeAPI(userMsg, typingId) {
+  const today = new Date().toLocaleDateString('sv-SE', { year:'numeric', month:'long', day:'numeric' });
+
+  // Bifoga appens aktiedata så AI:n kan svara utifrån verklig data, inte minnet
+  const stockData = stocks
+    .map(s=>`${s.name} (${s.ticker}): ÅTD ${s.ytd>=0?'+':''}${s.ytd}%, P/E ${s.pe||'–'}, utd ${s.div||0}%, mkt cap ${s.mcap}B USD, sektor ${s.sektor}, region ${s.r.toUpperCase()}`)
+    .join('\n');
+
   const systemPrompt = `Du är en professionell aktieanalytiker och investeringsrådgivare som hjälper svenska investerare. Du analyserar aktier, nyckeltal, sektorer och makroekonomiska faktorer med ett pedagogiskt och nyanserat tillvägagångssätt.
 
+Dagens datum är ${today}. Använd detta som "idag" och innevarande år – gissa inte ett annat år.
+
 Svara alltid på svenska. Var konkret och faktabaserad. Använd nyckeltal som P/E, EV/EBITDA, direktavkastning, omsättningstillväxt etc. när det är relevant. Presentera alltid både styrkor och risker. Avsluta analyser med en kort sammanfattning.
+
+Du har tillgång till följande aktiedata från plattformen (ÅTD = utveckling hittills i år). När användaren frågar om utveckling, vilka som stigit/sjunkit mest, nyckeltal eller jämförelser – använd DENNA data i första hand istället för din träningskunskap. Om en fråga gäller en aktie eller fond som inte finns i listan, säg det och svara så gott du kan på allmän nivå:
+
+${stockData}
 
 ${aiContext ? 'Nuvarande kontext: ' + aiContext : ''}
 
