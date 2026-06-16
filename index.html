@@ -525,6 +525,8 @@ let currentPeriod = '1y';
 let screenerSel = new Set();
 let compareList = [];
 let currentStockMeta = {};
+let currentIsFund = false;
+let currentFundId = null;
 let activeRegion = 'alla';
 let activeSector = 'alla';
 let aiOpen = false;
@@ -713,6 +715,104 @@ function analyzeSelected() {
   setTimeout(()=>sendAIWithText(prompt), 100);
 }
 
+// ══════════ AVANZA FUND DETAIL ══════════
+function fmtDev(v) { return (v===null||v===undefined) ? '–' : (v>=0?'+':'')+v.toFixed(1)+'%'; }
+function devCls(v) { return (v===null||v===undefined) ? '' : (v>=0?'green':'red'); }
+
+const avanzaPeriodMap = { '1mo':'one_month','3mo':'three_months','6mo':'six_months','1y':'one_year','2y':'three_years','5y':'five_years' };
+
+async function loadFund(orderBookId, name) {
+  currentTicker = 'AZA:' + orderBookId;
+  currentStockName = name;
+  currentIsFund = true;
+  currentFundId = orderBookId;
+  currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Fond', flag:'🇸🇪', r:'' };
+  currentPeriod = '3mo';
+  document.getElementById('nav-detail').style.display = 'flex';
+  document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
+  showSection('detail');
+  document.getElementById('detail-loading').style.display = 'block';
+  document.getElementById('detail-content').style.display = 'none';
+  document.getElementById('detail-error').style.display = 'none';
+  setAIContext(`Aktuell fond: ${name}`);
+  try {
+    const f = await avanzaGet('/_api/fund-guide/guide/' + orderBookId);
+    const cur = f.currency || 'SEK';
+    const d1 = f.developmentOneDay;
+    document.getElementById('d-name').textContent = name;
+    document.getElementById('d-fullname').textContent = f.isin || '';
+    document.getElementById('d-exchange').textContent = 'Avanza fond';
+    document.getElementById('d-sector-tag').textContent = 'Fond';
+    document.getElementById('d-price').textContent = (f.nav!=null ? f.nav.toLocaleString('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2}) : '–') + ' ' + cur;
+    const chEl = document.getElementById('d-change');
+    chEl.textContent = `${d1>=0?'+':''}${d1!=null?d1.toFixed(2):'0'}% idag`;
+    chEl.className = 'detail-change ' + (d1>=0?'green':'red');
+    document.getElementById('d-meta').innerHTML = [
+      f.rating ? `<span class="meta-pill">Morningstar: ${f.rating}/5</span>` : '',
+      f.risk!=null ? `<span class="meta-pill">Risk: ${f.riskText||f.risk}</span>` : '',
+      `<span class="meta-pill">ISIN: ${f.isin||'–'}</span>`
+    ].filter(Boolean).join('');
+    const kpis = [
+      {l:'NAV (kurs)', v:(f.nav!=null?f.nav.toFixed(2):'–')+' '+cur},
+      {l:'Idag', v:`${d1>=0?'+':''}${d1!=null?d1.toFixed(2):'0'}%`, cls:d1>=0?'green':'red'},
+      {l:'I år', v:fmtDev(f.developmentThisYear), cls:devCls(f.developmentThisYear)},
+      {l:'1 år', v:fmtDev(f.developmentOneYear), cls:devCls(f.developmentOneYear)},
+      {l:'3 år', v:fmtDev(f.developmentThreeYears), cls:devCls(f.developmentThreeYears)},
+      {l:'5 år', v:fmtDev(f.developmentFiveYears), cls:devCls(f.developmentFiveYears)},
+      {l:'Avgift', v:(f.managementFee!=null?f.managementFee+'%':'–')},
+      {l:'Risknivå', v:(f.risk!=null?f.risk+'/7':'–')},
+    ];
+    document.getElementById('d-kpis').innerHTML = kpis.map(k=>`<div class="kpi-mini"><div class="kpi-mini-label">${k.l}</div><div class="kpi-mini-val ${k.cls||''}">${k.v}</div></div>`).join('');
+    document.getElementById('d-facts').innerHTML = [
+      `ISIN: <span style="color:var(--text);font-family:var(--mono)">${f.isin||'–'}</span>`,
+      `Valuta: <span style="color:var(--text)">${cur}</span>`,
+      `Förvaltningsavgift: <span style="color:var(--text)">${f.managementFee!=null?f.managementFee+'%':'–'}</span>`,
+      `Risknivå: <span style="color:var(--text)">${f.risk!=null?f.risk+'/7 '+(f.riskText||''):'–'}</span>`,
+      f.rating ? `Morningstar: <span style="color:var(--text)">${f.rating}/5</span>` : ''
+    ].filter(Boolean).map(l=>`<div>${l}</div>`).join('');
+    document.getElementById('d-description').textContent = f.description || '';
+    currentStockMeta = {
+      kurs: (f.nav!=null?f.nav.toFixed(2):'–')+' '+cur,
+      ytd: (f.developmentThisYear!=null?f.developmentThisYear:null),
+      pe: null, div: null, mcap: null, sektor: 'Fond', flag: '🇸🇪', r: '',
+      fee: f.managementFee, risk: f.risk, dev1y: f.developmentOneYear
+    };
+    // återställ graf-knapparna till 3M
+    document.querySelectorAll('#section-detail .filter-chip').forEach(c=>c.classList.remove('on'));
+    const chip3m = document.querySelector("#section-detail .filter-chip[onclick*=\"'3mo'\"]");
+    if(chip3m) chip3m.classList.add('on');
+    await loadFundChart(orderBookId, 'three_months');
+    document.getElementById('detail-loading').style.display = 'none';
+    document.getElementById('detail-content').style.display = 'block';
+  } catch(e) {
+    document.getElementById('detail-loading').style.display = 'none';
+    document.getElementById('detail-error').style.display = 'block';
+    document.getElementById('detail-error').textContent = `Kunde inte hämta fonddata för ${name}. Avanzas API kan ha tillfälliga problem – försök igen.`;
+  }
+}
+
+async function loadFundChart(orderBookId, period) {
+  try {
+    const data = await avanzaGet('/_api/fund-guide/chart/' + orderBookId + '/' + period);
+    const serie = data.dataSerie || [];
+    const labels = serie.map(p=>new Date(p.x).toLocaleDateString('sv-SE',{month:'short',day:'numeric'}));
+    const values = serie.map(p=>+p.y.toFixed(2));
+    if(currentPriceChart) currentPriceChart.destroy();
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    const first = values[0], last = values[values.length-1];
+    const isUp = last >= first;
+    const color = isUp ? '#22c55e' : '#ef4444';
+    currentPriceChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets: [{ data: values, borderColor: color, borderWidth: 2, backgroundColor: color+'18', fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false, callbacks: { label: c=>c.parsed.y+'%' } } },
+        scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, maxTicksLimit: 8 } },
+          y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, callback: v=>v+'%' } } } }
+    });
+    document.getElementById('d-chart-title').textContent = 'Utveckling (%)';
+  } catch(e) {}
+}
+
 // ══════════ COMPARE ══════════
 function compareSelected() {
   [...screenerSel].forEach(i=>{
@@ -790,7 +890,10 @@ function analyzeCompareList() {
 async function loadStock(ticker, name) {
   currentTicker = ticker;
   currentStockName = name;
+  currentIsFund = false;
+  currentFundId = null;
   currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Aktie', flag:'', r:'' };
+  document.getElementById('d-chart-title').textContent = 'Kursutveckling';
   document.getElementById('nav-detail').style.display = 'flex';
   document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
   showSection('detail');
@@ -930,11 +1033,21 @@ async function setPeriod(el, period) {
   document.querySelectorAll('#section-detail .filter-chip').forEach(c=>c.classList.remove('on'));
   el.classList.add('on');
   currentPeriod = period;
-  if(currentTicker) await loadPriceChart(currentTicker, period);
+  if(currentIsFund && currentFundId) {
+    await loadFundChart(currentFundId, avanzaPeriodMap[period] || 'three_months');
+  } else if(currentTicker) {
+    await loadPriceChart(currentTicker, period);
+  }
 }
 
 function aiAnalyzeStock() {
   openAI();
+  if(currentIsFund) {
+    const m = currentStockMeta;
+    const ctx = `Det är en svensk fond. Avgift: ${m.fee!=null?m.fee+'%':'okänd'}, risknivå: ${m.risk!=null?m.risk+'/7':'okänd'}, utveckling i år: ${m.ytd!=null?m.ytd.toFixed(1)+'%':'okänd'}, 1 år: ${m.dev1y!=null?m.dev1y.toFixed(1)+'%':'okänd'}.`;
+    setTimeout(()=>sendAIWithText(`Analysera fonden ${currentStockName}. ${ctx} Beskriv fondens inriktning, risk, avgift, historisk utveckling och vilken typ av sparare den passar. Avsluta med en sammanfattande bedömning.`), 100);
+    return;
+  }
   const local = stocks.find(s=>s.ticker===currentTicker);
   const ctx = local ? `Nyckeltal: P/E ${local.pe||'–'}, direktavkastning ${local.div||0}%, ÅTD ${local.ytd}%, mkt cap ${local.mcap}B USD, sektor: ${local.sektor}.` : '';
   setTimeout(()=>sendAIWithText(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation.`), 100);
@@ -968,19 +1081,38 @@ let searchSeq = 0;
 
 function escQuote(s) { return String(s).replace(/'/g, "\\'"); }
 
-function renderSearchResults(local, remote) {
+async function avanzaGet(path) {
+  const r = await fetch(`/.netlify/functions/avanza?path=${encodeURIComponent(path)}`);
+  return await r.json();
+}
+
+async function avanzaSearchFunds(query) {
+  const r = await fetch(`/.netlify/functions/avanza?path=${encodeURIComponent('/_api/search/filtered-search')}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, searchFilter: { types: ['FUND'] }, pagination: { from: 0, size: 6 } })
+  });
+  return await r.json();
+}
+
+function renderSearchResults(local, remote, funds) {
   const localHtml = local.map(s=>`
     <div class="sr-item" onclick="selectSearch('${escQuote(s.ticker)}','${escQuote(s.name)}')">
       <div><div class="sr-name">${s.flag} ${s.name}</div><div class="sr-meta">${s.ticker} · ${s.sektor}</div></div>
       <div style="text-align:right"><div style="font-size:12px;font-family:var(--mono)">${s.kurs}</div><div class="sr-meta ${s.ytd>=0?'green':'red'}">${s.ytd>=0?'+':''}${s.ytd.toFixed(1)}%</div></div>
+    </div>`).join('');
+  const fundHtml = (funds||[]).map(f=>`
+    <div class="sr-item" onclick="selectFund('${escQuote(f.id)}','${escQuote(f.name)}')">
+      <div><div class="sr-name">${f.name}</div><div class="sr-meta">Avanza fond</div></div>
+      <div style="text-align:right"><div style="font-size:12px;font-family:var(--mono)">${f.price||''} ${f.currency||''}</div><div class="sr-meta">Fond</div></div>
     </div>`).join('');
   const remoteHtml = remote.map(r=>`
     <div class="sr-item" onclick="selectSearch('${escQuote(r.symbol)}','${escQuote(r.name)}')">
       <div><div class="sr-name">${r.name}</div><div class="sr-meta">${r.symbol} · ${r.exchange||'Yahoo'}</div></div>
       <div style="text-align:right"><div class="sr-meta">Live-data</div></div>
     </div>`).join('');
-  if(!localHtml && !remoteHtml) { searchResults.style.display = 'none'; return; }
-  searchResults.innerHTML = localHtml + remoteHtml;
+  if(!localHtml && !fundHtml && !remoteHtml) { searchResults.style.display = 'none'; return; }
+  searchResults.innerHTML = localHtml + fundHtml + remoteHtml;
   searchResults.style.display = 'block';
 }
 
@@ -990,24 +1122,35 @@ searchInput.addEventListener('input', () => {
 
   // Inbyggda träffar visas direkt
   const local = stocks.filter(s=>s.name.toLowerCase().includes(q)||s.ticker.toLowerCase().includes(q)).slice(0,6);
-  renderSearchResults(local, []);
+  renderSearchResults(local, [], []);
 
-  // Yahoo-sökning (debounce 300ms så vi inte spammar vid varje tangenttryck)
+  // Yahoo + Avanza (debounce 300ms så vi inte spammar vid varje tangenttryck)
   clearTimeout(searchTimer);
   const seq = ++searchSeq;
   searchTimer = setTimeout(async () => {
-    try {
-      const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`;
-      const data = await fetchYahoo(url);
-      if(seq !== searchSeq) return; // en nyare sökning har redan startat
-      const localTickers = new Set(local.map(s=>s.ticker.toUpperCase()));
-      const remote = (data.quotes||[])
+    const yahooUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`;
+    const [yh, av] = await Promise.allSettled([ fetchYahoo(yahooUrl), avanzaSearchFunds(q) ]);
+    if(seq !== searchSeq) return; // en nyare sökning har redan startat
+
+    const localTickers = new Set(local.map(s=>s.ticker.toUpperCase()));
+    let remote = [];
+    if(yh.status === 'fulfilled' && yh.value) {
+      remote = (yh.value.quotes||[])
         .filter(r=>r.symbol && (r.quoteType==='EQUITY' || r.quoteType==='ETF' || r.quoteType==='MUTUALFUND'))
         .filter(r=>!localTickers.has(r.symbol.toUpperCase()))
         .map(r=>({ symbol: r.symbol, name: r.shortname || r.longname || r.symbol, exchange: r.exchDisp }))
         .slice(0,8);
-      renderSearchResults(local, remote);
-    } catch(e) { /* behåll de lokala träffarna om Yahoo strular */ }
+    }
+
+    let funds = [];
+    if(av.status === 'fulfilled' && av.value && av.value.hits) {
+      funds = av.value.hits
+        .filter(h=>h.type==='FUND' && h.orderBookId)
+        .map(h=>({ id: h.orderBookId, name: h.title, price: h.price && h.price.last, currency: h.price && h.price.currency }))
+        .slice(0,6);
+    }
+
+    renderSearchResults(local, remote, funds);
   }, 300);
 });
 
@@ -1015,6 +1158,12 @@ function selectSearch(ticker, name) {
   searchInput.value = '';
   searchResults.style.display = 'none';
   loadStock(ticker, name);
+}
+
+function selectFund(orderBookId, name) {
+  searchInput.value = '';
+  searchResults.style.display = 'none';
+  loadFund(orderBookId, name);
 }
 
 document.addEventListener('click', e => { if(!e.target.closest('#search-wrap')) searchResults.style.display = 'none'; });
@@ -1171,12 +1320,17 @@ function getApiKey() {
 // ══════════ WATCHLIST ══════════
 function addToWatchlist() {
   if(!currentTicker || !currentStockName) return;
-  const existing = document.querySelector(`#watchlist-items [onclick*="${currentTicker}"]`);
+  const existing = document.querySelector(`#watchlist-items [data-id="${currentTicker}"]`);
   if(existing) return;
   const item = document.createElement('div');
   item.className = 'watchlist-item';
-  item.setAttribute('onclick', `loadStock('${currentTicker}','${currentStockName}')`);
-  item.innerHTML = `<div><div class="wl-name">${currentStockName}</div><div class="wl-ticker">${currentTicker}</div></div><div class="wl-price muted">–</div>`;
+  item.setAttribute('data-id', currentTicker);
+  const click = currentIsFund
+    ? `loadFund('${escQuote(currentFundId)}','${escQuote(currentStockName)}')`
+    : `loadStock('${escQuote(currentTicker)}','${escQuote(currentStockName)}')`;
+  item.setAttribute('onclick', click);
+  const label = currentIsFund ? 'Avanza fond' : currentTicker;
+  item.innerHTML = `<div><div class="wl-name">${currentStockName}</div><div class="wl-ticker">${label}</div></div><div class="wl-price muted">–</div>`;
   document.getElementById('watchlist-items').appendChild(item);
 }
 
