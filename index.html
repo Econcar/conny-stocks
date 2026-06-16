@@ -732,10 +732,9 @@ async function loadStock(ticker, name) {
 }
 
 async function fetchYahoo(url) {
-  const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+  const proxy = `/.netlify/functions/yahoo?url=${encodeURIComponent(url)}`;
   const r = await fetch(proxy);
-  const j = await r.json();
-  return JSON.parse(j.contents);
+  return await r.json();
 }
 
 async function loadStockQuote(ticker, name) {
