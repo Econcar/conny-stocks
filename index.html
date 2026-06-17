@@ -216,6 +216,9 @@
   .empty-icon { font-size: 36px; margin-bottom: 12px; }
   .empty-text { font-size: 14px; }
   .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 10px; font-weight: 500; font-family: var(--mono); }
+  .live-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 20px; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); color: var(--green); font-size: 11px; font-weight: 500; vertical-align: middle; margin-left: 10px; }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: livepulse 1.6s infinite; }
+  @keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
   .error-msg { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fca5a5; margin-bottom: 12px; }
   .info-msg { background: rgba(79,142,247,0.08); border: 1px solid rgba(79,142,247,0.2); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--accent); margin-bottom: 12px; }
 
@@ -307,7 +310,7 @@
 
     <!-- ── DASHBOARD ── -->
     <div class="section active" id="section-dashboard">
-      <div class="page-title">Marknadsöversikt <span>· 14 juni 2026</span></div>
+      <div class="page-title">Marknadsöversikt <span>· 14 juni 2026</span><span class="live-badge"><span class="live-dot"></span>Live · uppdateras var 60:e sek</span></div>
       <div class="kpi-row" id="market-kpis">
         <div class="kpi-card"><div class="kpi-label">S&P 500</div><div class="kpi-value" id="k-sp500">7 431</div><div class="kpi-sub green">+8,4% ÅTD · +0,5% idag</div></div>
         <div class="kpi-card"><div class="kpi-label">Nasdaq</div><div class="kpi-value" id="k-nasdaq">25 889</div><div class="kpi-sub green">+10,9% ÅTD · +0,3% idag</div></div>
@@ -332,7 +335,7 @@
 
     <!-- ── SCREENER ── -->
     <div class="section" id="section-screener">
-      <div class="page-title">Aktie­screener <span>· Filtrera bland globala aktier</span></div>
+      <div class="page-title">Aktie­screener <span>· Filtrera bland globala aktier</span><span class="live-badge"><span class="live-dot"></span>Live · uppdateras var 60:e sek</span></div>
       <div class="filter-row" id="region-filters">
         <div class="filter-chip on" data-r="alla" onclick="setFilter(this,'region')">Alla marknader</div>
         <div class="filter-chip" data-r="usa" onclick="setFilter(this,'region')">🇺🇸 USA</div>
@@ -1034,7 +1037,7 @@ async function loadStockQuote(ticker, name) {
     const yr52hi = meta['52WeekHigh'] || meta.fiftyTwoWeekHigh;
     const yr52lo = meta['52WeekLow'] || meta.fiftyTwoWeekLow;
     document.getElementById('d-meta').innerHTML = [
-      `<span class="meta-pill" style="color:var(--green)">⟳ Live · var 30:e sek</span>`,
+      `<span class="live-badge" style="margin-left:0"><span class="live-dot"></span>Live · uppdateras var 30:e sek</span>`,
       `<span class="meta-pill">Volym: ${(meta.regularMarketVolume||0).toLocaleString('sv-SE')}</span>`,
       yr52hi?`<span class="meta-pill">52v Hög: ${yr52hi.toFixed(2)}</span>`:'',
       yr52lo?`<span class="meta-pill">52v Låg: ${yr52lo.toFixed(2)}</span>`:'',
