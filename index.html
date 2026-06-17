@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Investeringsanalys – AI-driven aktieplattform</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -66,6 +67,17 @@
   .wl-name { font-size: 12px; font-weight: 500; color: var(--text); }
   .wl-ticker { font-size: 10px; color: var(--text3); font-family: var(--mono); }
   .wl-price { font-size: 12px; font-family: var(--mono); }
+  .wl-right { display: flex; align-items: center; gap: 6px; }
+  .wl-remove { opacity: 0; border: none; background: transparent; color: var(--text3); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; transition: color 0.12s; }
+  .watchlist-item:hover .wl-remove { opacity: 1; }
+  .wl-remove:hover { color: var(--red); }
+  #account-bar { padding: 4px 10px 10px; }
+  .acct-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; font-weight: 500; cursor: pointer; transition: background 0.12s; }
+  .acct-btn:hover { background: rgba(255,255,255,0.05); }
+  .acct { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .acct-email { font-size: 11px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acct-link { font-size: 11px; color: var(--text3); background: none; border: none; cursor: pointer; padding: 0; }
+  .acct-link:hover { color: var(--text); }
 
   /* ── Main ── */
   #main { margin-left: 220px; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
@@ -260,36 +272,8 @@
 
   <div class="watchlist-section">
     <div class="nav-label">Bevakningslista</div>
-    <div id="watchlist-items">
-      <div class="watchlist-item" onclick="loadStock('AAPL','Apple Inc')">
-        <div><div class="wl-name">Apple</div><div class="wl-ticker">AAPL · NASDAQ</div></div>
-        <div class="wl-price green">$196</div>
-      </div>
-      <div class="watchlist-item" onclick="loadStock('NVDA','NVIDIA')">
-        <div><div class="wl-name">NVIDIA</div><div class="wl-ticker">NVDA · NASDAQ</div></div>
-        <div class="wl-price green">$134</div>
-      </div>
-      <div class="watchlist-item" onclick="loadStock('VOLV-B.ST','Volvo B')">
-        <div><div class="wl-name">Volvo B</div><div class="wl-ticker">VOLV-B · OMX</div></div>
-        <div class="wl-price red">228 kr</div>
-      </div>
-      <div class="watchlist-item" onclick="loadStock('ERIC-B.ST','Ericsson B')">
-        <div><div class="wl-name">Ericsson B</div><div class="wl-ticker">ERIC-B · OMX</div></div>
-        <div class="wl-price green">86 kr</div>
-      </div>
-      <div class="watchlist-item" onclick="loadStock('ABB.ST','ABB')">
-        <div><div class="wl-name">ABB</div><div class="wl-ticker">ABB · OMX</div></div>
-        <div class="wl-price green">620 kr</div>
-      </div>
-      <div class="watchlist-item" onclick="loadStock('NOVO-B.CO','Novo Nordisk B')">
-        <div><div class="wl-name">Novo Nordisk</div><div class="wl-ticker">NOVO-B · CPH</div></div>
-        <div class="wl-price red">498 DKK</div>
-      </div>
-      <div class="watchlist-item" onclick="loadStock('ASML.AS','ASML')">
-        <div><div class="wl-name">ASML</div><div class="wl-ticker">ASML · AMS</div></div>
-        <div class="wl-price green">€788</div>
-      </div>
-    </div>
+    <div id="account-bar"></div>
+    <div id="watchlist-items"></div>
   </div>
 </nav>
 
@@ -612,9 +596,13 @@ function fmtPrice(p, cur) {
   }
 }
 
+// Senast hämtade live-priser per ticker (även för bevakade aktier utanför de 37).
+const livePrices = {};
+
 async function refreshLivePrices() {
   try {
-    const symbols = stocks.map(s=>s.ticker).join(',');
+    const watchTickers = getWatchlist().filter(w=>!w.isFund).map(w=>w.id);
+    const symbols = [...new Set([...stocks.map(s=>s.ticker), ...watchTickers])].join(',');
     const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${encodeURIComponent(symbols)}&range=ytd&interval=1d`;
     const data = await fetchYahoo(url);
     const results = (data.spark && data.spark.result) || [];
@@ -626,13 +614,16 @@ async function refreshLivePrices() {
       const closes = ((resp.indicators && resp.indicators.quote[0] && resp.indicators.quote[0].close) || []).filter(v=>v!=null);
       const price = meta.regularMarketPrice != null ? meta.regularMarketPrice : (closes.length ? closes[closes.length-1] : null);
       if(price == null) return;
-      const stock = stocks.find(s=>s.ticker === r.symbol);
-      if(!stock) return;
-      stock.kurs = fmtPrice(price, meta.currency);
+      let ytd = null;
       if(closes.length > 1) {
-        const ytd = ((price - closes[0]) / closes[0]) * 100;
-        if(isFinite(ytd)) stock.ytd = +ytd.toFixed(1);
+        const y = ((price - closes[0]) / closes[0]) * 100;
+        if(isFinite(y)) ytd = +y.toFixed(1);
       }
+      const stock = stocks.find(s=>s.ticker === r.symbol);
+      // behåll tidigare YTD om Yahoo inte gav nog historik
+      const effYtd = ytd != null ? ytd : (stock ? stock.ytd : 0);
+      livePrices[r.symbol] = { kurs: fmtPrice(price, meta.currency), ytd: effYtd };
+      if(stock) { stock.kurs = livePrices[r.symbol].kurs; if(ytd != null) stock.ytd = ytd; }
       changed = true;
     });
     if(changed) {
@@ -645,15 +636,13 @@ async function refreshLivePrices() {
 
 function updateWatchlistPrices() {
   document.querySelectorAll('#watchlist-items .watchlist-item').forEach(item => {
-    const oc = item.getAttribute('onclick') || '';
-    const m = oc.match(/loadStock\('([^']+)'/);
-    if(!m) return;
-    const stock = stocks.find(s=>s.ticker === m[1]);
-    if(!stock) return;
+    const id = item.getAttribute('data-id');
+    const data = livePrices[id] || stocks.find(s=>s.ticker === id);
+    if(!data || data.kurs == null) return;
     const priceEl = item.querySelector('.wl-price');
     if(priceEl) {
-      priceEl.textContent = stock.kurs;
-      priceEl.className = 'wl-price ' + (stock.ytd >= 0 ? 'green' : 'red');
+      priceEl.textContent = data.kurs;
+      priceEl.className = 'wl-price ' + (data.ytd >= 0 ? 'green' : 'red');
     }
   });
 }
@@ -1167,6 +1156,7 @@ let searchTimer = null;
 let searchSeq = 0;
 
 function escQuote(s) { return String(s).replace(/'/g, "\\'"); }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 async function avanzaGet(path) {
   const r = await fetch(`/.netlify/functions/avanza?path=${encodeURIComponent(path)}`);
@@ -1417,26 +1407,147 @@ function getApiKey() {
   return localStorage.getItem('anthropic_api_key') || '';
 }
 
+// ══════════ SUPABASE / KONTO ══════════
+// 🔑 Klistra in dina värden från Supabase → Project Settings → API.
+//    anon/public-nyckeln är säker att ha i frontend (skyddas av Row-Level Security).
+const SUPABASE_URL = 'https://rbilywmxxdlnsxbrqees.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_yDCaCtRRrM-Tsqj01KBR2w_I9SR7rCr'; // publishable key (säker i frontend, skyddas av RLS)
+
+const cloudEnabled = /^https:\/\/.+\.supabase\.co/.test(SUPABASE_URL) && SUPABASE_ANON_KEY.length > 20;
+const sb = cloudEnabled ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+let currentUser = null;
+
+function renderAccountBar() {
+  const el = document.getElementById('account-bar');
+  if(!el) return;
+  if(!cloudEnabled) { el.innerHTML = ''; return; }
+  if(currentUser) {
+    el.innerHTML = `<div class="acct"><span class="acct-email" title="${escHtml(currentUser.email||'')}">${escHtml(currentUser.email||'Inloggad')}</span><button class="acct-link" onclick="signOut()">Logga ut</button></div>`;
+  } else {
+    el.innerHTML = `<button class="acct-btn" onclick="signInGoogle()"><span>🔵</span> Logga in med Google</button>`;
+  }
+}
+
+async function signInGoogle() {
+  if(!sb) return;
+  await sb.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin + window.location.pathname }
+  });
+}
+async function signOut() {
+  if(!sb) return;
+  await sb.auth.signOut();
+}
+
+// Hämta molnlistan (RLS säkrar att man bara ser sina egna rader)
+async function pullCloudWatchlist() {
+  if(!sb || !currentUser) return null;
+  const { data, error } = await sb.from('watchlist_items')
+    .select('item_id,name,label,is_fund').order('created_at', { ascending: true });
+  if(error) { console.warn('Supabase pull:', error.message); return null; }
+  return data.map(r => ({ id: r.item_id, name: r.name, label: r.label, isFund: r.is_fund }));
+}
+async function pushItemCloud(w) {
+  if(!sb || !currentUser) return;
+  const { error } = await sb.from('watchlist_items').upsert(
+    { user_id: currentUser.id, item_id: w.id, name: w.name, label: w.label || null, is_fund: !!w.isFund },
+    { onConflict: 'user_id,item_id' }
+  );
+  if(error) console.warn('Supabase push:', error.message);
+}
+async function deleteItemCloud(id) {
+  if(!sb || !currentUser) return;
+  const { error } = await sb.from('watchlist_items').delete().eq('item_id', id);
+  if(error) console.warn('Supabase delete:', error.message);
+}
+
+// Vid inloggning: slå ihop lokal lista med molnet, ladda upp lokala extrarader, visa resultatet.
+async function syncWatchlistFromCloud() {
+  const cloud = await pullCloudWatchlist();
+  if(cloud === null) return; // fel/ej inloggad – behåll lokalt
+  const local = getWatchlist();
+  const cloudIds = new Set(cloud.map(w => w.id));
+  const localOnly = local.filter(w => !cloudIds.has(w.id));
+  for(const w of localOnly) await pushItemCloud(w); // migrera lokala till molnet
+  const merged = cloud.concat(localOnly);
+  saveWatchlist(merged.length ? merged : DEFAULT_WATCHLIST.slice());
+  renderWatchlist();
+  refreshLivePrices();
+}
+
+function initAuth() {
+  renderAccountBar();
+  if(!sb) return;
+  sb.auth.onAuthStateChange((event, session) => {
+    currentUser = (session && session.user) ? session.user : null;
+    renderAccountBar();
+    if(currentUser) syncWatchlistFromCloud();
+  });
+}
+
 // ══════════ WATCHLIST ══════════
+// Bevakningslistan sparas i webbläsaren (localStorage) och synkas till molnet när man är inloggad.
+const DEFAULT_WATCHLIST = [
+  { id:'AAPL', name:'Apple Inc', label:'AAPL · NASDAQ', isFund:false },
+  { id:'NVDA', name:'NVIDIA', label:'NVDA · NASDAQ', isFund:false },
+  { id:'VOLV-B.ST', name:'Volvo B', label:'VOLV-B · OMX', isFund:false },
+  { id:'ERIC-B.ST', name:'Ericsson B', label:'ERIC-B · OMX', isFund:false },
+  { id:'ABB.ST', name:'ABB', label:'ABB · OMX', isFund:false },
+  { id:'NOVO-B.CO', name:'Novo Nordisk B', label:'NOVO-B · CPH', isFund:false },
+  { id:'ASML.AS', name:'ASML', label:'ASML · AMS', isFund:false },
+];
+
+function getWatchlist() {
+  try { const s = localStorage.getItem('watchlist'); if(s) return JSON.parse(s); } catch(e){}
+  return DEFAULT_WATCHLIST.slice();
+}
+function saveWatchlist(list) {
+  try { localStorage.setItem('watchlist', JSON.stringify(list)); } catch(e){}
+}
+
+function renderWatchlist() {
+  const html = getWatchlist().map(w => {
+    const click = w.isFund
+      ? `loadFund('${escQuote(w.id)}','${escQuote(w.name)}')`
+      : `loadStock('${escQuote(w.id)}','${escQuote(w.name)}')`;
+    return `<div class="watchlist-item" data-id="${escHtml(w.id)}" onclick="${escHtml(click)}">
+      <div><div class="wl-name">${escHtml(w.name)}</div><div class="wl-ticker">${escHtml(w.label||w.id)}</div></div>
+      <div class="wl-right"><span class="wl-price muted">–</span><button class="wl-remove" title="Ta bort från bevakning" onclick="event.stopPropagation();removeFromWatchlist('${escQuote(w.id)}')">×</button></div>
+    </div>`;
+  }).join('');
+  document.getElementById('watchlist-items').innerHTML = html;
+  updateWatchlistPrices();
+}
+
 function addToWatchlist() {
-  if(!currentTicker || !currentStockName) return;
-  const existing = document.querySelector(`#watchlist-items [data-id="${currentTicker}"]`);
-  if(existing) return;
-  const item = document.createElement('div');
-  item.className = 'watchlist-item';
-  item.setAttribute('data-id', currentTicker);
-  const click = currentIsFund
-    ? `loadFund('${escQuote(currentFundId)}','${escQuote(currentStockName)}')`
-    : `loadStock('${escQuote(currentTicker)}','${escQuote(currentStockName)}')`;
-  item.setAttribute('onclick', click);
-  const label = currentIsFund ? 'Avanza fond' : currentTicker;
-  item.innerHTML = `<div><div class="wl-name">${currentStockName}</div><div class="wl-ticker">${label}</div></div><div class="wl-price muted">–</div>`;
-  document.getElementById('watchlist-items').appendChild(item);
+  const id = currentIsFund ? currentFundId : currentTicker;
+  if(!id || !currentStockName) return;
+  const list = getWatchlist();
+  if(list.some(w => w.id === id)) return; // redan bevakad
+  const item = {
+    id,
+    name: currentStockName,
+    label: currentIsFund ? 'Avanza fond' : (currentTicker || id),
+    isFund: !!currentIsFund
+  };
+  list.push(item);
+  saveWatchlist(list);
+  renderWatchlist();
+  pushItemCloud(item); // synka till molnet om inloggad
+}
+
+function removeFromWatchlist(id) {
+  saveWatchlist(getWatchlist().filter(w => w.id !== id));
+  renderWatchlist();
+  deleteItemCloud(id); // synka till molnet om inloggad
 }
 
 // ══════════ INIT ══════════
 renderDashboard();
 renderScreener();
+renderWatchlist();
+initAuth();
 
 // Hämta live-priser direkt och uppdatera listorna var 60:e sekund
 refreshLivePrices();
