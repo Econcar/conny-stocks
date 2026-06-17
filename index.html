@@ -1534,6 +1534,7 @@ function addToWatchlist() {
   list.push(item);
   saveWatchlist(list);
   renderWatchlist();
+  if(!item.isFund) refreshLivePrices(); // hämta kursen direkt istället för att vänta på nästa snurra
   pushItemCloud(item); // synka till molnet om inloggad
 }
 
