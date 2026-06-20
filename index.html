@@ -169,6 +169,14 @@
   .filter-chip.on { background: rgba(79,142,247,0.15); color: var(--accent); border-color: rgba(79,142,247,0.4); }
   .filter-input { background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; padding: 6px 10px; color: var(--text); font-size: 12px; font-family: var(--font); outline: none; width: 110px; }
   .filter-input:focus { border-color: var(--accent); }
+  th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  th.sortable:hover { color: var(--text); }
+  .sort-arrow { color: var(--accent); font-size: 10px; margin-left: 3px; }
+  .sort-page { color: var(--text3); font-weight: 700; }
+  .col-menu { position: absolute; top: 38px; left: 0; z-index: 60; background: var(--surface); border: 1px solid var(--border2); border-radius: 8px; padding: 7px; min-width: 165px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); }
+  .col-menu label { display: flex; align-items: center; gap: 8px; padding: 5px 7px; font-size: 12px; color: var(--text2); cursor: pointer; border-radius: 5px; }
+  .col-menu label:hover { background: rgba(255,255,255,0.05); }
+  .col-menu input { accent-color: var(--accent); }
 
   /* ── Stock detail ── */
   .detail-hero { display: flex; align-items: flex-start; gap: 24px; margin-bottom: 24px; }
@@ -342,31 +350,18 @@
         <div class="filter-chip" data-s="Konsument" onclick="setFilter(this,'sector')">Konsument</div>
         <div class="filter-chip" data-s="Försvar" onclick="setFilter(this,'sector')">Försvar</div>
       </div>
-      <div class="filter-row">
+      <div class="filter-row" style="align-items:center">
         <input class="filter-input" type="text" id="name-search" placeholder="Filtrera sidan..." oninput="paintScreener()">
-        <select class="filter-input" id="sort-select" onchange="screenerSort()" style="width:190px">
-          <option value="mcap">Sortera: Börsvärde (störst)</option>
-          <option value="pe">Sortera: P/E (lägst)</option>
-          <option value="div">Sortera: Utdelning (högst)</option>
-          <option value="day">Sortera: Dagens vinnare</option>
-          <option value="52w">Sortera: 52v utveckling</option>
-        </select>
+        <div style="position:relative">
+          <button class="filter-input" id="col-btn" onclick="toggleColMenu()" style="width:auto;cursor:pointer">⚙ Kolumner</button>
+          <div id="col-menu" class="col-menu" style="display:none"></div>
+        </div>
+        <span style="font-size:11px;color:var(--text3)">Klicka på en rubrik för att sortera ▲▼ &nbsp;·&nbsp; <span class="sort-page">·</span> = endast sidan</span>
       </div>
       <div class="card" style="padding:0">
         <div class="table-wrap">
           <table>
-            <thead><tr>
-              <th style="width:28px"></th>
-              <th>Bolag</th>
-              <th>Marknad</th>
-              <th>Sektor</th>
-              <th style="text-align:right">Kurs</th>
-              <th style="text-align:right">ÅTD %</th>
-              <th style="text-align:right">P/E</th>
-              <th style="text-align:right">Utd.%</th>
-              <th style="text-align:right">Mkt cap</th>
-              <th></th>
-            </tr></thead>
+            <thead id="screener-thead"></thead>
             <tbody id="screener-tbody"></tbody>
           </table>
         </div>
@@ -523,6 +518,10 @@ let screenerPage = 0;
 let screenerTotal = 0;
 const SCREENER_SIZE = 25;
 let screenerLoading = false;
+let sortCol = 'mcap';              // aktiv sorteringskolumn
+let sortDir = 'desc';             // 'asc' | 'desc'
+let screenerSortField = 'intradaymarketcap';
+let screenerSortType = 'DESC';
 let compareList = [];
 let currentStockMeta = {};
 let currentIsFund = false;
@@ -755,16 +754,105 @@ const SECTOR_MAP = {
   'Försvar':    { industry: 'Aerospace & Defense' },
 };
 const REGION_FLAGS = { us:'🇺🇸', se:'🇸🇪', gb:'🇬🇧', de:'🇩🇪', fr:'🇫🇷', no:'🇳🇴', dk:'🇩🇰', jp:'🇯🇵' };
-// Sorteringsval → Yahoos sorteringsfält (gäller hela universumet, inte bara sidan)
-const SORT_MAP = {
-  mcap:  { field:'intradaymarketcap',          type:'DESC' },
-  pe:    { field:'peratio.lasttwelvemonths',   type:'ASC'  },
-  div:   { field:'forward_dividend_yield',     type:'DESC' },
-  day:   { field:'percentchange',              type:'DESC' },
-  '52w': { field:'fiftytwowkpercentchange',    type:'DESC' },
-};
+function fmtVol(v) {
+  if(v >= 1e9) return (v/1e9).toFixed(1)+'B';
+  if(v >= 1e6) return (v/1e6).toFixed(1)+'M';
+  if(v >= 1e3) return (v/1e3).toFixed(1)+'K';
+  return String(v);
+}
+function pct(v, color) {
+  if(v == null) return '–';
+  return (color ? '' : '') + (v>=0?'+':'') + v.toFixed(1) + '%';
+}
 
-function screenerSort() { screenerPage = 0; loadScreener(); }
+// Valbara datakolumner. sortField = Yahoo-fält → sortering över HELA universumet.
+// sortField:null = går bara att sortera på den aktuella sidan (Yahoo saknar fältet).
+const COL_DEFS = {
+  marknad: { label:'Marknad', align:'left',  sortField:null, val:s=>(s.r||''),
+    cell:s=>`<td style="color:var(--text2);font-size:12px">${(s.r||'').toUpperCase()}</td>` },
+  sektor:  { label:'Sektor', align:'left',  sortField:null, val:s=>(s.sektor||''),
+    cell:s=>{const [bg,tc]=sectorColors[s.sektor]||['rgba(100,100,100,0.15)','#888'];return `<td><span class="sector-pill" style="background:${bg};color:${tc}">${escHtml(s.sektor)}</span></td>`;} },
+  kurs:    { label:'Kurs', align:'right', sortField:'intradayprice', val:s=>(s.price!=null?s.price:-1),
+    cell:s=>`<td style="text-align:right" class="td-mono">${s.kurs}</td>` },
+  ytd:     { label:'ÅTD %', align:'right', sortField:null, val:s=>(s.ytd!=null?s.ytd:-1e9),
+    cell:s=>`<td style="text-align:right;color:${(s.ytd||0)>=0?'var(--green)':'var(--red)'}" class="td-mono">${s.ytd!=null?pct(s.ytd):'…'}</td>` },
+  dag:     { label:'Dag %', align:'right', sortField:'percentchange', val:s=>(s.dag!=null?s.dag:-1e9),
+    cell:s=>`<td style="text-align:right;color:${(s.dag||0)>=0?'var(--green)':'var(--red)'}" class="td-mono">${pct(s.dag)}</td>` },
+  ar52:    { label:'52v %', align:'right', sortField:'fiftytwowkpercentchange', val:s=>(s.ar52!=null?s.ar52:-1e9),
+    cell:s=>`<td style="text-align:right;color:${(s.ar52||0)>=0?'var(--green)':'var(--red)'}" class="td-mono">${pct(s.ar52)}</td>` },
+  pe:      { label:'P/E', align:'right', sortField:'peratio.lasttwelvemonths', val:s=>(s.pe!=null?s.pe:1e12),
+    cell:s=>`<td style="text-align:right" class="td-mono">${s.pe!=null?s.pe.toFixed(1):'–'}</td>` },
+  div:     { label:'Utd.%', align:'right', sortField:'forward_dividend_yield', val:s=>(s.div||0),
+    cell:s=>`<td style="text-align:right" class="td-mono">${s.div>0?s.div.toFixed(1)+'%':'–'}</td>` },
+  mcap:    { label:'Mkt cap', align:'right', sortField:'intradaymarketcap', val:s=>(s.mcap||0),
+    cell:s=>`<td style="text-align:right;color:var(--text2);font-size:12px">${s.mcap!=null?(s.mcap>=1000?(s.mcap/1000).toFixed(1)+'T':s.mcap+'B'):'–'}</td>` },
+  volym:   { label:'Volym', align:'right', sortField:'dayvolume', val:s=>(s.volym||0),
+    cell:s=>`<td style="text-align:right;color:var(--text2);font-size:12px">${s.volym!=null?fmtVol(s.volym):'–'}</td>` },
+};
+const COL_ORDER = ['marknad','sektor','kurs','ytd','dag','ar52','pe','div','mcap','volym'];
+const DEFAULT_COLS = ['marknad','sektor','kurs','ytd','pe','div','mcap']; // samma 7 som tidigare
+
+function getCols() {
+  try { const s = JSON.parse(localStorage.getItem('screenerCols')); if(Array.isArray(s) && s.length) return COL_ORDER.filter(k=>s.includes(k)); } catch(e){}
+  return DEFAULT_COLS.slice();
+}
+function saveCols() { try { localStorage.setItem('screenerCols', JSON.stringify(visibleCols)); } catch(e){} }
+let visibleCols = getCols();
+
+function colspan() { return visibleCols.length + 3; } // kryssruta + Bolag + Detalj
+
+function renderScreenerHead() {
+  const arrow = k => sortCol===k ? `<span class="sort-arrow">${sortDir==='desc'?'▼':'▲'}</span>` : '';
+  let th = `<tr><th style="width:28px"></th>`;
+  th += `<th class="sortable" onclick="onSort('name')">Bolag${arrow('name')}</th>`;
+  visibleCols.forEach(k => {
+    const d = COL_DEFS[k];
+    const pageOnly = !d.sortField;
+    th += `<th class="sortable" style="text-align:${d.align}" title="${pageOnly?'Sorterar endast denna sida':'Sorterar alla aktier'}" onclick="onSort('${k}')">${d.label}${pageOnly?'<span class="sort-page" title="Endast denna sida">·</span>':''}${arrow(k)}</th>`;
+  });
+  th += `<th></th></tr>`;
+  document.getElementById('screener-thead').innerHTML = th;
+}
+
+function onSort(key) {
+  if(sortCol === key) sortDir = (sortDir === 'desc') ? 'asc' : 'desc';
+  else { sortCol = key; sortDir = (key === 'pe') ? 'asc' : 'desc'; }
+  const d = COL_DEFS[key];
+  if(d && d.sortField) { // global sortering via servern
+    screenerSortField = d.sortField;
+    screenerSortType = sortDir.toUpperCase();
+    screenerPage = 0;
+    loadScreener();
+  } else { // ÅTD / Bolag / Marknad / Sektor – sortera bara aktuell sida
+    renderScreenerHead();
+    paintScreener();
+  }
+}
+
+// ── Kolumnväljare ──
+function toggleColMenu() {
+  const m = document.getElementById('col-menu');
+  const show = m.style.display === 'none';
+  m.style.display = show ? 'block' : 'none';
+  if(show) renderColMenu();
+}
+function renderColMenu() {
+  document.getElementById('col-menu').innerHTML = COL_ORDER.map(k =>
+    `<label><input type="checkbox" ${visibleCols.includes(k)?'checked':''} onchange="toggleCol('${k}')"> ${COL_DEFS[k].label}</label>`
+  ).join('');
+}
+function toggleCol(k) {
+  if(visibleCols.includes(k)) {
+    if(visibleCols.length <= 1) return; // minst en kolumn kvar
+    visibleCols = visibleCols.filter(x=>x!==k);
+  } else {
+    visibleCols = COL_ORDER.filter(x => visibleCols.includes(x) || x===k);
+  }
+  saveCols();
+  renderScreenerHead();
+  paintScreener();
+  renderColMenu();
+}
 
 function setFilter(el, type) {
   const group = type === 'region' ? '#region-filters' : '#sector-filters';
@@ -804,8 +892,9 @@ async function fetchSparkPrices(symbols) {
 async function loadScreener() {
   if(screenerLoading) return;
   screenerLoading = true;
+  renderScreenerHead();
   const tbody = document.getElementById('screener-tbody');
-  tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text2)">Hämtar aktier…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="${colspan()}" style="text-align:center;padding:28px;color:var(--text2)">Hämtar aktier…</td></tr>`;
   document.getElementById('pg-info').textContent = '';
   try {
     const map = activeSector !== 'alla' ? (SECTOR_MAP[activeSector] || {}) : {};
@@ -813,9 +902,8 @@ async function loadScreener() {
     if(map.sector) params.set('sector', map.sector);
     if(map.industry) params.set('industry', map.industry);
     if(activeRegion !== 'alla') params.set('region', activeRegion);
-    const so = SORT_MAP[document.getElementById('sort-select').value] || SORT_MAP.mcap;
-    params.set('sortField', so.field);
-    params.set('sortType', so.type);
+    params.set('sortField', screenerSortField);
+    params.set('sortType', screenerSortType);
     params.set('offset', screenerPage * SCREENER_SIZE);
     params.set('size', SCREENER_SIZE);
     const res = await fetch(`/.netlify/functions/screener?${params.toString()}`);
@@ -829,7 +917,11 @@ async function loadScreener() {
       r: (q.region || activeRegion || '').toString().toLowerCase(),
       sektor: activeSector !== 'alla' ? activeSector : (q.sector || 'Aktie'),
       kurs: q.regularMarketPrice != null ? fmtPrice(q.regularMarketPrice, q.currency) : '–',
+      price: q.regularMarketPrice != null ? q.regularMarketPrice : null,
       ytd: null,
+      dag: q.regularMarketChangePercent != null ? +q.regularMarketChangePercent.toFixed(1) : null,
+      ar52: q.fiftyTwoWeekChangePercent != null ? +q.fiftyTwoWeekChangePercent.toFixed(1) : null,
+      volym: q.regularMarketVolume != null ? q.regularMarketVolume : null,
       pe: q.trailingPE != null ? +q.trailingPE.toFixed(1) : null,
       div: q.trailingAnnualDividendYield != null ? +(q.trailingAnnualDividendYield*100).toFixed(1)
            : (q.dividendYield != null ? +q.dividendYield.toFixed(1) : 0),
@@ -843,12 +935,12 @@ async function loadScreener() {
       const prices = await fetchSparkPrices(syms);
       screenerResults.forEach(s => {
         const p = prices[s.ticker];
-        if(p) { if(p.ytd != null) s.ytd = p.ytd; if(p.price != null) s.kurs = fmtPrice(p.price, p.currency); }
+        if(p) { if(p.ytd != null) s.ytd = p.ytd; if(p.price != null) { s.price = p.price; s.kurs = fmtPrice(p.price, p.currency); } }
       });
       paintScreener();
     }
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--red)">Kunde inte hämta aktier just nu. Försök igen.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${colspan()}" style="text-align:center;padding:28px;color:var(--red)">Kunde inte hämta aktier just nu. Försök igen.</td></tr>`;
   } finally {
     screenerLoading = false;
   }
@@ -858,26 +950,29 @@ async function loadScreener() {
 function renderScreener() { loadScreener(); }
 
 function paintScreener() {
-  // Sorteringen sker på serversidan (hela universumet); här filtrerar vi bara sidan på namn/ticker.
   const q = (document.getElementById('name-search').value || '').toLowerCase().trim();
-  const rows = screenerResults.filter(s => !q || s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q));
+  let rows = screenerResults.filter(s => !q || s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q));
+  // Sidlokal sortering för kolumner Yahoo inte kan sortera globalt (ÅTD/Bolag/Marknad/Sektor).
+  const serverSorted = COL_DEFS[sortCol] && COL_DEFS[sortCol].sortField;
+  if(!serverSorted) {
+    const def = sortCol === 'name' ? { val:s=>s.name } : COL_DEFS[sortCol];
+    if(def) rows = rows.slice().sort((a,b) => {
+      const va = def.val(a), vb = def.val(b);
+      if(typeof va === 'string') { const c = va.localeCompare(vb,'sv'); return sortDir==='desc'?-c:c; }
+      return sortDir==='desc' ? (vb-va) : (va-vb);
+    });
+  }
   const tbody = document.getElementById('screener-tbody');
   if(!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text2)">Inga aktier matchar.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${colspan()}" style="text-align:center;padding:28px;color:var(--text2)">Inga aktier matchar.</td></tr>`;
   } else {
     tbody.innerHTML = rows.map(s => {
       const sel = screenerSel.has(s.ticker);
-      const [bg, tc] = sectorColors[s.sektor] || ['rgba(100,100,100,0.15)','#888'];
+      const cells = visibleCols.map(k => COL_DEFS[k].cell(s)).join('');
       return `<tr class="${sel?'selected':''}" onclick="toggleScreenerRow('${escQuote(s.ticker)}')">
         <td><div class="chk ${sel?'on':''}">${sel?'✓':''}</div></td>
         <td><div class="td-name">${s.flag} ${escHtml(s.name)}</div><div class="td-ticker">${escHtml(s.ticker)}</div></td>
-        <td style="color:var(--text2);font-size:12px">${(s.r||'').toUpperCase()}</td>
-        <td><span class="sector-pill" style="background:${bg};color:${tc}">${escHtml(s.sektor)}</span></td>
-        <td style="text-align:right" class="td-mono">${s.kurs}</td>
-        <td style="text-align:right;color:${(s.ytd||0)>=0?'var(--green)':'var(--red)'}" class="td-mono">${s.ytd!=null?((s.ytd>=0?'+':'')+s.ytd.toFixed(1)+'%'):'…'}</td>
-        <td style="text-align:right" class="td-mono">${s.pe!=null?s.pe.toFixed(1):'–'}</td>
-        <td style="text-align:right" class="td-mono">${s.div>0?s.div.toFixed(1)+'%':'–'}</td>
-        <td style="text-align:right;color:var(--text2);font-size:12px">${s.mcap!=null?(s.mcap>=1000?(s.mcap/1000).toFixed(1)+'T':s.mcap+'B'):'–'}</td>
+        ${cells}
         <td><button onclick="event.stopPropagation();loadStock('${escQuote(s.ticker)}','${escQuote(s.name)}')" style="background:none;border:1px solid var(--border2);color:var(--text2);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer">Detalj</button></td>
       </tr>`;
     }).join('');
@@ -1381,6 +1476,7 @@ function selectFund(orderBookId, name) {
 }
 
 document.addEventListener('click', e => { if(!e.target.closest('#search-wrap')) searchResults.style.display = 'none'; });
+document.addEventListener('click', e => { if(!e.target.closest('#col-btn') && !e.target.closest('#col-menu')) { const m=document.getElementById('col-menu'); if(m) m.style.display='none'; } });
 
 // ══════════ AI PANEL ══════════
 function toggleAI() { aiOpen = !aiOpen; document.getElementById('ai-panel').classList.toggle('open', aiOpen); }
