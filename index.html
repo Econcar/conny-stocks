@@ -911,10 +911,13 @@ async function loadScreener() {
     const result = data && data.finance && data.finance.result && data.finance.result[0];
     const quotes = (result && result.quotes) || [];
     screenerTotal = (result && result.total) || 0;
-    screenerResults = quotes.map(q => ({
+    screenerResults = quotes.map(q => {
+      // q.region är opålitlig (= query-regionen, ofta "US"). q.market = "se_market" ger rätt land.
+      const market = (q.market || '').split('_')[0] || (activeRegion !== 'alla' ? activeRegion : '');
+      return {
       name: q.shortName || q.longName || q.symbol,
       ticker: q.symbol,
-      r: (q.region || activeRegion || '').toString().toLowerCase(),
+      r: market,
       sektor: activeSector !== 'alla' ? activeSector : (q.sector || 'Aktie'),
       kurs: q.regularMarketPrice != null ? fmtPrice(q.regularMarketPrice, q.currency) : '–',
       price: q.regularMarketPrice != null ? q.regularMarketPrice : null,
@@ -926,8 +929,9 @@ async function loadScreener() {
       div: q.trailingAnnualDividendYield != null ? +(q.trailingAnnualDividendYield*100).toFixed(1)
            : (q.dividendYield != null ? +q.dividendYield.toFixed(1) : 0),
       mcap: q.marketCap != null ? Math.round(q.marketCap/1e9) : null,
-      flag: REGION_FLAGS[(q.region||'').toLowerCase()] || REGION_FLAGS[activeRegion] || '🏳️'
-    }));
+      flag: REGION_FLAGS[market] || (activeRegion !== 'alla' ? REGION_FLAGS[activeRegion] : '') || '🏳️'
+      };
+    });
     paintScreener();
     // Berika med riktig ÅTD (och färsk kurs) via spark – separat anrop, uppdatera sen.
     const syms = screenerResults.map(s=>s.ticker);
