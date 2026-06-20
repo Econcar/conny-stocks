@@ -344,12 +344,12 @@
       </div>
       <div class="filter-row">
         <input class="filter-input" type="text" id="name-search" placeholder="Filtrera sidan..." oninput="paintScreener()">
-        <select class="filter-input" id="sort-select" onchange="paintScreener()" style="width:160px">
-          <option value="mcap">Sortera: Mkt cap</option>
-          <option value="ytd">Sortera: ÅTD %</option>
-          <option value="pe">Sortera: P/E</option>
-          <option value="div">Sortera: Utdelning</option>
-          <option value="name">Sortera: Namn</option>
+        <select class="filter-input" id="sort-select" onchange="screenerSort()" style="width:190px">
+          <option value="mcap">Sortera: Börsvärde (störst)</option>
+          <option value="pe">Sortera: P/E (lägst)</option>
+          <option value="div">Sortera: Utdelning (högst)</option>
+          <option value="day">Sortera: Dagens vinnare</option>
+          <option value="52w">Sortera: 52v utveckling</option>
         </select>
       </div>
       <div class="card" style="padding:0">
@@ -755,6 +755,16 @@ const SECTOR_MAP = {
   'Försvar':    { industry: 'Aerospace & Defense' },
 };
 const REGION_FLAGS = { us:'🇺🇸', se:'🇸🇪', gb:'🇬🇧', de:'🇩🇪', fr:'🇫🇷', no:'🇳🇴', dk:'🇩🇰', jp:'🇯🇵' };
+// Sorteringsval → Yahoos sorteringsfält (gäller hela universumet, inte bara sidan)
+const SORT_MAP = {
+  mcap:  { field:'intradaymarketcap',          type:'DESC' },
+  pe:    { field:'peratio.lasttwelvemonths',   type:'ASC'  },
+  div:   { field:'forward_dividend_yield',     type:'DESC' },
+  day:   { field:'percentchange',              type:'DESC' },
+  '52w': { field:'fiftytwowkpercentchange',    type:'DESC' },
+};
+
+function screenerSort() { screenerPage = 0; loadScreener(); }
 
 function setFilter(el, type) {
   const group = type === 'region' ? '#region-filters' : '#sector-filters';
@@ -803,6 +813,9 @@ async function loadScreener() {
     if(map.sector) params.set('sector', map.sector);
     if(map.industry) params.set('industry', map.industry);
     if(activeRegion !== 'alla') params.set('region', activeRegion);
+    const so = SORT_MAP[document.getElementById('sort-select').value] || SORT_MAP.mcap;
+    params.set('sortField', so.field);
+    params.set('sortType', so.type);
     params.set('offset', screenerPage * SCREENER_SIZE);
     params.set('size', SCREENER_SIZE);
     const res = await fetch(`/.netlify/functions/screener?${params.toString()}`);
@@ -845,16 +858,9 @@ async function loadScreener() {
 function renderScreener() { loadScreener(); }
 
 function paintScreener() {
+  // Sorteringen sker på serversidan (hela universumet); här filtrerar vi bara sidan på namn/ticker.
   const q = (document.getElementById('name-search').value || '').toLowerCase().trim();
-  const sortBy = document.getElementById('sort-select').value;
-  let rows = screenerResults.filter(s => !q || s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q));
-  rows.sort((a,b) =>
-    sortBy==='name' ? a.name.localeCompare(b.name,'sv')
-    : sortBy==='ytd' ? ((b.ytd!=null?b.ytd:-999)-(a.ytd!=null?a.ytd:-999))
-    : sortBy==='pe' ? ((a.pe!=null?a.pe:1e9)-(b.pe!=null?b.pe:1e9))
-    : sortBy==='div' ? ((b.div||0)-(a.div||0))
-    : ((b.mcap||0)-(a.mcap||0))
-  );
+  const rows = screenerResults.filter(s => !q || s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q));
   const tbody = document.getElementById('screener-tbody');
   if(!rows.length) {
     tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text2)">Inga aktier matchar.</td></tr>`;

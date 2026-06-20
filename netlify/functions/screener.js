@@ -38,6 +38,10 @@ exports.handler = async function (event) {
   const region = p.region || '';
   const offset = Math.max(0, parseInt(p.offset, 10) || 0);
   const size = Math.min(50, Math.max(1, parseInt(p.size, 10) || 25));
+  // Whitelist över fält Yahoo faktiskt kan sortera på (serversidan = över hela universumet)
+  const SORT_FIELDS = ['intradaymarketcap', 'percentchange', 'fiftytwowkpercentchange', 'peratio.lasttwelvemonths', 'forward_dividend_yield'];
+  const sortField = SORT_FIELDS.includes(p.sortField) ? p.sortField : 'intradaymarketcap';
+  const sortType = p.sortType === 'ASC' ? 'ASC' : 'DESC';
 
   const operands = [];
   if (sector) operands.push({ operator: 'EQ', operands: ['sector', sector] });
@@ -50,7 +54,7 @@ exports.handler = async function (event) {
 
   const body = {
     size, offset,
-    sortField: 'intradaymarketcap', sortType: 'DESC',
+    sortField, sortType,
     quoteType: 'EQUITY', query,
     userId: '', userIdType: 'guid'
   };
