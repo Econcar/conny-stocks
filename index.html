@@ -319,15 +319,17 @@
 
     <!-- ── SCREENER ── -->
     <div class="section" id="section-screener">
-      <div class="page-title">Aktie­screener <span>· Filtrera bland globala aktier</span><span class="live-badge"><span class="live-dot"></span>Live · uppdateras var 60:e sek</span></div>
+      <div class="page-title">Aktie­screener <span>· Hela Yahoos aktieuniversum</span><span class="live-badge"><span class="live-dot"></span>Live</span></div>
       <div class="filter-row" id="region-filters">
         <div class="filter-chip on" data-r="alla" onclick="setFilter(this,'region')">Alla marknader</div>
-        <div class="filter-chip" data-r="usa" onclick="setFilter(this,'region')">🇺🇸 USA</div>
+        <div class="filter-chip" data-r="us" onclick="setFilter(this,'region')">🇺🇸 USA</div>
         <div class="filter-chip" data-r="se" onclick="setFilter(this,'region')">🇸🇪 Sverige</div>
-        <div class="filter-chip" data-r="eu" onclick="setFilter(this,'region')">🇪🇺 Europa</div>
+        <div class="filter-chip" data-r="gb" onclick="setFilter(this,'region')">🇬🇧 Storbritannien</div>
+        <div class="filter-chip" data-r="de" onclick="setFilter(this,'region')">🇩🇪 Tyskland</div>
+        <div class="filter-chip" data-r="fr" onclick="setFilter(this,'region')">🇫🇷 Frankrike</div>
         <div class="filter-chip" data-r="no" onclick="setFilter(this,'region')">🇳🇴 Norge</div>
         <div class="filter-chip" data-r="dk" onclick="setFilter(this,'region')">🇩🇰 Danmark</div>
-        <div class="filter-chip" data-r="as" onclick="setFilter(this,'region')">🌏 Asien</div>
+        <div class="filter-chip" data-r="jp" onclick="setFilter(this,'region')">🇯🇵 Japan</div>
       </div>
       <div class="filter-row" id="sector-filters">
         <div class="filter-chip on" data-s="alla" onclick="setFilter(this,'sector')">Alla sektorer</div>
@@ -341,8 +343,8 @@
         <div class="filter-chip" data-s="Försvar" onclick="setFilter(this,'sector')">Försvar</div>
       </div>
       <div class="filter-row">
-        <input class="filter-input" type="text" id="name-search" placeholder="Sök namn/ticker..." oninput="renderScreener()">
-        <select class="filter-input" id="sort-select" onchange="renderScreener()" style="width:140px">
+        <input class="filter-input" type="text" id="name-search" placeholder="Filtrera sidan..." oninput="paintScreener()">
+        <select class="filter-input" id="sort-select" onchange="paintScreener()" style="width:160px">
           <option value="mcap">Sortera: Mkt cap</option>
           <option value="ytd">Sortera: ÅTD %</option>
           <option value="pe">Sortera: P/E</option>
@@ -368,6 +370,11 @@
             <tbody id="screener-tbody"></tbody>
           </table>
         </div>
+      </div>
+      <div class="filter-row" id="screener-pager" style="justify-content:space-between;align-items:center;margin-top:12px">
+        <button class="ghost-btn" id="pg-prev" onclick="screenerPrev()">◀ Föregående</button>
+        <span id="pg-info" style="font-size:13px;color:var(--text2)"></span>
+        <button class="ghost-btn" id="pg-next" onclick="screenerNext()">Nästa ▶</button>
       </div>
       <div class="bar-bottom">
         <span style="font-size:13px;color:var(--text2)"><span id="sel-count" style="color:var(--text);font-weight:600">0</span> valda</span>
@@ -509,7 +516,13 @@ let currentTicker = null;
 let currentStockName = null;
 let currentPriceChart = null;
 let currentPeriod = '1y';
-let screenerSel = new Set();
+let screenerSel = new Set();       // valda tickers
+let screenerSelMeta = {};          // ticker -> objekt (för jämför/analys, även över sidor)
+let screenerResults = [];          // aktuell sidas resultat från Yahoo
+let screenerPage = 0;
+let screenerTotal = 0;
+const SCREENER_SIZE = 25;
+let screenerLoading = false;
 let compareList = [];
 let currentStockMeta = {};
 let currentIsFund = false;
@@ -636,7 +649,6 @@ async function refreshLivePrices() {
     });
     if(changed) {
       if(currentSection === 'dashboard') renderDashboard();
-      if(currentSection === 'screener') renderScreener();
       updateWatchlistPrices();
     }
   } catch(e) { /* behåll hårdkodade värden om Yahoo strular */ }
@@ -731,53 +743,163 @@ function renderSectorChart() {
 }
 
 // ══════════ SCREENER ══════════
+// Mappning från svenska filterknappar till Yahoos sektor-/industri-taxonomi.
+const SECTOR_MAP = {
+  'Teknik':     { sector: 'Technology' },
+  'Halvledare': { industry: 'Semiconductors' },
+  'Hälsovård':  { sector: 'Healthcare' },
+  'Finans':     { sector: 'Financial Services' },
+  'Industri':   { sector: 'Industrials' },
+  'Energi':     { sector: 'Energy' },
+  'Konsument':  { sector: 'Consumer Cyclical' },
+  'Försvar':    { industry: 'Aerospace & Defense' },
+};
+const REGION_FLAGS = { us:'🇺🇸', se:'🇸🇪', gb:'🇬🇧', de:'🇩🇪', fr:'🇫🇷', no:'🇳🇴', dk:'🇩🇰', jp:'🇯🇵' };
+
 function setFilter(el, type) {
   const group = type === 'region' ? '#region-filters' : '#sector-filters';
   document.querySelectorAll(group + ' .filter-chip').forEach(c=>c.classList.remove('on'));
   el.classList.add('on');
   if(type==='region') activeRegion = el.dataset.r;
   else activeSector = el.dataset.s;
-  renderScreener();
+  screenerPage = 0;
+  loadScreener();
 }
 
-function renderScreener() {
-  const q = document.getElementById('name-search').value.toLowerCase();
-  const sortBy = document.getElementById('sort-select').value;
-  let rows = stocks.filter(s => {
-    if(activeRegion !== 'alla' && s.r !== activeRegion) return false;
-    if(activeSector !== 'alla' && s.sektor !== activeSector) return false;
-    if(q && !s.name.toLowerCase().includes(q) && !s.ticker.toLowerCase().includes(q)) return false;
-    return true;
+// Hämta YTD + senaste kurs för en lista tickers via spark (chunkat, Yahoo klarar ~20/anrop).
+async function fetchSparkPrices(symbols) {
+  const out = {};
+  const CHUNK = 15;
+  const chunks = [];
+  for(let i=0;i<symbols.length;i+=CHUNK) chunks.push(symbols.slice(i,i+CHUNK));
+  const responses = await Promise.all(chunks.map(c =>
+    fetchYahoo(`https://query1.finance.yahoo.com/v7/finance/spark?symbols=${encodeURIComponent(c.join(','))}&range=ytd&interval=1d`).catch(()=>null)
+  ));
+  responses.forEach(data => {
+    const results = (data && data.spark && data.spark.result) || [];
+    results.forEach(r => {
+      const resp = r.response && r.response[0]; if(!resp) return;
+      const meta = resp.meta || {};
+      const closes = ((resp.indicators && resp.indicators.quote[0] && resp.indicators.quote[0].close) || []).filter(v=>v!=null);
+      const price = meta.regularMarketPrice != null ? meta.regularMarketPrice : (closes.length ? closes[closes.length-1] : null);
+      if(price == null) return;
+      let ytd = null;
+      if(closes.length > 1) { const y = ((price-closes[0])/closes[0])*100; if(isFinite(y)) ytd = +y.toFixed(1); }
+      out[r.symbol] = { price, ytd, currency: meta.currency };
+    });
   });
-  rows.sort((a,b) => sortBy==='name'?a.name.localeCompare(b.name,'sv'):sortBy==='ytd'?(b.ytd-a.ytd):sortBy==='pe'?(a.pe-b.pe):sortBy==='div'?(b.div-a.div):(b.mcap-a.mcap));
+  return out;
+}
+
+async function loadScreener() {
+  if(screenerLoading) return;
+  screenerLoading = true;
   const tbody = document.getElementById('screener-tbody');
-  tbody.innerHTML = rows.map(s => {
-    const idx = stocks.indexOf(s);
-    const sel = screenerSel.has(idx);
-    const [bg, tc] = sectorColors[s.sektor] || ['rgba(100,100,100,0.15)','#888'];
-    return `<tr class="${sel?'selected':''}" onclick="toggleScreenerRow(${idx})">
-      <td><div class="chk ${sel?'on':''}">${sel?'✓':''}</div></td>
-      <td><div class="td-name">${s.flag} ${s.name}</div><div class="td-ticker">${s.ticker}</div></td>
-      <td style="color:var(--text2);font-size:12px">${s.r.toUpperCase()}</td>
-      <td><span class="sector-pill" style="background:${bg};color:${tc}">${s.sektor}</span></td>
-      <td style="text-align:right" class="td-mono">${s.kurs}</td>
-      <td style="text-align:right;color:${s.ytd>=0?'var(--green)':'var(--red)'}" class="td-mono">${s.ytd>=0?'+':''}${s.ytd.toFixed(1)}%</td>
-      <td style="text-align:right" class="td-mono">${s.pe?s.pe.toFixed(1):'–'}</td>
-      <td style="text-align:right" class="td-mono">${s.div>0?s.div.toFixed(1)+'%':'–'}</td>
-      <td style="text-align:right;color:var(--text2);font-size:12px">${s.mcap>=1000?(s.mcap/1000).toFixed(1)+'T':'$'+s.mcap+'B'}</td>
-      <td><button onclick="event.stopPropagation();loadStock('${s.ticker}','${s.name}')" style="background:none;border:1px solid var(--border2);color:var(--text2);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer">Detalj</button></td>
-    </tr>`;
-  }).join('');
+  tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text2)">Hämtar aktier…</td></tr>`;
+  document.getElementById('pg-info').textContent = '';
+  try {
+    const map = activeSector !== 'alla' ? (SECTOR_MAP[activeSector] || {}) : {};
+    const params = new URLSearchParams();
+    if(map.sector) params.set('sector', map.sector);
+    if(map.industry) params.set('industry', map.industry);
+    if(activeRegion !== 'alla') params.set('region', activeRegion);
+    params.set('offset', screenerPage * SCREENER_SIZE);
+    params.set('size', SCREENER_SIZE);
+    const res = await fetch(`/.netlify/functions/screener?${params.toString()}`);
+    const data = await res.json();
+    const result = data && data.finance && data.finance.result && data.finance.result[0];
+    const quotes = (result && result.quotes) || [];
+    screenerTotal = (result && result.total) || 0;
+    screenerResults = quotes.map(q => ({
+      name: q.shortName || q.longName || q.symbol,
+      ticker: q.symbol,
+      r: (q.region || activeRegion || '').toString().toLowerCase(),
+      sektor: activeSector !== 'alla' ? activeSector : (q.sector || 'Aktie'),
+      kurs: q.regularMarketPrice != null ? fmtPrice(q.regularMarketPrice, q.currency) : '–',
+      ytd: null,
+      pe: q.trailingPE != null ? +q.trailingPE.toFixed(1) : null,
+      div: q.trailingAnnualDividendYield != null ? +(q.trailingAnnualDividendYield*100).toFixed(1)
+           : (q.dividendYield != null ? +q.dividendYield.toFixed(1) : 0),
+      mcap: q.marketCap != null ? Math.round(q.marketCap/1e9) : null,
+      flag: REGION_FLAGS[(q.region||'').toLowerCase()] || REGION_FLAGS[activeRegion] || '🏳️'
+    }));
+    paintScreener();
+    // Berika med riktig ÅTD (och färsk kurs) via spark – separat anrop, uppdatera sen.
+    const syms = screenerResults.map(s=>s.ticker);
+    if(syms.length) {
+      const prices = await fetchSparkPrices(syms);
+      screenerResults.forEach(s => {
+        const p = prices[s.ticker];
+        if(p) { if(p.ytd != null) s.ytd = p.ytd; if(p.price != null) s.kurs = fmtPrice(p.price, p.currency); }
+      });
+      paintScreener();
+    }
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--red)">Kunde inte hämta aktier just nu. Försök igen.</td></tr>`;
+  } finally {
+    screenerLoading = false;
+  }
+}
+
+// Bakåtkompatibelt namn (kallas från navigation/init).
+function renderScreener() { loadScreener(); }
+
+function paintScreener() {
+  const q = (document.getElementById('name-search').value || '').toLowerCase().trim();
+  const sortBy = document.getElementById('sort-select').value;
+  let rows = screenerResults.filter(s => !q || s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q));
+  rows.sort((a,b) =>
+    sortBy==='name' ? a.name.localeCompare(b.name,'sv')
+    : sortBy==='ytd' ? ((b.ytd!=null?b.ytd:-999)-(a.ytd!=null?a.ytd:-999))
+    : sortBy==='pe' ? ((a.pe!=null?a.pe:1e9)-(b.pe!=null?b.pe:1e9))
+    : sortBy==='div' ? ((b.div||0)-(a.div||0))
+    : ((b.mcap||0)-(a.mcap||0))
+  );
+  const tbody = document.getElementById('screener-tbody');
+  if(!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text2)">Inga aktier matchar.</td></tr>`;
+  } else {
+    tbody.innerHTML = rows.map(s => {
+      const sel = screenerSel.has(s.ticker);
+      const [bg, tc] = sectorColors[s.sektor] || ['rgba(100,100,100,0.15)','#888'];
+      return `<tr class="${sel?'selected':''}" onclick="toggleScreenerRow('${escQuote(s.ticker)}')">
+        <td><div class="chk ${sel?'on':''}">${sel?'✓':''}</div></td>
+        <td><div class="td-name">${s.flag} ${escHtml(s.name)}</div><div class="td-ticker">${escHtml(s.ticker)}</div></td>
+        <td style="color:var(--text2);font-size:12px">${(s.r||'').toUpperCase()}</td>
+        <td><span class="sector-pill" style="background:${bg};color:${tc}">${escHtml(s.sektor)}</span></td>
+        <td style="text-align:right" class="td-mono">${s.kurs}</td>
+        <td style="text-align:right;color:${(s.ytd||0)>=0?'var(--green)':'var(--red)'}" class="td-mono">${s.ytd!=null?((s.ytd>=0?'+':'')+s.ytd.toFixed(1)+'%'):'…'}</td>
+        <td style="text-align:right" class="td-mono">${s.pe!=null?s.pe.toFixed(1):'–'}</td>
+        <td style="text-align:right" class="td-mono">${s.div>0?s.div.toFixed(1)+'%':'–'}</td>
+        <td style="text-align:right;color:var(--text2);font-size:12px">${s.mcap!=null?(s.mcap>=1000?(s.mcap/1000).toFixed(1)+'T':s.mcap+'B'):'–'}</td>
+        <td><button onclick="event.stopPropagation();loadStock('${escQuote(s.ticker)}','${escQuote(s.name)}')" style="background:none;border:1px solid var(--border2);color:var(--text2);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer">Detalj</button></td>
+      </tr>`;
+    }).join('');
+  }
+  const totalPages = Math.max(1, Math.ceil(screenerTotal / SCREENER_SIZE));
+  const from = screenerTotal ? screenerPage*SCREENER_SIZE+1 : 0;
+  const to = Math.min(screenerTotal, (screenerPage+1)*SCREENER_SIZE);
+  document.getElementById('pg-info').textContent = screenerTotal
+    ? `${from}–${to} av ${screenerTotal.toLocaleString('sv-SE')} · Sida ${screenerPage+1}/${totalPages}`
+    : '';
+  document.getElementById('pg-prev').disabled = screenerPage <= 0;
+  document.getElementById('pg-next').disabled = (screenerPage+1) >= totalPages;
   updateSelBar();
 }
 
-function toggleScreenerRow(idx) {
-  if(screenerSel.has(idx)) screenerSel.delete(idx);
-  else screenerSel.add(idx);
-  renderScreener();
+function screenerPrev() { if(screenerPage>0){ screenerPage--; loadScreener(); } }
+function screenerNext() {
+  const totalPages = Math.ceil(screenerTotal / SCREENER_SIZE);
+  if(screenerPage+1 < totalPages){ screenerPage++; loadScreener(); }
 }
 
-function clearScreenerSel() { screenerSel.clear(); renderScreener(); }
+function toggleScreenerRow(ticker) {
+  if(screenerSel.has(ticker)) { screenerSel.delete(ticker); delete screenerSelMeta[ticker]; }
+  else { screenerSel.add(ticker); const m = screenerResults.find(s=>s.ticker===ticker); if(m) screenerSelMeta[ticker] = m; }
+  paintScreener();
+}
+
+function clearScreenerSel() { screenerSel.clear(); screenerSelMeta = {}; paintScreener(); }
 
 function updateSelBar() {
   const n = screenerSel.size;
@@ -787,8 +909,9 @@ function updateSelBar() {
 }
 
 function analyzeSelected() {
-  const names = [...screenerSel].map(i=>stocks[i].name);
-  const tickers = [...screenerSel].map(i=>stocks[i].ticker);
+  const sel = [...screenerSel].map(t=>screenerSelMeta[t]).filter(Boolean);
+  const names = sel.map(s=>s.name);
+  const tickers = sel.map(s=>s.ticker);
   openAI();
   const prompt = names.length === 1
     ? `Analysera ${names[0]} (${tickers[0]}) – ge mig nyckeltal, styrkor, risker och en sammanfattande bedömning.`
@@ -897,8 +1020,8 @@ async function loadFundChart(orderBookId, period) {
 
 // ══════════ COMPARE ══════════
 function compareSelected() {
-  [...screenerSel].forEach(i=>{
-    const s = stocks[i];
+  [...screenerSel].forEach(t=>{
+    const s = screenerSelMeta[t];
     if(s && compareList.length < 5 && !compareList.some(c=>c.ticker===s.ticker)) compareList.push(s);
   });
   showSection('compare');
@@ -1554,9 +1677,9 @@ function removeFromWatchlist(id) {
 
 // ══════════ INIT ══════════
 renderDashboard();
-renderScreener();
 renderWatchlist();
 initAuth();
+// Screenern laddas först när man öppnar fliken (showSection('screener') → renderScreener)
 
 // Hämta live-priser direkt och uppdatera listorna var 60:e sekund
 refreshLivePrices();
