@@ -602,29 +602,37 @@ const livePrices = {};
 async function refreshLivePrices() {
   try {
     const watchTickers = getWatchlist().filter(w=>!w.isFund).map(w=>w.id);
-    const symbols = [...new Set([...stocks.map(s=>s.ticker), ...watchTickers])].join(',');
-    const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${encodeURIComponent(symbols)}&range=ytd&interval=1d`;
-    const data = await fetchYahoo(url);
-    const results = (data.spark && data.spark.result) || [];
+    const allSymbols = [...new Set([...stocks.map(s=>s.ticker), ...watchTickers])];
+    // Yahoos spark-endpoint klarar bara ~20 symboler per anrop – dela upp i bitar.
+    const CHUNK = 15;
+    const chunks = [];
+    for(let i=0; i<allSymbols.length; i+=CHUNK) chunks.push(allSymbols.slice(i, i+CHUNK));
+    const responses = await Promise.all(chunks.map(c => {
+      const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${encodeURIComponent(c.join(','))}&range=ytd&interval=1d`;
+      return fetchYahoo(url).catch(() => null); // en trasig bit ska inte slå ut de andra
+    }));
     let changed = false;
-    results.forEach(r => {
-      const resp = r.response && r.response[0];
-      if(!resp) return;
-      const meta = resp.meta || {};
-      const closes = ((resp.indicators && resp.indicators.quote[0] && resp.indicators.quote[0].close) || []).filter(v=>v!=null);
-      const price = meta.regularMarketPrice != null ? meta.regularMarketPrice : (closes.length ? closes[closes.length-1] : null);
-      if(price == null) return;
-      let ytd = null;
-      if(closes.length > 1) {
-        const y = ((price - closes[0]) / closes[0]) * 100;
-        if(isFinite(y)) ytd = +y.toFixed(1);
-      }
-      const stock = stocks.find(s=>s.ticker === r.symbol);
-      // behåll tidigare YTD om Yahoo inte gav nog historik
-      const effYtd = ytd != null ? ytd : (stock ? stock.ytd : 0);
-      livePrices[r.symbol] = { kurs: fmtPrice(price, meta.currency), ytd: effYtd };
-      if(stock) { stock.kurs = livePrices[r.symbol].kurs; if(ytd != null) stock.ytd = ytd; }
-      changed = true;
+    responses.forEach(data => {
+      const results = (data && data.spark && data.spark.result) || [];
+      results.forEach(r => {
+        const resp = r.response && r.response[0];
+        if(!resp) return;
+        const meta = resp.meta || {};
+        const closes = ((resp.indicators && resp.indicators.quote[0] && resp.indicators.quote[0].close) || []).filter(v=>v!=null);
+        const price = meta.regularMarketPrice != null ? meta.regularMarketPrice : (closes.length ? closes[closes.length-1] : null);
+        if(price == null) return;
+        let ytd = null;
+        if(closes.length > 1) {
+          const y = ((price - closes[0]) / closes[0]) * 100;
+          if(isFinite(y)) ytd = +y.toFixed(1);
+        }
+        const stock = stocks.find(s=>s.ticker === r.symbol);
+        // behåll tidigare YTD om Yahoo inte gav nog historik
+        const effYtd = ytd != null ? ytd : (stock ? stock.ytd : 0);
+        livePrices[r.symbol] = { kurs: fmtPrice(price, meta.currency), ytd: effYtd };
+        if(stock) { stock.kurs = livePrices[r.symbol].kurs; if(ytd != null) stock.ytd = ytd; }
+        changed = true;
+      });
     });
     if(changed) {
       if(currentSection === 'dashboard') renderDashboard();
