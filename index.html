@@ -956,16 +956,15 @@ function renderScreener() { loadScreener(); }
 function paintScreener() {
   const q = (document.getElementById('name-search').value || '').toLowerCase().trim();
   let rows = screenerResults.filter(s => !q || s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q));
-  // Sidlokal sortering för kolumner Yahoo inte kan sortera globalt (ÅTD/Bolag/Marknad/Sektor).
-  const serverSorted = COL_DEFS[sortCol] && COL_DEFS[sortCol].sortField;
-  if(!serverSorted) {
-    const def = sortCol === 'name' ? { val:s=>s.name } : COL_DEFS[sortCol];
-    if(def) rows = rows.slice().sort((a,b) => {
-      const va = def.val(a), vb = def.val(b);
-      if(typeof va === 'string') { const c = va.localeCompare(vb,'sv'); return sortDir==='desc'?-c:c; }
-      return sortDir==='desc' ? (vb-va) : (va-vb);
-    });
-  }
+  // Servern väljer vilka aktier som hamnar på sidan (globalt). Här ordnar vi sidan exakt efter
+  // det VISADE värdet, så ordningen alltid matchar siffrorna (t.ex. P/E där Yahoos sorteringsfält
+  // skiljer sig från det P/E-tal vi visar).
+  const def = sortCol === 'name' ? { val:s=>s.name } : COL_DEFS[sortCol];
+  if(def && def.val) rows = rows.slice().sort((a,b) => {
+    const va = def.val(a), vb = def.val(b);
+    if(typeof va === 'string') { const c = va.localeCompare(vb,'sv'); return sortDir==='desc'?-c:c; }
+    return sortDir==='desc' ? (vb-va) : (va-vb);
+  });
   const tbody = document.getElementById('screener-tbody');
   if(!rows.length) {
     tbody.innerHTML = `<tr><td colspan="${colspan()}" style="text-align:center;padding:28px;color:var(--text2)">Inga aktier matchar.</td></tr>`;
