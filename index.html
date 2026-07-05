@@ -238,6 +238,7 @@
   .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 10px; font-weight: 500; font-family: var(--mono); }
   .live-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 20px; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); color: var(--green); font-size: 11px; font-weight: 500; vertical-align: middle; margin-left: 10px; }
   .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: livepulse 1.6s infinite; }
+  .update-stamp { font-size: 11px; color: var(--text3); margin-left: 10px; vertical-align: middle; font-weight: 400; }
   @keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
   .error-msg { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fca5a5; margin-bottom: 12px; }
   .info-msg { background: rgba(79,142,247,0.08); border: 1px solid rgba(79,142,247,0.2); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--accent); margin-bottom: 12px; }
@@ -302,12 +303,12 @@
 
     <!-- ── DASHBOARD ── -->
     <div class="section active" id="section-dashboard">
-      <div class="page-title">Marknadsöversikt <span>· 14 juni 2026</span><span class="live-badge"><span class="live-dot"></span>Live · uppdateras var 60:e sek</span></div>
+      <div class="page-title">Marknadsöversikt <span id="dashboard-date">·</span><span class="live-badge"><span class="live-dot"></span>Live · uppdateras var 60:e sek</span><span class="update-stamp" id="stamp-dashboard"></span></div>
       <div class="kpi-row" id="market-kpis">
-        <div class="kpi-card"><div class="kpi-label">S&P 500</div><div class="kpi-value" id="k-sp500">7 431</div><div class="kpi-sub green">+8,4% ÅTD · +0,5% idag</div></div>
-        <div class="kpi-card"><div class="kpi-label">Nasdaq</div><div class="kpi-value" id="k-nasdaq">25 889</div><div class="kpi-sub green">+10,9% ÅTD · +0,3% idag</div></div>
-        <div class="kpi-card"><div class="kpi-label">OMXS30</div><div class="kpi-value" id="k-omxs">3 070</div><div class="kpi-sub red">−1,0% ÅTD · −1,2% idag</div></div>
-        <div class="kpi-card"><div class="kpi-label">USD/SEK</div><div class="kpi-value" id="k-usdsek">9,48</div><div class="kpi-sub muted">EUR/SEK 10,94</div></div>
+        <div class="kpi-card"><div class="kpi-label">S&P 500</div><div class="kpi-value" id="k-sp500">…</div><div class="kpi-sub muted" id="k-sp500-sub">hämtar…</div></div>
+        <div class="kpi-card"><div class="kpi-label">Nasdaq</div><div class="kpi-value" id="k-nasdaq">…</div><div class="kpi-sub muted" id="k-nasdaq-sub">hämtar…</div></div>
+        <div class="kpi-card"><div class="kpi-label">OMXS30</div><div class="kpi-value" id="k-omxs">…</div><div class="kpi-sub muted" id="k-omxs-sub">hämtar…</div></div>
+        <div class="kpi-card"><div class="kpi-label">USD/SEK</div><div class="kpi-value" id="k-usdsek">…</div><div class="kpi-sub muted" id="k-usdsek-sub">hämtar…</div></div>
       </div>
       <div class="grid-2">
         <div class="card">
@@ -327,7 +328,7 @@
 
     <!-- ── SCREENER ── -->
     <div class="section" id="section-screener">
-      <div class="page-title">Aktie­screener <span>· Hela Yahoos aktieuniversum</span><span class="live-badge"><span class="live-dot"></span>Live</span></div>
+      <div class="page-title">Aktie­screener <span>· Hela Yahoos aktieuniversum</span><span class="live-badge"><span class="live-dot"></span>Live</span><span class="update-stamp" id="stamp-screener"></span></div>
       <div class="filter-row" id="region-filters">
         <div class="filter-chip on" data-r="alla" onclick="setFilter(this,'region')">Alla marknader</div>
         <div class="filter-chip" data-r="us" onclick="setFilter(this,'region')">🇺🇸 USA</div>
@@ -441,16 +442,16 @@
 
     <!-- ── MACRO ── -->
     <div class="section" id="section-macro">
-      <div class="page-title">Makro­ekonomi <span>· Globalt läge juni 2026</span></div>
+      <div class="page-title">Makro­ekonomi <span id="macro-date">· Globalt läge</span><span class="update-stamp" id="stamp-macro"></span></div>
       <div class="kpi-row">
-        <div class="kpi-card"><div class="kpi-label">Fed Funds Rate</div><div class="kpi-value amber">4,50%</div><div class="kpi-sub muted">Oförändrad · Wells Fargo: håller</div></div>
-        <div class="kpi-card"><div class="kpi-label">Riksbankens ränta</div><div class="kpi-value amber">2,25%</div><div class="kpi-sub muted">KPIF 1,5% maj 2026</div></div>
-        <div class="kpi-card"><div class="kpi-label">ECB</div><div class="kpi-value amber">2,40%</div><div class="kpi-sub muted">Sänkte i april 2026</div></div>
-        <div class="kpi-card"><div class="kpi-label">Brent råolja</div><div class="kpi-value">$91</div><div class="kpi-sub red">+Iran-oro tyngde marknaden</div></div>
+        <div class="kpi-card"><div class="kpi-label">Fed Funds Rate</div><div class="kpi-value amber" id="r-fed">…</div><div class="kpi-sub muted" id="r-fed-sub">hämtar…</div></div>
+        <div class="kpi-card"><div class="kpi-label">Riksbankens ränta</div><div class="kpi-value amber" id="r-riks">…</div><div class="kpi-sub muted" id="r-riks-sub">hämtar…</div></div>
+        <div class="kpi-card"><div class="kpi-label">ECB</div><div class="kpi-value amber" id="r-ecb">…</div><div class="kpi-sub muted" id="r-ecb-sub">hämtar…</div></div>
+        <div class="kpi-card"><div class="kpi-label">Brent råolja</div><div class="kpi-value" id="m-brent">…</div><div class="kpi-sub muted" id="m-brent-sub">hämtar…</div></div>
       </div>
       <div class="grid-3">
         <div class="card"><div class="card-title">USA</div><div id="macro-usa" style="font-size:12px;line-height:2;color:var(--text2)">BNP-tillväxt: ~2,4% 2026<br>Inflation (CPI): ~2,9% maj<br>Arbetslöshet: 4,2%<br>10-årsränta: 4,48%<br>ISM Manufacturing: 54 (maj)</div></div>
-        <div class="card"><div class="card-title">Sverige</div><div id="macro-se" style="font-size:12px;line-height:2;color:var(--text2)">BNP-tillväxt: återhämtning 2026<br>KPIF: 1,5% maj 2026<br>Riksbanksränta: 2,25%<br>10-årsränta: 2,76%<br>USD/SEK: 9,48</div></div>
+        <div class="card"><div class="card-title">Sverige</div><div id="macro-se" style="font-size:12px;line-height:2;color:var(--text2)">BNP-tillväxt: återhämtning 2026<br>KPIF: 1,5% maj 2026<br>Riksbanksränta: 2,25%<br>10-årsränta: 2,76%<br>USD/SEK: <span id="m-usdsek">9,48</span></div></div>
         <div class="card"><div class="card-title">Geopolitik & risker</div><div id="macro-geo" style="font-size:12px;line-height:2;color:var(--text2)">Iran-USA konflikt · Oljepriser<br>Trump-tullar · Handelskrig<br>NATO-upprustning Europa<br>AI-kapplöpning · Halvledare<br>SpaceX IPO $1,75T (jun 2026)</div></div>
       </div>
       <div class="card">
@@ -527,6 +528,7 @@ let currentStockMeta = {};
 let currentIsFund = false;
 let currentFundId = null;
 let detailRefreshTimer = null;
+let sectorChartInstance = null;
 let activeRegion = 'alla';
 let activeSector = 'alla';
 let aiOpen = false;
@@ -650,7 +652,67 @@ async function refreshLivePrices() {
       if(currentSection === 'dashboard') renderDashboard();
       updateWatchlistPrices();
     }
+    setUpdatedStamp('stamp-dashboard');
   } catch(e) { /* behåll hårdkodade värden om Yahoo strular */ }
+}
+
+// ══════════ MARKNADSDATA VIA YAHOO SPARK ══════════
+// Delad hjälpare: hämtar pris, ÅTD-% och dagsförändring för valfria symboler.
+async function fetchSparkData(symbols) {
+  const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${encodeURIComponent(symbols.join(','))}&range=ytd&interval=1d`;
+  const data = await fetchYahoo(url);
+  const results = (data && data.spark && data.spark.result) || [];
+  const bySym = {};
+  results.forEach(r => {
+    const resp = r.response && r.response[0];
+    if(!resp) return;
+    const meta = resp.meta || {};
+    const closes = ((resp.indicators && resp.indicators.quote[0] && resp.indicators.quote[0].close) || []).filter(v=>v!=null);
+    const price = meta.regularMarketPrice != null ? meta.regularMarketPrice : (closes.length ? closes[closes.length-1] : null);
+    if(price == null) return;
+    const prev = meta.previousClose != null ? meta.previousClose : meta.chartPreviousClose;
+    const ytd = closes.length ? ((price - closes[0]) / closes[0]) * 100 : null;
+    const day = prev ? ((price - prev) / prev) * 100 : null;
+    bySym[r.symbol] = { price, ytd, day };
+  });
+  return bySym;
+}
+
+const fmtSekNum = (n, dec) => n.toLocaleString('sv-SE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const fmtSekPct = v => (v>=0?'+':'−') + Math.abs(v).toFixed(1).replace('.', ',') + '%';
+
+// Stämplar "Uppdaterad HH:MM:SS" när en sidas data faktiskt hämtats.
+function setUpdatedStamp(id) {
+  const el = document.getElementById(id);
+  if(el) el.textContent = '· Uppdaterad ' + new Date().toLocaleTimeString('sv-SE');
+}
+
+// ══════════ MARKNADSINDEX (KPI-korten på översikten) ══════════
+async function refreshMarketKpis() {
+  try {
+    const bySym = await fetchSparkData(['^GSPC','^IXIC','^OMX','SEK=X','EURSEK=X']);
+    const fmtNum = fmtSekNum, fmtPct = fmtSekPct;
+    const setIndex = (valId, subId, sym) => {
+      const d = bySym[sym]; if(!d) return;
+      const valEl = document.getElementById(valId), subEl = document.getElementById(subId);
+      if(valEl) valEl.textContent = fmtNum(d.price, 0);
+      if(subEl) {
+        const parts = [];
+        if(d.ytd != null) parts.push(fmtPct(d.ytd) + ' ÅTD');
+        if(d.day != null) parts.push(fmtPct(d.day) + ' idag');
+        subEl.textContent = parts.join(' · ') || '—';
+        const ref = d.day != null ? d.day : d.ytd;
+        subEl.className = 'kpi-sub ' + (ref == null ? 'muted' : ref >= 0 ? 'green' : 'red');
+      }
+    };
+    setIndex('k-sp500', 'k-sp500-sub', '^GSPC');
+    setIndex('k-nasdaq', 'k-nasdaq-sub', '^IXIC');
+    setIndex('k-omxs', 'k-omxs-sub', '^OMX');
+    const usd = bySym['SEK=X'], eur = bySym['EURSEK=X'];
+    if(usd) { const el = document.getElementById('k-usdsek'); if(el) el.textContent = fmtNum(usd.price, 2); }
+    if(eur) { const el = document.getElementById('k-usdsek-sub'); if(el) el.textContent = 'EUR/SEK ' + fmtNum(eur.price, 2); }
+    setUpdatedStamp('stamp-dashboard');
+  } catch(e) { /* behåll föregående värden om Yahoo strular */ }
 }
 
 function updateWatchlistPrices() {
@@ -699,6 +761,8 @@ function showSection(s) {
 
 // ══════════ DASHBOARD ══════════
 function renderDashboard() {
+  const dateEl = document.getElementById('dashboard-date');
+  if(dateEl) dateEl.textContent = '· ' + new Date().toLocaleDateString('sv-SE', {day:'numeric', month:'long', year:'numeric'});
   const usaList = document.getElementById('top-usa-list');
   const nordicList = document.getElementById('top-nordic-list');
   const usa = stocks.filter(s=>s.r==='usa').sort((a,b)=>b.mcap-a.mcap).slice(0,7);
@@ -732,7 +796,8 @@ function renderSectorChart() {
   const avgs = labels.map(l => { const arr=sectorData[l]; return +(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1); });
   const colors = labels.map(l => (sectorColors[l]||['rgba(100,100,100,0.2)','#666'])[1]);
   const ctx = document.getElementById('sectorChart').getContext('2d');
-  new Chart(ctx, {
+  if(sectorChartInstance) sectorChartInstance.destroy(); // undvik "Canvas already in use" när översikten ritas om var 60:e sek
+  sectorChartInstance = new Chart(ctx, {
     type: 'bar',
     data: { labels, datasets: [{ data: avgs, backgroundColor: colors.map(c=>c+'44'), borderColor: colors, borderWidth: 1.5, borderRadius: 4 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
@@ -943,6 +1008,7 @@ async function loadScreener() {
       });
       paintScreener();
     }
+    setUpdatedStamp('stamp-screener');
   } catch(e) {
     tbody.innerHTML = `<tr><td colspan="${colspan()}" style="text-align:center;padding:28px;color:var(--red)">Kunde inte hämta aktier just nu. Försök igen.</td></tr>`;
   } finally {
@@ -1265,6 +1331,7 @@ async function loadStockQuote(ticker, name) {
       `<span class="meta-pill">Volym: ${(meta.regularMarketVolume||0).toLocaleString('sv-SE')}</span>`,
       yr52hi?`<span class="meta-pill">52v Hög: ${yr52hi.toFixed(2)}</span>`:'',
       yr52lo?`<span class="meta-pill">52v Låg: ${yr52lo.toFixed(2)}</span>`:'',
+      `<span class="update-stamp">Uppdaterad ${new Date().toLocaleTimeString('sv-SE')}</span>`,
     ].join('');
     const kpis = [
       {l:'Senaste kurs',v: price.toFixed(2)+' '+currency},
@@ -1365,22 +1432,87 @@ function aiAnalyzeStock() {
 }
 
 // ══════════ MACRO CHART ══════════
-function renderMacro() {
+// MSCI EM/EAFE saknar rena index-tickers hos Yahoo – ETF:erna EEM/EFA följer dem.
+const MACRO_INDICES = [
+  { label:'S&P 500',   sym:'^GSPC',  fallback:8.4 },
+  { label:'Nasdaq',    sym:'^IXIC',  fallback:10.9 },
+  { label:'Dow Jones', sym:'^DJI',   fallback:6.6 },
+  { label:'MSCI EM',   sym:'EEM',    fallback:22.0 },
+  { label:'MSCI EAFE', sym:'EFA',    fallback:7.9 },
+  { label:'OMXS30',    sym:'^OMX',   fallback:-1.0 },
+  { label:'DAX',       sym:'^GDAXI', fallback:11.2 },
+  { label:'FTSE 100',  sym:'^FTSE',  fallback:4.7 },
+];
+let macroChartInstance = null;
+
+function drawMacroChart(labels, values) {
   const ctx = document.getElementById('macroChart');
   if(!ctx) return;
-  new Chart(ctx.getContext('2d'), {
+  if(macroChartInstance) macroChartInstance.destroy(); // undvik "Canvas already in use" vid omritning
+  macroChartInstance = new Chart(ctx.getContext('2d'), {
     type: 'bar',
     data: {
-      labels: ['S&P 500','Nasdaq','Dow Jones','MSCI EM','MSCI EAFE','OMXS30','DAX','FTSE 100'],
-      datasets: [{ data: [8.4,10.9,6.6,22.0,7.9,-1.0,11.2,4.7],
-        backgroundColor: [8.4,10.9,6.6,22.0,7.9,-1.0,11.2,4.7].map(v=>v>=0?'rgba(34,197,94,0.25)':'rgba(239,68,68,0.25)'),
-        borderColor: [8.4,10.9,6.6,22.0,7.9,-1.0,11.2,4.7].map(v=>v>=0?'#22c55e':'#ef4444'),
+      labels,
+      datasets: [{ data: values,
+        backgroundColor: values.map(v=>v>=0?'rgba(34,197,94,0.25)':'rgba(239,68,68,0.25)'),
+        borderColor: values.map(v=>v>=0?'#22c55e':'#ef4444'),
         borderWidth: 1.5, borderRadius: 4 }]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
       scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 11 } } },
         y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 11 }, callback: v=>v+'%' } } } }
   });
+}
+
+async function renderMacro() {
+  // Datumstämpel: aktuell månad/år istället för fast "juni 2026"
+  const dateEl = document.getElementById('macro-date');
+  if(dateEl) dateEl.textContent = '· Globalt läge ' + new Date().toLocaleDateString('sv-SE', { month:'long', year:'numeric' });
+
+  // Rita direkt med fallback-siffror så diagrammet syns även innan Yahoo svarat
+  drawMacroChart(MACRO_INDICES.map(i=>i.label), MACRO_INDICES.map(i=>i.fallback));
+
+  try {
+    const bySym = await fetchSparkData([...MACRO_INDICES.map(i=>i.sym), 'BZ=F', 'SEK=X']);
+    const values = MACRO_INDICES.map(i => (bySym[i.sym] && bySym[i.sym].ytd != null) ? +bySym[i.sym].ytd.toFixed(1) : i.fallback);
+    drawMacroChart(MACRO_INDICES.map(i=>i.label), values);
+
+    const brent = bySym['BZ=F'];
+    if(brent) {
+      const valEl = document.getElementById('m-brent'), subEl = document.getElementById('m-brent-sub');
+      if(valEl) valEl.textContent = '$' + fmtSekNum(brent.price, brent.price < 100 ? 2 : 0);
+      if(subEl && brent.day != null) {
+        subEl.textContent = fmtSekPct(brent.day) + ' idag';
+        subEl.className = 'kpi-sub ' + (brent.day >= 0 ? 'green' : 'red');
+      }
+    }
+    const sek = bySym['SEK=X'];
+    if(sek) { const el = document.getElementById('m-usdsek'); if(el) el.textContent = fmtSekNum(sek.price, 2); }
+    setUpdatedStamp('stamp-macro');
+  } catch(e) { /* behåll fallback-siffrorna om Yahoo strular */ }
+  refreshRates();
+}
+
+// Centralbankernas styrräntor via egen Netlify-funktion (nyckelfria källor).
+async function refreshRates() {
+  try {
+    const r = await fetch('/.netlify/functions/rates');
+    const d = await r.json();
+    const dstr = s => s ? new Date(s).toLocaleDateString('sv-SE', { day:'numeric', month:'short' }) : '';
+    const set = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; };
+    if(d.fed) {
+      set('r-fed', fmtSekNum(d.fed.low, 2) + '–' + fmtSekNum(d.fed.high, 2) + '%');
+      set('r-fed-sub', 'EFFR ' + fmtSekNum(d.fed.effr, 2) + '% · ' + dstr(d.fed.date));
+    }
+    if(d.riksbank) {
+      set('r-riks', fmtSekNum(d.riksbank.rate, 2) + '%');
+      set('r-riks-sub', 'Styrränta · ' + dstr(d.riksbank.date));
+    }
+    if(d.ecb) {
+      set('r-ecb', fmtSekNum(d.ecb.rate, 2) + '%');
+      set('r-ecb-sub', 'Huvudränta (MRO)' + (d.ecb.date ? ' · ' + dstr(d.ecb.date) : ''));
+    }
+  } catch(e) { /* behåll fallback-värden om källorna strular */ }
 }
 
 // ══════════ SEARCH ══════════
@@ -1788,7 +1920,8 @@ initAuth();
 
 // Hämta live-priser direkt och uppdatera listorna var 60:e sekund
 refreshLivePrices();
-setInterval(refreshLivePrices, 60000);
+refreshMarketKpis();
+setInterval(() => { refreshLivePrices(); refreshMarketKpis(); }, 60000);
 
 // Kolla om nyckel redan finns sparad sedan tidigare
 const savedKey = getApiKey();
