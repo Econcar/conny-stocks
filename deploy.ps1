@@ -18,7 +18,7 @@ if (-not (git status --porcelain)) {
 Write-Host "Skapar commit: $Message" -ForegroundColor Cyan
 git commit -m $Message
 
-Write-Host "Laddar upp till GitHub (Netlify deployar automatiskt)..." -ForegroundColor Cyan
+Write-Host "Laddar upp till GitHub (Cloudflare Pages deployar automatiskt)..." -ForegroundColor Cyan
 git push
 
-Write-Host "Klart! Sidan uppdateras pa Netlify om ca 30 sekunder." -ForegroundColor Green
+Write-Host "Klart! Sidan uppdateras pa https://conny-stocks.pages.dev om ca 1 minut." -ForegroundColor Green
