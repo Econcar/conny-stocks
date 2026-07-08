@@ -263,6 +263,15 @@
   .signal-meta a { color: var(--text2); text-decoration: none; }
   .signal-meta a:hover { color: var(--accent); text-decoration: underline; }
   .signal-dot { color: var(--text3); }
+  .card-link { float: right; font-size: 11px; color: var(--accent); cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 500; }
+  .card-link:hover { text-decoration: underline; }
+  .dash-news { display: flex; gap: 12px; align-items: flex-start; padding: 10px 2px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .dash-news:last-child { border-bottom: none; }
+  .dash-news:hover { background: rgba(255,255,255,0.02); }
+  .dash-news-imp { font-family: var(--mono); font-size: 15px; font-weight: 600; width: 40px; flex-shrink: 0; text-align: center; }
+  .dash-news-body { flex: 1; min-width: 0; }
+  .dash-news-sum { font-size: 12.5px; line-height: 1.45; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .dash-news-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 10px; color: var(--text3); margin-top: 4px; }
 
   /* ── Scrollbar ── */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -331,6 +340,10 @@
         <div class="kpi-card"><div class="kpi-label">Nasdaq</div><div class="kpi-value" id="k-nasdaq">…</div><div class="kpi-sub muted" id="k-nasdaq-sub">hämtar…</div></div>
         <div class="kpi-card"><div class="kpi-label">OMXS30</div><div class="kpi-value" id="k-omxs">…</div><div class="kpi-sub muted" id="k-omxs-sub">hämtar…</div></div>
         <div class="kpi-card"><div class="kpi-label">USD/SEK</div><div class="kpi-value" id="k-usdsek">…</div><div class="kpi-sub muted" id="k-usdsek-sub">hämtar…</div></div>
+      </div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">Toppnyheter · störst kurspåverkan <span class="card-link" onclick="showSection('signals')">Se alla →</span></div>
+        <div id="dashboard-news-list"><div class="muted" style="font-size:12px">Laddar…</div></div>
       </div>
       <div class="grid-2">
         <div class="card">
@@ -823,6 +836,7 @@ function renderDashboard() {
       </div>
     </div>`).join('');
   renderSectorChart();
+  renderDashboardNews();
 }
 
 function renderSectorChart() {
@@ -1897,6 +1911,7 @@ function initAuth() {
 // Läser färdiga signaler som motorn (schemalagt jobb) skrivit till Supabase.
 // Publik läsning via RLS – funkar även utloggad. Se engine/ och docs/signal-pipeline-spec.md.
 let signalsCache = null;
+let signalsCacheAt = 0;
 const signalFilter = { sent: 'alla', imp: 0 };
 
 function timeAgo(iso) {
@@ -1928,6 +1943,22 @@ function groupSignals(rows) {
   return [...map.values()].map(g => ({ ...g, tickers:[...g.tickers] }));
 }
 
+// Delad, cachad laddning av signaler (3 min) – både Nyheter-vyn och Översikt
+// använder denna, så vi inte dubbel-hämtar när man växlar flik.
+async function loadSignals(force) {
+  if(!cloudEnabled || !sb) return null;
+  if(!force && signalsCache && Date.now() - signalsCacheAt < 180000) return signalsCache;
+  const { data, error } = await sb.from('signals')
+    .select('external_id,url,published_at,source,ticker,sentiment,impact_score,summary')
+    .neq('source', 'demo')
+    .order('published_at', { ascending: false })
+    .limit(300);
+  if(error) throw new Error(error.message);
+  signalsCache = groupSignals(data || []);
+  signalsCacheAt = Date.now();
+  return signalsCache;
+}
+
 async function renderSignals() {
   const list = document.getElementById('signals-list');
   if(!cloudEnabled || !sb) {
@@ -1935,18 +1966,57 @@ async function renderSignals() {
     return;
   }
   list.innerHTML = `<div class="muted" style="padding:20px 4px">Laddar signaler…</div>`;
-  const { data, error } = await sb.from('signals')
-    .select('external_id,url,published_at,source,ticker,sentiment,impact_score,summary')
-    .neq('source', 'demo')
-    .order('published_at', { ascending: false })
-    .limit(300);
-  if(error) {
-    list.innerHTML = `<div class="error-msg">Kunde inte hämta signaler: ${escHtml(error.message)}</div>`;
+  try {
+    await loadSignals(false);
+  } catch(e) {
+    list.innerHTML = `<div class="error-msg">Kunde inte hämta signaler: ${escHtml(e.message)}</div>`;
     return;
   }
-  signalsCache = groupSignals(data || []);
   setUpdatedStamp('stamp-signals');
   applySignalFilters();
+}
+
+// Kompakt topplista på Översikt: de mest kurspåverkande nyheterna.
+async function renderDashboardNews() {
+  const el = document.getElementById('dashboard-news-list');
+  if(!el) return;
+  if(!cloudEnabled || !sb) {
+    el.innerHTML = `<div class="muted" style="font-size:12px">Molnet är inte konfigurerat.</div>`;
+    return;
+  }
+  let all;
+  try {
+    all = await loadSignals(false);
+  } catch(e) {
+    el.innerHTML = `<div class="muted" style="font-size:12px">Kunde inte hämta nyheter.</div>`;
+    return;
+  }
+  const top = (all || [])
+    .slice()
+    .sort((a,b) => (b.impact_score||0) - (a.impact_score||0)
+                || new Date(b.published_at||0) - new Date(a.published_at||0))
+    .slice(0, 4);
+  if(!top.length) {
+    el.innerHTML = `<div class="muted" style="font-size:12px">Inga nyheter ännu – motorn skördar dagligen.</div>`;
+    return;
+  }
+  el.innerHTML = top.map(dashNewsItem).join('');
+}
+
+function dashNewsItem(g) {
+  const col = g.sentiment === 'positiv' ? 'var(--green)' : g.sentiment === 'negativ' ? 'var(--red)' : 'var(--text2)';
+  const imp = g.impact_score == null ? 0 : g.impact_score;
+  const real = g.tickers.filter(Boolean).slice(0, 3);
+  const chips = real.length
+    ? real.map(t => `<span class="ticker-chip" onclick="event.stopPropagation();loadStock('${escQuote(t)}','${escQuote(t)}')">${escHtml(t)}</span>`).join('')
+    : `<span class="ticker-chip macro">Makro</span>`;
+  return `<div class="dash-news" onclick="showSection('signals')">
+    <div class="dash-news-imp" style="color:${col}">${imp.toFixed(2)}</div>
+    <div class="dash-news-body">
+      <div class="dash-news-sum">${escHtml(g.summary || '')}</div>
+      <div class="dash-news-meta">${chips}<span class="signal-dot">·</span><span>${timeAgo(g.published_at)}</span></div>
+    </div>
+  </div>`;
 }
 
 function applySignalFilters() {
