@@ -243,6 +243,27 @@
   .error-msg { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fca5a5; margin-bottom: 12px; }
   .info-msg { background: rgba(79,142,247,0.08); border: 1px solid rgba(79,142,247,0.2); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--accent); margin-bottom: 12px; }
 
+  /* ── Signaler / Nyheter ── */
+  .signal-item { display: flex; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--text3); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; }
+  .signal-item.pos { border-left-color: var(--green); }
+  .signal-item.neg { border-left-color: var(--red); }
+  .signal-item.neu { border-left-color: var(--text3); }
+  .signal-impact { flex-shrink: 0; width: 62px; text-align: center; }
+  .signal-impact-val { font-family: var(--mono); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+  .signal-impact-bar { height: 4px; border-radius: 3px; background: var(--surface2); margin-top: 6px; overflow: hidden; }
+  .signal-impact-bar > i { display: block; height: 100%; border-radius: 3px; }
+  .signal-impact-lbl { font-size: 9px; color: var(--text3); letter-spacing: 0.05em; text-transform: uppercase; margin-top: 5px; }
+  .signal-body { flex: 1; min-width: 0; }
+  .signal-summary { font-size: 13.5px; line-height: 1.5; color: var(--text); margin-bottom: 8px; }
+  .signal-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--text3); }
+  .ticker-chip { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-family: var(--mono); font-weight: 500; background: rgba(79,142,247,0.13); color: var(--accent); border: 1px solid rgba(79,142,247,0.28); cursor: pointer; }
+  .ticker-chip:hover { background: rgba(79,142,247,0.22); }
+  .ticker-chip.macro { background: var(--surface2); color: var(--text2); border-color: var(--border2); cursor: default; }
+  .signal-sent { font-weight: 600; }
+  .signal-meta a { color: var(--text2); text-decoration: none; }
+  .signal-meta a:hover { color: var(--accent); text-decoration: underline; }
+  .signal-dot { color: var(--text3); }
+
   /* ── Scrollbar ── */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -273,6 +294,7 @@
   <div class="nav-section">
     <div class="nav-label">Navigering</div>
     <div class="nav-item active" onclick="showSection('dashboard')"><span class="nav-icon">◈</span> Översikt</div>
+    <div class="nav-item" onclick="showSection('signals')"><span class="nav-icon">✦</span> Nyheter</div>
     <div class="nav-item" onclick="showSection('screener')"><span class="nav-icon">⊞</span> Aktie­screener</div>
     <div class="nav-item" onclick="showSection('detail')" id="nav-detail" style="display:none"><span class="nav-icon">◎</span> <span id="nav-detail-name">Aktiedetalj</span></div>
     <div class="nav-item" onclick="showSection('compare')"><span class="nav-icon">⇄</span> Jämförelse</div>
@@ -324,6 +346,22 @@
         <div class="card-title">Sektorer – ÅTD 2026</div>
         <div class="chart-wrap"><canvas id="sectorChart" role="img" aria-label="Sektorprestanda ÅTD 2026"></canvas></div>
       </div>
+    </div>
+
+    <!-- ── NYHETER / SIGNALER ── -->
+    <div class="section" id="section-signals">
+      <div class="page-title">Nyheter som kan påverka <span id="signals-count">·</span><span class="live-badge"><span class="live-dot"></span>AI-analyserat</span><span class="update-stamp" id="stamp-signals"></span></div>
+      <div class="filter-row">
+        <div class="filter-chip on" data-sent="alla" onclick="setSignalFilter(this,'sent')">Alla</div>
+        <div class="filter-chip" data-sent="positiv" onclick="setSignalFilter(this,'sent')">Positiva</div>
+        <div class="filter-chip" data-sent="negativ" onclick="setSignalFilter(this,'sent')">Negativa</div>
+        <div class="filter-chip" data-sent="neutral" onclick="setSignalFilter(this,'sent')">Neutrala</div>
+        <span style="width:14px"></span>
+        <div class="filter-chip on" data-imp="0" onclick="setSignalFilter(this,'imp')">All påverkan</div>
+        <div class="filter-chip" data-imp="0.3" onclick="setSignalFilter(this,'imp')">Påverkan ≥ 0.3</div>
+        <div class="filter-chip" data-imp="0.5" onclick="setSignalFilter(this,'imp')">Materiellt ≥ 0.5</div>
+      </div>
+      <div id="signals-list"></div>
     </div>
 
     <!-- ── SCREENER ── -->
@@ -754,6 +792,7 @@ function showSection(s) {
   navItems.forEach(el => { if(el.getAttribute('onclick') && el.getAttribute('onclick').includes("'"+s+"'")) el.classList.add('active'); });
   currentSection = s;
   if(s === 'dashboard') renderDashboard();
+  if(s === 'signals') renderSignals();
   if(s === 'screener') renderScreener();
   if(s === 'macro') renderMacro();
   if(s === 'compare') renderCompare();
@@ -1852,6 +1891,122 @@ function initAuth() {
     renderAccountBar();
     if(currentUser) syncWatchlistFromCloud();
   });
+}
+
+// ══════════ SIGNALER / NYHETER ══════════
+// Läser färdiga signaler som motorn (schemalagt jobb) skrivit till Supabase.
+// Publik läsning via RLS – funkar även utloggad. Se engine/ och docs/signal-pipeline-spec.md.
+let signalsCache = null;
+const signalFilter = { sent: 'alla', imp: 0 };
+
+function timeAgo(iso) {
+  if(!iso) return '';
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if(s < 60) return 'nyss';
+  if(s < 3600) return 'för ' + Math.floor(s/60) + ' min sedan';
+  if(s < 86400) return 'för ' + Math.floor(s/3600) + ' tim sedan';
+  const d = Math.floor(s/86400);
+  if(d === 1) return 'igår';
+  if(d < 7) return 'för ' + d + ' dgr sedan';
+  return new Date(iso).toLocaleDateString('sv-SE');
+}
+
+// Slå ihop rader (en per ticker) till en post per artikel.
+function groupSignals(rows) {
+  const map = new Map();
+  for(const r of rows) {
+    const key = r.external_id || r.url || r.summary;
+    let g = map.get(key);
+    if(!g) {
+      g = { key, url:r.url, published_at:r.published_at, source:r.source,
+            sentiment:r.sentiment, summary:r.summary, impact_score:r.impact_score, tickers:new Set() };
+      map.set(key, g);
+    }
+    if(r.ticker) g.tickers.add(r.ticker);
+    if(r.impact_score != null && (g.impact_score == null || r.impact_score > g.impact_score)) g.impact_score = r.impact_score;
+  }
+  return [...map.values()].map(g => ({ ...g, tickers:[...g.tickers] }));
+}
+
+async function renderSignals() {
+  const list = document.getElementById('signals-list');
+  if(!cloudEnabled || !sb) {
+    list.innerHTML = `<div class="info-msg">Molnet är inte konfigurerat, så nyhetssignaler kan inte hämtas.</div>`;
+    return;
+  }
+  list.innerHTML = `<div class="muted" style="padding:20px 4px">Laddar signaler…</div>`;
+  const { data, error } = await sb.from('signals')
+    .select('external_id,url,published_at,source,ticker,sentiment,impact_score,summary')
+    .neq('source', 'demo')
+    .order('published_at', { ascending: false })
+    .limit(300);
+  if(error) {
+    list.innerHTML = `<div class="error-msg">Kunde inte hämta signaler: ${escHtml(error.message)}</div>`;
+    return;
+  }
+  signalsCache = groupSignals(data || []);
+  setUpdatedStamp('stamp-signals');
+  applySignalFilters();
+}
+
+function applySignalFilters() {
+  const list = document.getElementById('signals-list');
+  const countEl = document.getElementById('signals-count');
+  if(!signalsCache) return;
+  if(!signalsCache.length) {
+    list.innerHTML = `<div class="muted" style="padding:20px 4px">Inga signaler ännu. Motorn skördar och analyserar nyheter dagligen 06:00 UTC.</div>`;
+    if(countEl) countEl.textContent = '·';
+    return;
+  }
+  const filtered = signalsCache
+    .filter(g => (signalFilter.sent === 'alla' || g.sentiment === signalFilter.sent)
+              && ((g.impact_score || 0) >= signalFilter.imp))
+    .sort((a,b) => (b.impact_score||0) - (a.impact_score||0)
+                || new Date(b.published_at||0) - new Date(a.published_at||0));
+
+  if(countEl) countEl.textContent = '· ' + filtered.length + ' nyheter';
+  if(!filtered.length) {
+    list.innerHTML = `<div class="muted" style="padding:20px 4px">Inga signaler matchar filtret.</div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(signalCard).join('');
+}
+
+function signalCard(g) {
+  const cls = g.sentiment === 'positiv' ? 'pos' : g.sentiment === 'negativ' ? 'neg' : 'neu';
+  const col = g.sentiment === 'positiv' ? 'var(--green)' : g.sentiment === 'negativ' ? 'var(--red)' : 'var(--text2)';
+  const imp = g.impact_score == null ? 0 : g.impact_score;
+  const sent = g.sentiment ? g.sentiment.charAt(0).toUpperCase() + g.sentiment.slice(1) : '–';
+  const chips = g.tickers.length
+    ? g.tickers.map(t => `<span class="ticker-chip" onclick="loadStock('${escQuote(t)}','${escQuote(t)}')">${escHtml(t)}</span>`).join('')
+    : `<span class="ticker-chip macro">Makro</span>`;
+  const link = g.url ? `<span class="signal-dot">·</span><a href="${escHtml(g.url)}" target="_blank" rel="noopener">Läs mer ↗</a>` : '';
+  return `<div class="signal-item ${cls}">
+    <div class="signal-impact">
+      <div class="signal-impact-val" style="color:${col}">${imp.toFixed(2)}</div>
+      <div class="signal-impact-bar"><i style="width:${Math.round(imp*100)}%;background:${col}"></i></div>
+      <div class="signal-impact-lbl">Påverkan</div>
+    </div>
+    <div class="signal-body">
+      <div class="signal-summary">${escHtml(g.summary || '')}</div>
+      <div class="signal-meta">
+        ${chips}
+        <span class="signal-sent" style="color:${col}">${escHtml(sent)}</span>
+        <span class="signal-dot">·</span><span>${escHtml(g.source || '')}</span>
+        <span class="signal-dot">·</span><span>${timeAgo(g.published_at)}</span>
+        ${link}
+      </div>
+    </div>
+  </div>`;
+}
+
+function setSignalFilter(el, kind) {
+  const attr = kind === 'sent' ? 'data-sent' : 'data-imp';
+  document.querySelectorAll('#section-signals [' + attr + ']').forEach(c => c.classList.remove('on'));
+  el.classList.add('on');
+  if(kind === 'sent') signalFilter.sent = el.getAttribute('data-sent');
+  else signalFilter.imp = parseFloat(el.getAttribute('data-imp'));
+  applySignalFilters();
 }
 
 // ══════════ WATCHLIST ══════════
