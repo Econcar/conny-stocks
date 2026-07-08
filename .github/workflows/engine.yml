@@ -1,0 +1,29 @@
+# Schemalagt jobb: signalpipelinen (motorn).
+# Hämtar data → AI-triage → skriver till Supabase. Se engine/README.md.
+name: signal-engine
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # dagligen 06:00 UTC (~08:00 svensk sommartid)
+  workflow_dispatch: # tillåt manuell körning från Actions-fliken
+    inputs:
+      demo:
+        description: 'Kör demokällan (testar kedjan utan riktig datakälla)'
+        type: boolean
+        default: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20' # global fetch, inga npm-beroenden i motorn
+      - name: Kör motorn
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node engine/run.js ${{ (github.event_name == 'workflow_dispatch' && inputs.demo) && '--demo' || '' }}
