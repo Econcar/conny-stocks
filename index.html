@@ -1010,7 +1010,7 @@ async function loadScreener() {
     params.set('sortType', screenerSortType);
     params.set('offset', screenerPage * SCREENER_SIZE);
     params.set('size', SCREENER_SIZE);
-    const res = await fetch(`/.netlify/functions/screener?${params.toString()}`);
+    const res = await fetch(`/api/screener?${params.toString()}`);
     const data = await res.json();
     const result = data && data.finance && data.finance.result && data.finance.result[0];
     const quotes = (result && result.quotes) || [];
@@ -1329,7 +1329,7 @@ async function loadStock(ticker, name) {
 }
 
 async function fetchYahoo(url) {
-  const proxy = `/.netlify/functions/yahoo?url=${encodeURIComponent(url)}`;
+  const proxy = `/api/yahoo?url=${encodeURIComponent(url)}`;
   const r = await fetch(proxy);
   return await r.json();
 }
@@ -1535,7 +1535,7 @@ async function renderMacro() {
 // Centralbankernas styrräntor via egen Netlify-funktion (nyckelfria källor).
 async function refreshRates() {
   try {
-    const r = await fetch('/.netlify/functions/rates');
+    const r = await fetch('/api/rates');
     const d = await r.json();
     const dstr = s => s ? new Date(s).toLocaleDateString('sv-SE', { day:'numeric', month:'short' }) : '';
     const set = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; };
@@ -1565,12 +1565,12 @@ function escQuote(s) { return String(s).replace(/'/g, "\\'"); }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 async function avanzaGet(path) {
-  const r = await fetch(`/.netlify/functions/avanza?path=${encodeURIComponent(path)}`);
+  const r = await fetch(`/api/avanza?path=${encodeURIComponent(path)}`);
   return await r.json();
 }
 
 async function avanzaSearchFunds(query) {
-  const r = await fetch(`/.netlify/functions/avanza?path=${encodeURIComponent('/_api/search/filtered-search')}`, {
+  const r = await fetch(`/api/avanza?path=${encodeURIComponent('/_api/search/filtered-search')}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, searchFilter: { types: ['FUND'] }, pagination: { from: 0, size: 6 } })
@@ -1744,7 +1744,7 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
 
   try {
     const selectedModel = document.getElementById('model-select')?.value || 'claude-sonnet-4-6';
-    const response = await fetch('/.netlify/functions/claude', {
+    const response = await fetch('/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
       body: JSON.stringify({
@@ -1774,7 +1774,7 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
 // Hämta tillåtna modeller från servern och fyll select
 async function loadModels() {
   try {
-    const res = await fetch('/.netlify/functions/models');
+    const res = await fetch('/api/models');
     const data = await res.json();
     const sel = document.getElementById('model-select');
     sel.innerHTML = '';
