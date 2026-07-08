@@ -155,9 +155,9 @@ Jag missar inte en möjlighet till en bra investering. Jag undviker dåliga inve
 
 | Källa | Vad den ger | Kod |
 |-------|-------------|-----|
-| **Yahoo Finance** (inofficiellt API) | Hela aktieuniversumet via screener, kurser, sektorer/industrier | `netlify/functions/screener.js`, `yahoo.js` |
-| **Avanza** (inofficiellt `_api`) | Svenska fonder: sök, fonddetaljer, graf | `netlify/functions/avanza.js` |
-| **Riksbank/Fed/ECB** | Styrräntor | `netlify/functions/rates.js` |
+| **Yahoo Finance** (inofficiellt API) | Hela aktieuniversumet via screener, kurser, sektorer/industrier | `functions/api/screener.js`, `yahoo.js` |
+| **Avanza** (inofficiellt `_api`) | Svenska fonder: sök, fonddetaljer, graf | `functions/api/avanza.js` |
+| **Riksbank/Fed/ECB** | Styrräntor | `functions/api/rates.js` |
 
 ### Svaret på "var kommer Avanza-datan ifrån?"
 

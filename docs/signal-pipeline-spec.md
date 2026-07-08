@@ -70,7 +70,7 @@ Varje adapter hämtar och normaliserar till det gemensamma dokumentformatet. Pri
 | Makrokalender | Ekonomisk kalender (Trading Economics/Finnhub) | vid release | |
 | Styrräntor | **Befintlig `rates.js`** (Fed/Riksbank/ECB) | timme | Redan byggd — första signalen |
 
-> Ränte-funktionen (`netlify/functions/rates.js`) är alltså redan en av dessa signaler.
+> Ränte-funktionen (`functions/api/rates.js`) är alltså redan en av dessa signaler.
 
 ---
 
