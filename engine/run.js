@@ -11,8 +11,14 @@
 
 const { getSources } = require('./sources');
 const { validateDocument, toSignalRows } = require('./lib/schema');
-const { analyze, MODEL } = require('./lib/anthropic');
+const { analyze, deepAnalyze, TRIAGE_MODEL, DEEP_MODEL } = require('./lib/anthropic');
 const { upsertSignals, recentExternalIds } = require('./lib/store');
+
+// Kaskad (Fas 2): materiella dokument (impact ≥ tröskel) skickas vidare till
+// djupanalys med en starkare modell. Max-taket bundnar kostnaden per varv.
+const DEEP_ENABLED = process.env.ENGINE_DEEP_ENABLED !== 'false';
+const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.5);
+const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 20);
 
 function parseArgs(argv) {
   const args = { demo: false, dry: false, source: null };
@@ -37,10 +43,12 @@ async function main() {
     return;
   }
 
-  console.log(`Motorn startar. Modell: ${MODEL}. Källor: ${sources.map((s) => s.id).join(', ')}${args.dry ? ' [DRY]' : ''}`);
+  const deepInfo = DEEP_ENABLED ? `${DEEP_MODEL} vid impact≥${DEEP_THRESHOLD} (max ${DEEP_MAX})` : 'av';
+  console.log(`Motorn startar. Triage: ${TRIAGE_MODEL}. Djupanalys: ${deepInfo}. Källor: ${sources.map((s) => s.id).join(', ')}${args.dry ? ' [DRY]' : ''}`);
 
   const allRows = [];
   let docCount = 0;
+  let deepCount = 0;
   let errCount = 0;
 
   for (const source of sources) {
@@ -78,13 +86,28 @@ async function main() {
 
     for (const doc of fresh) {
       try {
-        const analysis = await analyze(doc);
-        const rows = toSignalRows(doc, analysis);
+        // Steg 1: triage på allt.
+        let analysis = await analyze(doc);
+        let model = TRIAGE_MODEL;
+
+        // Steg 2: djupanalys om triagen flaggar materiellt (och taket inte nåtts).
+        if (DEEP_ENABLED && (analysis.impact_score || 0) >= DEEP_THRESHOLD && deepCount < DEEP_MAX) {
+          try {
+            analysis = await deepAnalyze(doc);
+            model = DEEP_MODEL;
+            deepCount++;
+          } catch (err) {
+            console.error(`  ⚠ djupanalys föll för ${doc.external_id}, behåller triage: ${err.message}`);
+          }
+        }
+
+        const rows = toSignalRows(doc, analysis, model);
         allRows.push(...rows);
         docCount++;
+        const deep = model === DEEP_MODEL ? ' ⬆djup' : '';
         console.log(
           `  ✓ ${doc.external_id} → ${analysis.sentiment} ` +
-          `impact=${analysis.impact_score} tickers=[${(analysis.tickers || []).join(',')}]`
+          `impact=${analysis.impact_score} tickers=[${(analysis.tickers || []).join(',')}]${deep}`
         );
       } catch (err) {
         console.error(`  ✗ ${doc.external_id}: ${err.message}`);
@@ -103,7 +126,7 @@ async function main() {
     console.log('\nInga rader att skriva.');
   }
 
-  console.log(`Klart. ${docCount} dokument analyserade, ${errCount} fel.`);
+  console.log(`Klart. ${docCount} dokument analyserade (${deepCount} djupanalyserade), ${errCount} fel.`);
   if (errCount && !docCount) process.exit(1); // allt föll → låt jobbet fallera
 }
 

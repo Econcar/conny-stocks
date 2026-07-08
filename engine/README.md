@@ -68,5 +68,8 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
   triage, lagring, schemalagt jobb.
 - **Fas 1 (klar):** första riktiga källan – RSS-finansnyheter – end-to-end, med
   dedup mot redan lagrade signaler.
-- **Fas 2 (nästa):** djupanalys-kaskad (Sonnet/Opus) på materiellt flaggade dokument.
-- **Fas 3:** fler adaptrar (GDELT, SEC EDGAR 8-K, insider/Form 4, analytikerbetyg).
+- **Fas 2 (klar):** djupanalys-kaskad – materiella dokument (impact ≥ `ENGINE_DEEP_THRESHOLD`,
+  default 0.5) skickas vidare till en starkare modell (`ENGINE_DEEP_MODEL`, default Opus 4.8)
+  som fyller `analysis` (rationale) + `model` i signalen. Kräver Fas 2-migrationen
+  (`../supabase-signals-fas2.sql`). Kostnadstak: `ENGINE_DEEP_MAX` (default 20/varv).
+- **Fas 3 (nästa):** fler adaptrar (GDELT, SEC EDGAR 8-K, insider/Form 4, analytikerbetyg).

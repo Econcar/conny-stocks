@@ -1,15 +1,17 @@
-// AI-analyssteget (delat, källoberoende). Triage med Haiku 4.5 – körs på allt.
+// AI-analyssteget (delat, källoberoende). Tvåstegs-kaskad (spec §6.1):
+//   1. Triage – Haiku 4.5, körs på ALLT.
+//   2. Djupanalys – Opus 4.8, bara på materiellt flaggade dokument.
 // Tvingad tool_use ger garanterat parsbar JSON. Prompt caching på den fasta
 // instruktionen (cache_control) → billigt över många dokument.
-// Se docs/signal-pipeline-spec.md §6.
 
-const { ANALYSIS_TOOL } = require('./schema');
+const { ANALYSIS_TOOL, DEEP_ANALYSIS_TOOL } = require('./schema');
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
-const MODEL = process.env.ENGINE_TRIAGE_MODEL || 'claude-haiku-4-5';
+const TRIAGE_MODEL = process.env.ENGINE_TRIAGE_MODEL || 'claude-haiku-4-5';
+const DEEP_MODEL = process.env.ENGINE_DEEP_MODEL || 'claude-opus-4-8';
 
-// Fast instruktion – ligger först med cache_control så den cachas mellan anrop.
-const SYSTEM_PROMPT = [
+// Fasta instruktioner – ligger först med cache_control så de cachas mellan anrop.
+const TRIAGE_SYSTEM = [
   {
     type: 'text',
     text:
@@ -24,9 +26,24 @@ const SYSTEM_PROMPT = [
   }
 ];
 
-// Analysera ett normaliserat dokument. Returnerar analysobjektet
-// (sentiment, impact_score, tickers, sectors, summary, confidence).
-async function analyze(doc) {
+const DEEP_SYSTEM = [
+  {
+    type: 'text',
+    text:
+      'Du är en senior finansanalytiker. Detta dokument har flaggats som ' +
+      'potentiellt materiellt. Gör en fördjupad bedömning: väg in mekanismen ' +
+      '(hur påverkas intäkter/marginaler/värdering), tidshorisont, andra- ' +
+      'ordningens effekter (leverantörer, konkurrenter, sektor) och de största ' +
+      'osäkerheterna. Sätt sentiment, en välkalibrerad impact_score (0–1), ' +
+      'berörda tickers och sektorer, en kort sammanfattning, en fördjupad ' +
+      'analys (fältet analysis), samt confidence. Var ärlig med osäkerhet. ' +
+      'Svara ALLTID genom att anropa verktyget record_deep_analysis.',
+    cache_control: { type: 'ephemeral' }
+  }
+];
+
+// Gemensamt anrop mot Messages API med tvingat tool_use.
+async function runAnalysis(doc, { model, system, tool, maxTokens }) {
   if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY i miljön');
 
   const hint = doc.hint_tickers.length
@@ -45,18 +62,18 @@ async function analyze(doc) {
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      tools: [ANALYSIS_TOOL],
-      tool_choice: { type: 'tool', name: ANALYSIS_TOOL.name },
+      model,
+      max_tokens: maxTokens,
+      system,
+      tools: [tool],
+      tool_choice: { type: 'tool', name: tool.name },
       messages: [{ role: 'user', content: userText }]
     })
   });
 
   if (!res.ok) {
     const detail = await res.text();
-    throw new Error(`Anthropic-anrop misslyckades (${res.status}): ${detail}`);
+    throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${detail}`);
   }
 
   const data = await res.json();
@@ -67,4 +84,14 @@ async function analyze(doc) {
   return toolUse.input;
 }
 
-module.exports = { analyze, MODEL };
+// Steg 1 – triage (Haiku), körs på allt.
+function analyze(doc) {
+  return runAnalysis(doc, { model: TRIAGE_MODEL, system: TRIAGE_SYSTEM, tool: ANALYSIS_TOOL, maxTokens: 1024 });
+}
+
+// Steg 2 – djupanalys (Opus), bara på materiellt flaggade dokument.
+function deepAnalyze(doc) {
+  return runAnalysis(doc, { model: DEEP_MODEL, system: DEEP_SYSTEM, tool: DEEP_ANALYSIS_TOOL, maxTokens: 1536 });
+}
+
+module.exports = { analyze, deepAnalyze, TRIAGE_MODEL, DEEP_MODEL };

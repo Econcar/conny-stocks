@@ -19,6 +19,8 @@ create table if not exists public.signals (
   impact_score numeric,                          -- 0–1, uppskattad kurspåverkan
   summary      text,
   confidence   numeric,                          -- 0–1
+  analysis     text,                             -- fördjupad rationale (djupanalys), annars null
+  model        text,                             -- modell som producerade analysen
   created_at   timestamptz not null default now(),
   -- Idempotens: samma dokument + ticker skrivs bara en gång (upsert).
   unique (source, external_id, ticker)

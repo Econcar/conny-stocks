@@ -56,6 +56,28 @@ const ANALYSIS_TOOL = {
   }
 };
 
+// Djupanalys-verktyget (Fas 2): samma fält som triage + en fördjupad rationale.
+// Körs bara på materiellt flaggade dokument med en starkare modell.
+const DEEP_ANALYSIS_TOOL = {
+  name: 'record_deep_analysis',
+  description:
+    'Registrera en fördjupad analys av en materiell nyhet/händelse. Väg in ' +
+    'mekanism, tidshorisont och osäkerheter innan du bedömer kurspåverkan.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      ...ANALYSIS_TOOL.input_schema.properties,
+      analysis: {
+        type: 'string',
+        description:
+          'Fördjupad svensk analys (2–4 meningar): varför nyheten påverkar kursen, ' +
+          'genom vilken mekanism, ungefärlig tidshorisont och viktigaste osäkerheterna.'
+      }
+    },
+    required: [...ANALYSIS_TOOL.input_schema.required, 'analysis']
+  }
+};
+
 // Validera/normalisera ett adapter-dokument innan analys. Kastar vid trasig input.
 function validateDocument(doc) {
   for (const field of ['source', 'type', 'external_id']) {
@@ -80,7 +102,9 @@ function validateDocument(doc) {
 
 // Expandera ett analyserat dokument till rader för signals-tabellen –
 // en rad per berörd ticker (eller en marknadsbred rad om inga tickers).
-function toSignalRows(doc, analysis) {
+// `model` = modellen som producerade analysen. analysis.analysis (rationale)
+// finns bara från djupanalysen.
+function toSignalRows(doc, analysis, model) {
   const base = {
     source: doc.source,
     type: doc.type,
@@ -90,7 +114,9 @@ function toSignalRows(doc, analysis) {
     sentiment: analysis.sentiment,
     impact_score: clamp01(analysis.impact_score),
     summary: analysis.summary,
-    confidence: clamp01(analysis.confidence)
+    confidence: clamp01(analysis.confidence),
+    analysis: analysis.analysis || null,
+    model: model || null
   };
   const sector = (analysis.sectors && analysis.sectors[0]) || null;
   const tickers = analysis.tickers && analysis.tickers.length ? analysis.tickers : [''];
@@ -103,4 +129,4 @@ function clamp01(n) {
   return Math.max(0, Math.min(1, x));
 }
 
-module.exports = { ANALYSIS_TOOL, validateDocument, toSignalRows };
+module.exports = { ANALYSIS_TOOL, DEEP_ANALYSIS_TOOL, validateDocument, toSignalRows };

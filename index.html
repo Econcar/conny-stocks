@@ -263,6 +263,9 @@
   .signal-meta a { color: var(--text2); text-decoration: none; }
   .signal-meta a:hover { color: var(--accent); text-decoration: underline; }
   .signal-dot { color: var(--text3); }
+  .deep-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 20px; font-size: 10px; font-weight: 600; background: rgba(167,139,250,0.15); color: var(--purple); border: 1px solid rgba(167,139,250,0.35); }
+  .signal-deep { margin: 8px 0; padding: 9px 11px; border-left: 2px solid rgba(167,139,250,0.5); background: rgba(167,139,250,0.06); border-radius: 0 6px 6px 0; font-size: 12.5px; line-height: 1.5; color: var(--text2); }
+  .signal-deep b { color: var(--purple); font-weight: 600; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; display: block; margin-bottom: 3px; }
   .card-link { float: right; font-size: 11px; color: var(--accent); cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 500; }
   .card-link:hover { text-decoration: underline; }
   .dash-news { display: flex; gap: 12px; align-items: flex-start; padding: 10px 2px; border-bottom: 1px solid var(--border); cursor: pointer; }
@@ -1934,9 +1937,11 @@ function groupSignals(rows) {
     let g = map.get(key);
     if(!g) {
       g = { key, url:r.url, published_at:r.published_at, source:r.source,
-            sentiment:r.sentiment, summary:r.summary, impact_score:r.impact_score, tickers:new Set() };
+            sentiment:r.sentiment, summary:r.summary, impact_score:r.impact_score,
+            analysis:r.analysis || null, model:r.model || null, tickers:new Set() };
       map.set(key, g);
     }
+    if(!g.analysis && r.analysis) { g.analysis = r.analysis; g.model = r.model; }
     if(r.ticker) g.tickers.add(r.ticker);
     if(r.impact_score != null && (g.impact_score == null || r.impact_score > g.impact_score)) g.impact_score = r.impact_score;
   }
@@ -1949,7 +1954,7 @@ async function loadSignals(force) {
   if(!cloudEnabled || !sb) return null;
   if(!force && signalsCache && Date.now() - signalsCacheAt < 180000) return signalsCache;
   const { data, error } = await sb.from('signals')
-    .select('external_id,url,published_at,source,ticker,sentiment,impact_score,summary')
+    .select('external_id,url,published_at,source,ticker,sentiment,impact_score,summary,analysis,model')
     .neq('source', 'demo')
     .order('published_at', { ascending: false })
     .limit(300);
@@ -2051,6 +2056,11 @@ function signalCard(g) {
     ? g.tickers.map(t => `<span class="ticker-chip" onclick="loadStock('${escQuote(t)}','${escQuote(t)}')">${escHtml(t)}</span>`).join('')
     : `<span class="ticker-chip macro">Makro</span>`;
   const link = g.url ? `<span class="signal-dot">·</span><a href="${escHtml(g.url)}" target="_blank" rel="noopener">Läs mer ↗</a>` : '';
+  const modelShort = g.model ? g.model.replace('claude-', '').replace(/-\d.*$/, '').replace(/^\w/, c => c.toUpperCase()) : '';
+  const badge = g.analysis ? `<span class="deep-badge">✦ Djupanalys${modelShort ? ' · ' + escHtml(modelShort) : ''}</span>` : '';
+  const deepBlock = g.analysis
+    ? `<div class="signal-deep"><b>Fördjupad analys</b>${escHtml(g.analysis)}</div>`
+    : '';
   return `<div class="signal-item ${cls}">
     <div class="signal-impact">
       <div class="signal-impact-val" style="color:${col}">${imp.toFixed(2)}</div>
@@ -2059,8 +2069,10 @@ function signalCard(g) {
     </div>
     <div class="signal-body">
       <div class="signal-summary">${escHtml(g.summary || '')}</div>
+      ${deepBlock}
       <div class="signal-meta">
         ${chips}
+        ${badge}
         <span class="signal-sent" style="color:${col}">${escHtml(sent)}</span>
         <span class="signal-dot">·</span><span>${escHtml(g.source || '')}</span>
         <span class="signal-dot">·</span><span>${timeAgo(g.published_at)}</span>
