@@ -276,7 +276,9 @@
   .dash-news-sum { font-size: 12.5px; line-height: 1.45; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .dash-news-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 10px; color: var(--text3); margin-top: 4px; }
   .risk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 12px; }
-  .risk-spark-wrap { position: relative; height: 38px; margin-top: 10px; }
+  .risk-card { cursor: pointer; transition: border-color 0.15s; }
+  .risk-card:hover { border-color: var(--border2); }
+  .risk-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 
   /* ── Scrollbar ── */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -525,7 +527,19 @@
       <div class="risk-grid" id="risk-fear"></div>
       <div class="card-title" style="margin:18px 0 10px">Risk på/av &amp; säkra hamnar</div>
       <div class="risk-grid" id="risk-onoff"></div>
-      <div class="info-msg" style="margin-top:14px">Så läser du: <b>VIX/VXN</b> = förväntad börssvängning (högt = rädsla). <b>SKEW</b> = prissatt kraschrisk. Stigande <b>guld</b> och <b>dollar</b> signalerar flykt till säkerhet; <b>koppar</b> och <b>Bitcoin</b> stiger vid riskaptit. Vidgad <b>high yield</b>-nedgång = kreditstress.</div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-title" id="risk-chart-title">VIX · S&amp;P-rädsla</div>
+        <div class="filter-row" style="margin-bottom:10px" id="risk-periods">
+          <div class="filter-chip" onclick="setRiskPeriod(this,'1mo')">1M</div>
+          <div class="filter-chip on" onclick="setRiskPeriod(this,'3mo')">3M</div>
+          <div class="filter-chip" onclick="setRiskPeriod(this,'6mo')">6M</div>
+          <div class="filter-chip" onclick="setRiskPeriod(this,'1y')">1Å</div>
+          <div class="filter-chip" onclick="setRiskPeriod(this,'2y')">2Å</div>
+          <div class="filter-chip" onclick="setRiskPeriod(this,'5y')">5Å</div>
+        </div>
+        <div class="chart-wrap" style="height:300px"><canvas id="riskChart" role="img" aria-label="Riskindikator över tid"></canvas></div>
+      </div>
+      <div class="info-msg" style="margin-top:14px">Klicka på ett kort för att visa det i grafen. Så läser du: <b>VIX/VXN</b> = förväntad börssvängning (högt = rädsla). <b>SKEW</b> = prissatt kraschrisk. Stigande <b>guld</b> och <b>dollar</b> signalerar flykt till säkerhet; <b>koppar</b> och <b>Bitcoin</b> stiger vid riskaptit. Vidgad <b>high yield</b>-nedgång = kreditstress.</div>
     </div>
 
   </div><!-- /content -->
@@ -1572,59 +1586,79 @@ function skewBand(v) {
   return { text:'Hög svansrisk', color:'var(--red)' };
 }
 
-let riskSparks = {};
+const RISK_ALL = [...RISK_FEAR, ...RISK_ONOFF];
+const riskLabel = sym => (RISK_ALL.find(x => x.sym === sym) || {}).label || sym;
+let riskChartInstance = null;
+let currentRiskSym = '^VIX';
+let currentRiskPeriod = '3mo';
 
-function riskCard(def, d, cid) {
-  if(!d) return `<div class="kpi-card"><div class="kpi-label">${def.label}</div><div class="kpi-value muted">–</div><div class="kpi-sub muted">ingen data</div></div>`;
-  const day = d.day;
+// Kompakt, klickbart indikatorkort. Klick väljer indikator för den stora grafen.
+function riskCard(def, d) {
+  const day = d ? d.day : null;
   const dayStr = day != null ? (day>=0?'▲ +':'▼ ') + Math.abs(day).toFixed(1) + '%' : '';
   const dayCls = day == null ? 'muted' : (day>=0 ? 'green' : 'red');
-  const band = def.band ? def.band(d.price) : null;
-  const spark = (d.closes && d.closes.length > 1) ? `<div class="risk-spark-wrap"><canvas id="${cid}"></canvas></div>` : '';
-  return `<div class="kpi-card">
+  const band = (d && def.band) ? def.band(d.price) : null;
+  const sel = def.sym === currentRiskSym ? ' sel' : '';
+  const sub = d
+    ? `<span class="${dayCls}">${dayStr}</span>${band ? ` <span class="muted">· ${band.text}</span>` : ''}`
+    : '<span class="muted">ingen data</span>';
+  return `<div class="kpi-card risk-card${sel}" data-sym="${def.sym}" onclick="selectRiskSym('${def.sym}')">
     <div class="kpi-label">${def.label}</div>
-    <div class="kpi-value"${band ? ` style="color:${band.color}"` : ''}>${def.fmt(d.price)}</div>
-    <div class="kpi-sub"><span class="${dayCls}">${dayStr}</span>${band ? ` <span class="muted">· ${band.text}</span>` : ''}</div>
-    ${spark}
+    <div class="kpi-value"${band ? ` style="color:${band.color}"` : ''}>${d ? def.fmt(d.price) : '–'}</div>
+    <div class="kpi-sub">${sub}</div>
   </div>`;
 }
 
-// Rita en liten trendgraf (ÅTD) för ett kort. Färg efter riktning (upp/ner).
-function makeSpark(cid, closes) {
-  const el = document.getElementById(cid);
-  if(!el) return;
-  const up = closes[closes.length - 1] >= closes[0];
-  const color = up ? '#22c55e' : '#ef4444';
-  riskSparks[cid] = new Chart(el.getContext('2d'), {
-    type: 'line',
-    data: { labels: closes.map(() => ''), datasets: [{ data: closes, borderColor: color, borderWidth: 1.5, backgroundColor: color + '14', fill: true, tension: 0.3, pointRadius: 0 }] },
-    options: { responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: { x: { display: false }, y: { display: false } } }
-  });
+function selectRiskSym(sym) {
+  currentRiskSym = sym;
+  document.querySelectorAll('#section-risk .risk-card').forEach(c => c.classList.toggle('sel', c.getAttribute('data-sym') === sym));
+  document.getElementById('risk-chart-title').textContent = riskLabel(sym);
+  loadRiskChart(sym, currentRiskPeriod);
 }
 
-function renderRiskGroup(elId, defs, bySym) {
-  const el = document.getElementById(elId);
-  el.innerHTML = defs.map((x, i) => riskCard(x, bySym[x.sym], elId + '-' + i)).join('');
-  defs.forEach((x, i) => {
-    const d = bySym[x.sym];
-    if(d && d.closes && d.closes.length > 1) makeSpark(elId + '-' + i, d.closes);
-  });
+function setRiskPeriod(el, period) {
+  document.querySelectorAll('#risk-periods .filter-chip').forEach(c => c.classList.remove('on'));
+  el.classList.add('on');
+  currentRiskPeriod = period;
+  loadRiskChart(currentRiskSym, period);
+}
+
+// Stor graf över vald indikator, med valbar tidsaxel.
+async function loadRiskChart(sym, period) {
+  const rangeMap = {'1mo':'1mo','3mo':'3mo','6mo':'6mo','1y':'1y','2y':'2y','5y':'5y'};
+  const intervalMap = {'1mo':'1d','3mo':'1d','6mo':'1d','1y':'1wk','2y':'1wk','5y':'1mo'};
+  try {
+    const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${intervalMap[period]}&range=${rangeMap[period]}`);
+    const r = data.chart.result[0];
+    const ts = r.timestamp || [];
+    const closes = (r.indicators.quote[0].close || []).map(v => v!=null ? +v.toFixed(2) : null);
+    const labels = ts.map(t => new Date(t*1000).toLocaleDateString('sv-SE', {month:'short', day:'numeric'}));
+    const valid = closes.filter(v => v!=null);
+    const up = valid.length ? valid[valid.length-1] >= valid[0] : true;
+    const color = up ? '#22c55e' : '#ef4444';
+    if(riskChartInstance) riskChartInstance.destroy();
+    riskChartInstance = new Chart(document.getElementById('riskChart').getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets: [{ data: closes, borderColor: color, borderWidth: 2, backgroundColor: color + '18', fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, spanGaps: true }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+        scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, maxTicksLimit: 8 } },
+          y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 } } } } }
+    });
+  } catch(e) {}
 }
 
 async function renderRisk() {
   const fearEl = document.getElementById('risk-fear');
   const onoffEl = document.getElementById('risk-onoff');
   fearEl.innerHTML = onoffEl.innerHTML = `<div class="muted" style="font-size:12px;padding:8px">Hämtar…</div>`;
-  Object.values(riskSparks).forEach(c => c.destroy());
-  riskSparks = {};
   let bySym = {};
   try {
-    bySym = await fetchSparkData([...RISK_FEAR, ...RISK_ONOFF].map(x => x.sym));
+    bySym = await fetchSparkData(RISK_ALL.map(x => x.sym));
   } catch(e) { /* visar "ingen data" per kort nedan */ }
-  renderRiskGroup('risk-fear', RISK_FEAR, bySym);
-  renderRiskGroup('risk-onoff', RISK_ONOFF, bySym);
+  fearEl.innerHTML = RISK_FEAR.map(x => riskCard(x, bySym[x.sym])).join('');
+  onoffEl.innerHTML = RISK_ONOFF.map(x => riskCard(x, bySym[x.sym])).join('');
+  document.getElementById('risk-chart-title').textContent = riskLabel(currentRiskSym);
+  loadRiskChart(currentRiskSym, currentRiskPeriod);
   setUpdatedStamp('stamp-risk');
 }
 
