@@ -62,6 +62,7 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
 | `rss` | Finansnyheter via RSS/Atom (CNBC, MarketWatch m.fl.) | `ENGINE_RSS_FEEDS` (kommaseparerade URL:er), `ENGINE_RSS_MAX_PER_FEED` (15), `ENGINE_RSS_FRESH_HOURS` (48) |
 | `sec_edgar` | Amerikanska 8-K (materiella bolagshändelser) via SEC EDGAR, med dokumenttext, 8-K-punkter och CIK→ticker | `ENGINE_EDGAR_MAX` (20), `ENGINE_EDGAR_FRESH_HOURS` (48), `ENGINE_EDGAR_UA` (SEC-User-Agent) |
 | `sec_insider` | Insidertransaktioner via SEC Form 4 – issuer, ticker, insider/roll och öppna marknadsköp/-sälj (koder P/S) | `ENGINE_INSIDER_MAX` (20), `ENGINE_INSIDER_FRESH_HOURS` (48), `ENGINE_EDGAR_UA` |
+| `gdelt` | Bred global finansnyhets­täckning via GDELT DOC 2.0 (rubriker). Degraderar snyggt vid 429/rate-limit | `ENGINE_GDELT_QUERY` (theme:ECON_STOCKMARKET), `ENGINE_GDELT_TIMESPAN` (1d), `ENGINE_GDELT_MAX` (40) |
 | `demo` | Syntetiskt testdokument (endast med `--demo`) | – |
 
 ## Status
@@ -74,4 +75,4 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
   default 0.5) skickas vidare till en starkare modell (`ENGINE_DEEP_MODEL`, default Opus 4.8)
   som fyller `analysis` (rationale) + `model` i signalen. Kräver Fas 2-migrationen
   (`../supabase-signals-fas2.sql`). Kostnadstak: `ENGINE_DEEP_MAX` (default 20/varv).
-- **Fas 3 (pågår):** fler adaptrar. Klart: **SEC EDGAR 8-K**, **SEC Form 4 (insider)**. Kvar: GDELT, analytikerbetyg.
+- **Fas 3 (pågår):** fler adaptrar. Klart: **SEC EDGAR 8-K**, **SEC Form 4 (insider)**, **GDELT**. Kvar: analytikerbetyg.
