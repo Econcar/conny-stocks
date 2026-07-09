@@ -1618,13 +1618,19 @@ let currentRiskPeriod = '3mo';
 
 // Kompakt, klickbart indikatorkort. Klick väljer indikator för den stora grafen.
 function riskCard(def, d) {
-  const day = d ? d.day : null;
+  // Äkta dagsförändring: aktuellt pris mot föregående stängning. Yahoos spark
+  // saknar previousClose för indexen, så vi räknar från kursserien i stället.
+  let day = null;
+  if(d) {
+    const c = d.closes;
+    day = (c && c.length >= 2) ? ((d.price - c[c.length-2]) / c[c.length-2]) * 100 : d.day;
+  }
   const dayStr = day != null ? (day>=0?'▲ +':'▼ ') + Math.abs(day).toFixed(1) + '%' : '';
   const dayCls = day == null ? 'muted' : (day>=0 ? 'green' : 'red');
   const band = (d && def.band) ? def.band(d.price) : null;
   const sel = def.sym === currentRiskSym ? ' sel' : '';
   const sub = d
-    ? `<span class="${dayCls}">${dayStr}</span>${band ? ` <span class="muted">· ${band.text}</span>` : ''}`
+    ? `<span class="${dayCls}" title="Förändring sedan föregående stängning">${dayStr}</span>${band ? ` <span class="muted">· ${band.text}</span>` : ''}`
     : '<span class="muted">ingen data</span>';
   return `<div class="kpi-card risk-card${sel}" data-sym="${def.sym}" onclick="selectRiskSym('${def.sym}')">
     <div class="kpi-label">${def.label}</div>
