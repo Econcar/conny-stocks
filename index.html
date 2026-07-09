@@ -539,7 +539,31 @@
         </div>
         <div class="chart-wrap" style="height:300px"><canvas id="riskChart" role="img" aria-label="Riskindikator över tid"></canvas></div>
       </div>
-      <div class="info-msg" style="margin-top:14px">Klicka på ett kort för att visa det i grafen. Så läser du: <b>VIX/VXN</b> = förväntad börssvängning (högt = rädsla). <b>SKEW</b> = prissatt kraschrisk. Stigande <b>guld</b> och <b>dollar</b> signalerar flykt till säkerhet; <b>koppar</b> och <b>Bitcoin</b> stiger vid riskaptit. Vidgad <b>high yield</b>-nedgång = kreditstress.</div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">Så tolkar du Riskbarometern</div>
+        <div style="font-size:12.5px;line-height:1.7;color:var(--text2)">
+          <p style="margin:0 0 10px">Barometern visar om marknaden lutar mot <b style="color:var(--red)">rädsla</b> (risk-av – pengar söker säkerhet) eller <b style="color:var(--green)">riskaptit</b> (risk-på – investerare vågar). Klicka på ett kort för att se dess historik i grafen ovan.</p>
+          <div class="grid-2">
+            <div>
+              <div style="color:var(--text);font-weight:600;margin-bottom:5px">Rädsla &amp; volatilitet</div>
+              <b>VIX</b> – förväntad S&amp;P 500-svängning ("skräckindex"):<br>
+              <span style="color:var(--green)">&lt;15 lugnt</span> · 15–20 normalt · <span style="color:var(--amber)">20–30 oro</span> · <span style="color:var(--red)">30–40 rädsla</span> · <span style="color:var(--red)">&gt;40 panik</span><br>
+              <b>VXN</b> – samma för Nasdaq/tech (ligger normalt några punkter högre än VIX).<br>
+              <b>SKEW</b> – prissatt kraschrisk: ~115–125 normalt · <span style="color:var(--amber)">125–140 förhöjd</span> · <span style="color:var(--red)">&gt;140 hög</span> (marknaden köper skydd).
+            </div>
+            <div>
+              <div style="color:var(--text);font-weight:600;margin-bottom:5px">Risk på/av &amp; säkra hamnar</div>
+              <b>Guld</b> ↑ = flykt till säkerhet · ↓ = riskaptit<br>
+              <b>Dollarindex</b> ↑ = global oro/flykt till dollar · ↓ = riskaptit<br>
+              <b>10-årsränta</b> ↑ = tro på tillväxt/inflation (snabba hopp pressar aktier) · ↓ = flykt till obligationer<br>
+              <b>Koppar</b> ("Dr Copper") ↑ = stark konjunktur · ↓ = inbromsning<br>
+              <b>High yield (HYG)</b> ↓ = kreditstress · ↑ = riskaptit<br>
+              <b>Bitcoin</b> ↑ = hög riskaptit · ↓ = risk-av
+            </div>
+          </div>
+          <p style="margin:12px 0 0;padding-top:10px;border-top:1px solid var(--border)"><b style="color:var(--text)">Använd den så:</b> När flera rädsloindikatorer stiger samtidigt som guld och dollar stärks medan koppar, Bitcoin och high yield faller → marknaden är i <b style="color:var(--red)">risk-av</b>-läge. Omvänt = <b style="color:var(--green)">risk-på</b>. Tumregel: <b>extrem rädsla</b> är ofta ett kontrariskt köpläge, <b>extrem girighet</b> en varningssignal.</p>
+        </div>
+      </div>
     </div>
 
   </div><!-- /content -->
