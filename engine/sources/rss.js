@@ -10,7 +10,11 @@ const UA =
 const DEFAULT_FEEDS = [
   'https://www.cnbc.com/id/100003114/device/rss/rss.html', // CNBC Top News
   'https://www.cnbc.com/id/20910258/device/rss/rss.html',  // CNBC Markets
-  'http://feeds.marketwatch.com/marketwatch/topstories/'   // MarketWatch Top Stories
+  'http://feeds.marketwatch.com/marketwatch/topstories/',  // MarketWatch Top Stories
+  'https://finance.yahoo.com/news/rssindex',               // Yahoo Finance
+  'https://feeds.a.dj.com/rss/RSSMarketsMain.xml',         // WSJ Markets
+  'https://www.investing.com/rss/news_25.rss',             // Investing.com (aktiemarknad)
+  'https://www.di.se/rss'                                  // Dagens Industri (svenskt/nordiskt)
 ];
 
 const FEEDS = (process.env.ENGINE_RSS_FEEDS || '')
