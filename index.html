@@ -276,6 +276,7 @@
   .dash-news-sum { font-size: 12.5px; line-height: 1.45; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .dash-news-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 10px; color: var(--text3); margin-top: 4px; }
   .risk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 12px; }
+  .risk-spark { width: 100%; height: 36px; display: block; margin-top: 10px; }
 
   /* ── Scrollbar ── */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -740,7 +741,7 @@ async function fetchSparkData(symbols) {
     const prev = meta.previousClose != null ? meta.previousClose : meta.chartPreviousClose;
     const ytd = closes.length ? ((price - closes[0]) / closes[0]) * 100 : null;
     const day = prev ? ((price - prev) / prev) * 100 : null;
-    bySym[r.symbol] = { price, ytd, day };
+    bySym[r.symbol] = { price, ytd, day, closes };
   });
   return bySym;
 }
@@ -1571,30 +1572,59 @@ function skewBand(v) {
   return { text:'Hög svansrisk', color:'var(--red)' };
 }
 
-function riskCard(def, d) {
+let riskSparks = {};
+
+function riskCard(def, d, cid) {
   if(!d) return `<div class="kpi-card"><div class="kpi-label">${def.label}</div><div class="kpi-value muted">–</div><div class="kpi-sub muted">ingen data</div></div>`;
   const day = d.day;
   const dayStr = day != null ? (day>=0?'▲ +':'▼ ') + Math.abs(day).toFixed(1) + '%' : '';
   const dayCls = day == null ? 'muted' : (day>=0 ? 'green' : 'red');
   const band = def.band ? def.band(d.price) : null;
+  const spark = (d.closes && d.closes.length > 1) ? `<canvas id="${cid}" class="risk-spark"></canvas>` : '';
   return `<div class="kpi-card">
     <div class="kpi-label">${def.label}</div>
     <div class="kpi-value"${band ? ` style="color:${band.color}"` : ''}>${def.fmt(d.price)}</div>
     <div class="kpi-sub"><span class="${dayCls}">${dayStr}</span>${band ? ` <span class="muted">· ${band.text}</span>` : ''}</div>
+    ${spark}
   </div>`;
+}
+
+// Rita en liten trendgraf (ÅTD) för ett kort. Färg efter riktning (upp/ner).
+function makeSpark(cid, closes) {
+  const el = document.getElementById(cid);
+  if(!el) return;
+  const up = closes[closes.length - 1] >= closes[0];
+  const color = up ? '#22c55e' : '#ef4444';
+  riskSparks[cid] = new Chart(el.getContext('2d'), {
+    type: 'line',
+    data: { labels: closes.map(() => ''), datasets: [{ data: closes, borderColor: color, borderWidth: 1.5, backgroundColor: color + '14', fill: true, tension: 0.3, pointRadius: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: { x: { display: false }, y: { display: false } } }
+  });
+}
+
+function renderRiskGroup(elId, defs, bySym) {
+  const el = document.getElementById(elId);
+  el.innerHTML = defs.map((x, i) => riskCard(x, bySym[x.sym], elId + '-' + i)).join('');
+  defs.forEach((x, i) => {
+    const d = bySym[x.sym];
+    if(d && d.closes && d.closes.length > 1) makeSpark(elId + '-' + i, d.closes);
+  });
 }
 
 async function renderRisk() {
   const fearEl = document.getElementById('risk-fear');
   const onoffEl = document.getElementById('risk-onoff');
-  const all = [...RISK_FEAR, ...RISK_ONOFF];
   fearEl.innerHTML = onoffEl.innerHTML = `<div class="muted" style="font-size:12px;padding:8px">Hämtar…</div>`;
+  Object.values(riskSparks).forEach(c => c.destroy());
+  riskSparks = {};
   let bySym = {};
   try {
-    bySym = await fetchSparkData(all.map(x => x.sym));
+    bySym = await fetchSparkData([...RISK_FEAR, ...RISK_ONOFF].map(x => x.sym));
   } catch(e) { /* visar "ingen data" per kort nedan */ }
-  fearEl.innerHTML = RISK_FEAR.map(x => riskCard(x, bySym[x.sym])).join('');
-  onoffEl.innerHTML = RISK_ONOFF.map(x => riskCard(x, bySym[x.sym])).join('');
+  renderRiskGroup('risk-fear', RISK_FEAR, bySym);
+  renderRiskGroup('risk-onoff', RISK_ONOFF, bySym);
   setUpdatedStamp('stamp-risk');
 }
 
