@@ -523,6 +523,7 @@
     <!-- ── RISKBAROMETER ── -->
     <div class="section" id="section-risk">
       <div class="page-title">Riskbarometer <span>· Marknadens rädsla &amp; riskaptit</span><span class="live-badge"><span class="live-dot"></span>Live</span><span class="update-stamp" id="stamp-risk"></span></div>
+      <div class="badge-btn" onclick="aiAnalyzeRisk()" style="margin-bottom:16px;display:inline-flex">✦ AI-sammanvägning av läget</div>
       <div class="card-title" style="margin:2px 0 10px">Rädsla &amp; volatilitet</div>
       <div class="risk-grid" id="risk-fear"></div>
       <div class="card-title" style="margin:18px 0 10px">Risk på/av &amp; säkra hamnar</div>
@@ -1613,6 +1614,7 @@ function skewBand(v) {
 const RISK_ALL = [...RISK_FEAR, ...RISK_ONOFF];
 const riskLabel = sym => (RISK_ALL.find(x => x.sym === sym) || {}).label || sym;
 let riskChartInstance = null;
+let riskBySym = {};
 let currentRiskSym = '^VIX';
 let currentRiskPeriod = '3mo';
 const RISK_RANGE = { '1mo':'1mo', '3mo':'3mo', '6mo':'6mo', '1y':'1y', '2y':'2y', '5y':'5y' };
@@ -1683,8 +1685,30 @@ async function refreshRiskCards() {
   try {
     bySym = await fetchSparkData(RISK_ALL.map(x => x.sym), RISK_RANGE[currentRiskPeriod] || 'ytd');
   } catch(e) { /* visar "ingen data" per kort nedan */ }
+  riskBySym = bySym; // spara för AI-sammanvägningen
   document.getElementById('risk-fear').innerHTML = RISK_FEAR.map(x => riskCard(x, bySym[x.sym])).join('');
   document.getElementById('risk-onoff').innerHTML = RISK_ONOFF.map(x => riskCard(x, bySym[x.sym])).join('');
+}
+
+// Skickar aktuella indikatorvärden till AI:n för en sammanvägd riskbedömning.
+function aiAnalyzeRisk() {
+  const pl = RISK_PLABEL[currentRiskPeriod] || '';
+  const lines = RISK_ALL.map(def => {
+    const d = riskBySym[def.sym];
+    if(!d) return `- ${def.label}: data saknas`;
+    const band = def.band ? def.band(d.price) : null;
+    const chg = (d.closes && d.closes.length >= 2) ? ((d.price - d.closes[0]) / d.closes[0]) * 100 : null;
+    const chgStr = chg != null ? (chg>=0?'+':'') + chg.toFixed(1) + '%' : '–';
+    return `- ${def.label}: ${def.fmt(d.price)}${band ? ` (${band.text})` : ''}, ${pl}: ${chgStr}`;
+  }).join('\n');
+  openAI();
+  const prompt =
+    `Här är aktuella värden från min riskbarometer (förändring visas över ${pl}):\n\n${lines}\n\n` +
+    `Gör en SAMMANVÄGD bedömning av dessa indikatorer tillsammans: lutar marknaden mot ` +
+    `risk-på eller risk-av just nu, och hur starkt? Vilka indikatorer drar åt vilket håll, ` +
+    `och finns det motstridiga signaler? Vad betyder helheten för mig som långsiktig svensk ` +
+    `investerare? Avsluta med en kort, tydlig slutsats i en mening.`;
+  setTimeout(() => sendAIWithText(prompt), 100);
 }
 
 async function renderRisk() {
