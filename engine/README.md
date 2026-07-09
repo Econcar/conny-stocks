@@ -80,3 +80,7 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
   risk-/sentimentindikatorer (`lib/risk.js`) och sparar den i `risk_analysis` (kräver
   `../supabase-risk-analysis.sql`). Modell via `ENGINE_RISK_MODEL` (default = djupmodellen).
   Kör enbart den med `node engine/run.js --risk-only`.
+- **Daglig megatrend-analys:** AI-analys per långsiktigt tema (`lib/megatrends.js`), grundad i
+  de senaste dagarnas signaler (matchas på nyckelord). Sparas i `megatrends` (kräver
+  `../supabase-megatrends.sql`). Modell via `ENGINE_TREND_MODEL`. Kör enbart den med
+  `node engine/run.js --trends-only`.

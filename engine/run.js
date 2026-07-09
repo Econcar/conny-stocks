@@ -23,11 +23,12 @@ const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.5);
 const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 20);
 
 function parseArgs(argv) {
-  const args = { demo: false, dry: false, source: null, riskOnly: false };
+  const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false };
   for (const a of argv.slice(2)) {
     if (a === '--demo') args.demo = true;
     else if (a === '--dry') args.dry = true;
     else if (a === '--risk-only') args.riskOnly = true;
+    else if (a === '--trends-only') args.trendsOnly = true;
     else if (a.startsWith('--source=')) args.source = a.slice('--source='.length);
   }
   return args;
@@ -44,13 +45,30 @@ async function runDailyRisk() {
   }
 }
 
+// Daglig AI-analys av megatrender (grundad i signalerna).
+async function runDailyTrends() {
+  try {
+    console.log('Megatrend-analys:');
+    const { runMegatrends } = require('./lib/megatrends');
+    const info = await runMegatrends();
+    console.log(`Megatrend-analys sparad för ${info.date}: ${info.themes.join(', ') || 'inga teman'}.`);
+  } catch (err) {
+    console.error(`Megatrend-analys misslyckades: ${err.message}`);
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv);
 
-  // Bara den dagliga riskbarometer-analysen (billig test/omkörning).
+  // Bara en delanalys (billig test/omkörning).
   if (args.riskOnly) {
     console.log('Kör endast riskbarometer-analysen.');
     await runDailyRisk();
+    return;
+  }
+  if (args.trendsOnly) {
+    console.log('Kör endast megatrend-analysen.');
+    await runDailyTrends();
     return;
   }
 
@@ -150,8 +168,11 @@ async function main() {
 
   console.log(`Klart. ${docCount} dokument analyserade (${deepCount} djupanalyserade), ${errCount} fel.`);
 
-  // Daglig riskbarometer-analys (skippas i --dry).
-  if (!args.dry) await runDailyRisk();
+  // Dagliga AI-analyser (skippas i --dry).
+  if (!args.dry) {
+    await runDailyRisk();
+    await runDailyTrends();
+  }
 
   if (errCount && !docCount) process.exit(1); // allt föll → låt jobbet fallera
 }

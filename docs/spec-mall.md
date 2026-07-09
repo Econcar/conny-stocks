@@ -79,6 +79,7 @@ Det är bara jag som ska använda den. Jag är vad vid aktier och teknik. Jag vi
 - Jag vill kunna skanna olika aktieforum för att kunna leta efter olika triggers (sälj/köp).
 - Jag vill kunna se hur olika sektorer går.
 - Jag vill kunna ha koll på olika skräckindex.
+- Jag vill kunna följa långsiktiga megatrender / investeringsteman (t.ex. AI & halvledare, elektrifiering/EV, försvar, energiomställning, hälsa/demografi) med en löpande AI-analys av hur varje tema utvecklas och vilka bolag/sektorer som gynnas.
 - Jag vill att du hjälper mig att analysera mina investeringar och komma med förslag på förändringar. 
 
 ---
@@ -117,6 +118,7 @@ Jag missar inte en möjlighet till en bra investering. Jag undviker dåliga inve
 - Jag vill ha koll på hur olika marknader går.
 - Jag vill ha koll på råvaror
 - Jag vill kunna ha koll på olika skräckindex.
+- Jag vill kunna följa megatrender / investeringsteman med löpande AI-analys (se §6).
 
 **Kan vänta (drömmar / framtid):**
 - Jag vill kunna ska en ska en favoritlista med aktier/fonder som jag följer lite närmare.

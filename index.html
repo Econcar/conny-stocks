@@ -316,6 +316,7 @@
     <div class="nav-item" onclick="showSection('compare')"><span class="nav-icon">⇄</span> Jämförelse</div>
     <div class="nav-item" onclick="showSection('macro')"><span class="nav-icon">◎</span> Makro</div>
     <div class="nav-item" onclick="showSection('risk')"><span class="nav-icon">◔</span> Riskbarometer</div>
+    <div class="nav-item" onclick="showSection('trends')"><span class="nav-icon">◇</span> Megatrender</div>
   </div>
 
   <div class="watchlist-section">
@@ -566,6 +567,13 @@
           <p style="margin:12px 0 0;padding-top:10px;border-top:1px solid var(--border)"><b style="color:var(--text)">Använd den så:</b> När flera rädsloindikatorer stiger samtidigt som guld och dollar stärks medan koppar, Bitcoin och high yield faller → marknaden är i <b style="color:var(--red)">risk-av</b>-läge. Omvänt = <b style="color:var(--green)">risk-på</b>. Tumregel: <b>extrem rädsla</b> är ofta ett kontrariskt köpläge, <b>extrem girighet</b> en varningssignal.</p>
         </div>
       </div>
+    </div>
+
+    <!-- ── MEGATRENDER ── -->
+    <div class="section" id="section-trends">
+      <div class="page-title">Megatrender <span>· Långsiktiga investeringsteman</span><span class="live-badge"><span class="live-dot"></span>AI-analys</span><span class="update-stamp" id="stamp-trends"></span></div>
+      <div class="info-msg" style="margin-bottom:14px">Daglig AI-analys av långsiktiga teman, grundad i motorns färska nyhetssignaler. Uppdateras varje dag.</div>
+      <div id="trends-list"></div>
     </div>
 
   </div><!-- /content -->
@@ -866,6 +874,7 @@ function showSection(s) {
   if(s === 'screener') renderScreener();
   if(s === 'macro') renderMacro();
   if(s === 'risk') renderRisk();
+  if(s === 'trends') renderTrends();
   if(s === 'compare') renderCompare();
 }
 
@@ -1736,6 +1745,41 @@ async function renderRisk() {
   document.getElementById('risk-chart-title').textContent = riskLabel(currentRiskSym);
   loadRiskChart(currentRiskSym, currentRiskPeriod);
   setUpdatedStamp('stamp-risk');
+}
+
+// ══════════ MEGATRENDER ══════════
+// Visar motorns dagliga temaanalyser (senaste datumet), en per tema.
+function trendCard(r) {
+  const modelShort = r.model ? ' · ' + r.model.replace('claude-', '').replace(/-\d.*$/, '') : '';
+  return `<div class="card" style="margin-bottom:12px">
+    <div class="card-title">${escHtml(r.name)} <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· ${r.signal_count || 0} signaler${escHtml(modelShort)}</span></div>
+    <div style="font-size:13px;line-height:1.65;color:var(--text)">${escHtml(r.analysis || '').replace(/\n/g, '<br>')}</div>
+  </div>`;
+}
+
+async function renderTrends() {
+  const el = document.getElementById('trends-list');
+  if(!cloudEnabled || !sb) { el.innerHTML = `<div class="info-msg">Molnet är inte konfigurerat.</div>`; return; }
+  el.innerHTML = `<div class="muted" style="padding:20px 4px">Laddar…</div>`;
+  let data;
+  try {
+    const res = await sb.from('megatrends')
+      .select('date,theme,name,analysis,signal_count,model').order('date', { ascending: false }).limit(30);
+    if(res.error) throw new Error(res.error.message);
+    data = res.data || [];
+  } catch(e) {
+    el.innerHTML = `<div class="error-msg">Kunde inte hämta megatrender: ${escHtml(e.message)}</div>`;
+    return;
+  }
+  if(!data.length) {
+    el.innerHTML = `<div class="muted" style="padding:20px 4px">Inga megatrend-analyser ännu. Motorn genererar dem dagligen.</div>`;
+    return;
+  }
+  const latest = data[0].date;
+  const rows = data.filter(r => r.date === latest);
+  const stamp = document.getElementById('stamp-trends');
+  if(stamp) stamp.textContent = '· Analys ' + latest;
+  el.innerHTML = rows.map(trendCard).join('');
 }
 
 async function renderMacro() {

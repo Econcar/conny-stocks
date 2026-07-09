@@ -75,4 +75,38 @@ async function upsertRiskAnalysis(row) {
   }
 }
 
-module.exports = { upsertSignals, recentExternalIds, upsertRiskAnalysis };
+// Läser de senaste signalerna (för att grunda megatrend-analysen i färska nyheter).
+async function recentSignals({ days = 5, limit = 400 } = {}) {
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
+  }
+  const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
+  const url =
+    `${SUPABASE_URL}/rest/v1/signals?select=summary,ticker,sector,impact_score,source` +
+    `&published_at=gte.${encodeURIComponent(since)}&order=impact_score.desc&limit=${limit}`;
+  const res = await fetch(url, {
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` }
+  });
+  if (!res.ok) throw new Error(`Supabase-läsning (signals) misslyckades (${res.status}): ${await res.text()}`);
+  return res.json();
+}
+
+// Skriver en megatrend-analys (en rad per dag och tema, upsert).
+async function upsertMegatrend(row) {
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
+  }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/megatrends?on_conflict=date,theme`, {
+    method: 'POST',
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal'
+    },
+    body: JSON.stringify(row)
+  });
+  if (!res.ok) throw new Error(`Supabase-skrivning (megatrends) misslyckades (${res.status}): ${await res.text()}`);
+}
+
+module.exports = { upsertSignals, recentExternalIds, upsertRiskAnalysis, recentSignals, upsertMegatrend };
