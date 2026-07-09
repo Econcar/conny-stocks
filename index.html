@@ -464,6 +464,7 @@
           <div class="card">
             <div class="card-title" id="d-chart-title">Kursutveckling – 1 år</div>
             <div class="filter-row" style="margin-bottom:10px">
+              <div class="filter-chip" onclick="setPeriod(this,'1w')">1V</div>
               <div class="filter-chip on" onclick="setPeriod(this,'1mo')">1M</div>
               <div class="filter-chip" onclick="setPeriod(this,'3mo')">3M</div>
               <div class="filter-chip" onclick="setPeriod(this,'6mo')">6M</div>
@@ -1149,7 +1150,7 @@ function analyzeSelected() {
 function fmtDev(v) { return (v===null||v===undefined) ? '–' : (v>=0?'+':'')+v.toFixed(1)+'%'; }
 function devCls(v) { return (v===null||v===undefined) ? '' : (v>=0?'green':'red'); }
 
-const avanzaPeriodMap = { '1mo':'one_month','3mo':'three_months','6mo':'six_months','1y':'one_year','2y':'three_years','5y':'five_years' };
+const avanzaPeriodMap = { '1w':'one_week','1mo':'one_month','3mo':'three_months','6mo':'six_months','1y':'one_year','2y':'three_years','5y':'five_years' };
 
 async function loadFund(orderBookId, name) {
   currentTicker = 'AZA:' + orderBookId;
@@ -1438,14 +1439,21 @@ function loadStockFallback(ticker, name) {
 }
 
 async function loadPriceChart(ticker, period) {
-  const rangeMap = {'1mo':'1mo','3mo':'3mo','6mo':'6mo','1y':'1y','2y':'2y','5y':'5y'};
-  const intervalMap = {'1mo':'1d','3mo':'1d','6mo':'1wk','1y':'1wk','2y':'1wk','5y':'1mo'};
+  const rangeMap = {'1w':'5d','1mo':'1mo','3mo':'3mo','6mo':'6mo','1y':'1y','2y':'2y','5y':'5y'};
+  const intervalMap = {'1w':'60m','1mo':'1d','3mo':'1d','6mo':'1wk','1y':'1wk','2y':'1wk','5y':'1mo'};
   try {
     const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=${intervalMap[period]}&range=${rangeMap[period]}`);
     const result = data.chart.result[0];
     const timestamps = result.timestamp;
     const closes = result.indicators.quote[0].close;
-    const labels = timestamps.map(t=>new Date(t*1000).toLocaleDateString('sv-SE',{month:'short',day:'numeric'}));
+    // Intradagsintervall (t.ex. veckovyn) visar även klockslag i etiketten.
+    const intraday = /[mh]$/.test(intervalMap[period]);
+    const labels = timestamps.map(t=>{
+      const d = new Date(t*1000);
+      return intraday
+        ? d.toLocaleString('sv-SE',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+        : d.toLocaleDateString('sv-SE',{month:'short',day:'numeric'});
+    });
     const validCloses = closes.map(v=>v!==null?+v.toFixed(2):null);
     if(currentPriceChart) currentPriceChart.destroy();
     const ctx = document.getElementById('priceChart').getContext('2d');
