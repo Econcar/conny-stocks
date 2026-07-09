@@ -22,17 +22,16 @@ rörs inte.
 
 1. Installera Node 20+.
 2. Kopiera `engine/.env.example` → `engine/.env` och fyll i nycklarna.
+   `engine/.env` laddas automatiskt av motorn (dependency-fritt, se `lib/env.js`)
+   och är `.gitignore`:ad – den committas aldrig.
 3. Kör tabellen i `../supabase-signals.sql` i Supabase (SQL Editor) en gång.
-4. Testa hela kedjan utan riktig datakälla:
+4. Kör:
 
    ```sh
-   # Ladda .env och kör demokällan utan att skriva (torrkörning):
-   node -r dotenv/config engine/run.js --demo --dry   # om du har dotenv
-   # ...eller sätt env-variablerna manuellt och kör:
-   node engine/run.js --demo --dry
+   node engine/run.js --dry          # analyserar men skriver INTE (ingen prod-påverkan)
+   node engine/run.js                # skarpt: skriver signaler till Supabase
+   node engine/run.js --source=rss   # bara en källa
    ```
-
-   Ta bort `--dry` för att faktiskt skriva till Supabase.
 
 ### Flaggor
 

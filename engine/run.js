@@ -9,6 +9,8 @@
 //   --dry    kör allt utom skrivningen till Supabase (skriv ut i stället)
 //   --source=<id>  kör bara en angiven källa
 
+require('./lib/env'); // ladda engine/.env FÖRST – innan moduler läser process.env
+
 const { getSources } = require('./sources');
 const { validateDocument, toSignalRows } = require('./lib/schema');
 const { analyze, deepAnalyze, TRIAGE_MODEL, DEEP_MODEL } = require('./lib/anthropic');
