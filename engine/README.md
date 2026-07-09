@@ -76,3 +76,7 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
   (`../supabase-signals-fas2.sql`). Kostnadstak: `ENGINE_DEEP_MAX` (default 20/varv).
 - **Fas 3 (pågår):** fler adaptrar. Klart: **SEC EDGAR 8-K**, **SEC Form 4 (insider)**, **breddad RSS**
   (7 flöden inkl. Dagens Industri). GDELT provades men avaktiverades (429 från moln-IP:n). Kvar: analytikerbetyg.
+- **Daglig riskbarometer-analys:** utöver signalerna kör motorn en daglig AI-sammanvägning av
+  risk-/sentimentindikatorer (`lib/risk.js`) och sparar den i `risk_analysis` (kräver
+  `../supabase-risk-analysis.sql`). Modell via `ENGINE_RISK_MODEL` (default = djupmodellen).
+  Kör enbart den med `node engine/run.js --risk-only`.

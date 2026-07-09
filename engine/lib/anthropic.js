@@ -94,4 +94,19 @@ function deepAnalyze(doc) {
   return runAnalysis(doc, { model: DEEP_MODEL, system: DEEP_SYSTEM, tool: DEEP_ANALYSIS_TOOL, maxTokens: 1536 });
 }
 
-module.exports = { analyze, deepAnalyze, TRIAGE_MODEL, DEEP_MODEL };
+// Fri textsyntes (utan verktyg) – för t.ex. daglig riskbarometer-sammanvägning.
+async function synthesize(prompt, opts = {}) {
+  if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY i miljön');
+  const model = opts.model || process.env.ENGINE_RISK_MODEL || DEEP_MODEL;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model, max_tokens: opts.maxTokens || 1024, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!res.ok) throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${await res.text()}`);
+  const data = await res.json();
+  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+  return { text, model };
+}
+
+module.exports = { analyze, deepAnalyze, synthesize, TRIAGE_MODEL, DEEP_MODEL };

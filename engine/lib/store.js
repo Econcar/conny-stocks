@@ -54,4 +54,25 @@ async function recentExternalIds(source, limit = 1000) {
   return new Set(rows.map((r) => r.external_id));
 }
 
-module.exports = { upsertSignals, recentExternalIds };
+// Skriver dagens riskbarometer-analys (en rad per dag, upsert på date).
+async function upsertRiskAnalysis(row) {
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
+  }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/risk_analysis?on_conflict=date`, {
+    method: 'POST',
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal'
+    },
+    body: JSON.stringify(row)
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`Supabase-skrivning (risk_analysis) misslyckades (${res.status}): ${detail}`);
+  }
+}
+
+module.exports = { upsertSignals, recentExternalIds, upsertRiskAnalysis };

@@ -523,7 +523,8 @@
     <!-- ── RISKBAROMETER ── -->
     <div class="section" id="section-risk">
       <div class="page-title">Riskbarometer <span>· Marknadens rädsla &amp; riskaptit</span><span class="live-badge"><span class="live-dot"></span>Live</span><span class="update-stamp" id="stamp-risk"></span></div>
-      <div class="badge-btn" onclick="aiAnalyzeRisk()" style="margin-bottom:16px;display:inline-flex">✦ AI-sammanvägning av läget</div>
+      <div class="card" id="risk-daily" style="display:none;margin-bottom:14px"></div>
+      <div class="badge-btn" onclick="aiAnalyzeRisk()" style="margin-bottom:16px;display:inline-flex">✦ Kör egen AI-analys (vald period)</div>
       <div class="card-title" style="margin:2px 0 10px">Rädsla &amp; volatilitet</div>
       <div class="risk-grid" id="risk-fear"></div>
       <div class="card-title" style="margin:18px 0 10px">Risk på/av &amp; säkra hamnar</div>
@@ -1711,8 +1712,26 @@ function aiAnalyzeRisk() {
   setTimeout(() => sendAIWithText(prompt), 100);
 }
 
+// Visar den senaste dagliga AI-sammanvägningen (skriven av motorn till Supabase).
+async function loadDailyRiskAnalysis() {
+  const el = document.getElementById('risk-daily');
+  if(!el) return;
+  if(!cloudEnabled || !sb) { el.style.display = 'none'; return; }
+  try {
+    const { data, error } = await sb.from('risk_analysis')
+      .select('date,analysis,model').order('date', { ascending: false }).limit(1);
+    if(error || !data || !data.length) { el.style.display = 'none'; return; }
+    const a = data[0];
+    const modelShort = a.model ? ' · ' + a.model.replace('claude-', '').replace(/-\d.*$/, '') : '';
+    el.style.display = '';
+    el.innerHTML = `<div class="card-title">✦ Dagens AI-sammanvägning <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· ${escHtml(a.date)}${escHtml(modelShort)}</span></div>
+      <div style="font-size:13px;line-height:1.65;color:var(--text)">${escHtml(a.analysis).replace(/\n/g, '<br>')}</div>`;
+  } catch(e) { el.style.display = 'none'; }
+}
+
 async function renderRisk() {
   document.getElementById('risk-fear').innerHTML = document.getElementById('risk-onoff').innerHTML = `<div class="muted" style="font-size:12px;padding:8px">Hämtar…</div>`;
+  loadDailyRiskAnalysis();
   await refreshRiskCards();
   document.getElementById('risk-chart-title').textContent = riskLabel(currentRiskSym);
   loadRiskChart(currentRiskSym, currentRiskPeriod);

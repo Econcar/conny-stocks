@@ -23,17 +23,37 @@ const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.5);
 const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 20);
 
 function parseArgs(argv) {
-  const args = { demo: false, dry: false, source: null };
+  const args = { demo: false, dry: false, source: null, riskOnly: false };
   for (const a of argv.slice(2)) {
     if (a === '--demo') args.demo = true;
     else if (a === '--dry') args.dry = true;
+    else if (a === '--risk-only') args.riskOnly = true;
     else if (a.startsWith('--source=')) args.source = a.slice('--source='.length);
   }
   return args;
 }
 
+// Daglig AI-sammanvägning av riskbarometern (körs efter källorna).
+async function runDailyRisk() {
+  try {
+    const { runRiskAnalysis } = require('./lib/risk');
+    const info = await runRiskAnalysis();
+    console.log(`Riskbarometer-analys sparad för ${info.date} (${info.model}, ${info.indicators} indikatorer).`);
+  } catch (err) {
+    console.error(`Riskbarometer-analys misslyckades: ${err.message}`);
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv);
+
+  // Bara den dagliga riskbarometer-analysen (billig test/omkörning).
+  if (args.riskOnly) {
+    console.log('Kör endast riskbarometer-analysen.');
+    await runDailyRisk();
+    return;
+  }
+
   let sources = getSources({ includeDemo: args.demo });
   if (args.source) sources = sources.filter((s) => s.id === args.source);
 
@@ -129,6 +149,10 @@ async function main() {
   }
 
   console.log(`Klart. ${docCount} dokument analyserade (${deepCount} djupanalyserade), ${errCount} fel.`);
+
+  // Daglig riskbarometer-analys (skippas i --dry).
+  if (!args.dry) await runDailyRisk();
+
   if (errCount && !docCount) process.exit(1); // allt föll → låt jobbet fallera
 }
 
