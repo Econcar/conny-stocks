@@ -11,10 +11,11 @@
 const demo = require('./_demo');
 const rss = require('./rss');
 const edgar = require('./edgar');
+const insider = require('./insider');
 
 // Riktiga adaptrar registreras här. Demokällan är med endast för att kunna
 // testa hela kedjan (analys + lagring) utan en riktig datakälla; kör med --demo.
-const SOURCES = [rss, edgar];
+const SOURCES = [rss, edgar, insider];
 
 const DEMO_SOURCES = [demo];
 

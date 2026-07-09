@@ -30,10 +30,13 @@ module.exports = {
     const cutoff = Date.now() - FRESH_HOURS * 3600 * 1000;
     const map = await loadTickerMap();
     const docs = [];
+    const seen = new Set(); // samma filing kan listas flera gånger (co-filers)
 
     for (const e of entries) {
       if (docs.length >= MAX) break;
       if (e.updated && e.updated.getTime() < cutoff) continue;
+      if (seen.has(e.accession)) continue;
+      seen.add(e.accession);
 
       const ticker = e.cik != null ? map.get(e.cik) || null : null;
 
