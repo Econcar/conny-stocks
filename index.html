@@ -1279,6 +1279,7 @@ async function loadFund(orderBookId, name) {
   currentPeriod = '3mo';
   renderFundamentals(null);
   compareSyms = [];
+  aiStockDetail = '';
   const _cc = document.getElementById('chart-controls'); if(_cc) _cc.style.display = 'none'; // jämförelse stöds ej för fonder
   document.getElementById('nav-detail').style.display = 'flex';
   document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
@@ -1447,6 +1448,7 @@ async function loadStock(ticker, name) {
   currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Aktie', flag:'', r:'' };
   renderFundamentals(null);
   compareSyms = [];
+  aiStockDetail = '';
   const _cc = document.getElementById('chart-controls'); if(_cc) _cc.style.display = 'flex';
   const _ch = document.getElementById('compare-chips'); if(_ch) _ch.innerHTML = '';
   document.getElementById('d-chart-title').textContent = 'Kursutveckling';
@@ -1652,6 +1654,7 @@ async function loadStockQuote(ticker, name) {
       desc, industry: fund?.industry || null, fund
     };
     renderFundamentals(fund, currency);
+    refreshStockAIContext(ticker, name); // ge chatten full data (nyckeltal + kurs + nyheter)
     document.getElementById('d-name').textContent = name;
     document.getElementById('d-fullname').textContent = meta.longName || meta.shortName || '';
     document.getElementById('d-exchange').textContent = meta.exchangeName || ticker;
@@ -1865,7 +1868,79 @@ async function setPeriod(el, period) {
   }
 }
 
-function aiAnalyzeStock() {
+// Nyckeltal som text (från currentStockMeta) – delas av AI-analys och chatt-kontext.
+function stockFundamentalsText() {
+  const m = currentStockMeta || {}, f = m.fund || {}, cur = f.currency || '';
+  const p = [];
+  if(m.sektor) p.push(`sektor ${m.sektor}`);
+  if(m.industry) p.push(`bransch ${m.industry}`);
+  if(f.pe != null) p.push(`P/E ${f.pe.toFixed(1)}`);
+  if(f.forwardPe != null) p.push(`forward P/E ${f.forwardPe.toFixed(1)}`);
+  if(f.pb != null) p.push(`P/B ${f.pb.toFixed(1)}`);
+  if(f.ps != null) p.push(`P/S ${f.ps.toFixed(1)}`);
+  if(f.eps != null) p.push(`EPS ${f.eps.toFixed(2)} ${cur}`);
+  if(m.div != null) p.push(`direktavkastning ${m.div.toFixed(2)}%`);
+  if(m.mcap) p.push(`börsvärde ${m.mcap}`);
+  if(f.revenue != null) p.push(`omsättning ${fmtMcap(f.revenue, cur)}`);
+  if(f.revenueGrowth != null) p.push(`oms.tillväxt ${f.revenueGrowth.toFixed(1)}%`);
+  if(f.profitMargin != null) p.push(`vinstmarginal ${f.profitMargin.toFixed(1)}%`);
+  if(f.grossMargin != null) p.push(`bruttomarginal ${f.grossMargin.toFixed(1)}%`);
+  if(f.roe != null) p.push(`avk. eget kapital ${f.roe.toFixed(1)}%`);
+  if(f.cash != null) p.push(`kassa ${fmtMcap(f.cash, cur)}`);
+  if(f.debt != null) p.push(`skuld ${fmtMcap(f.debt, cur)}`);
+  if(f.fcf != null) p.push(`fritt kassaflöde ${fmtMcap(f.fcf, cur)}`);
+  if(f.targetMean != null) p.push(`analytikers riktkurs ${f.targetMean.toFixed(2)} ${cur}${f.numAnalysts?` (${f.numAnalysts} analytiker)`:''}`);
+  if(f.recommendation) p.push(`rekommendation ${REC_LABELS[f.recommendation]||f.recommendation}`);
+  return p.join(', ');
+}
+
+// Bygger en rik kontext (nyckeltal + kursutveckling + nyheter) för CHATTEN,
+// så även fritextfrågor om aktien har tillgång till datan.
+let aiStockDetail = '';
+async function refreshStockAIContext(ticker, name) {
+  const ft = stockFundamentalsText();
+  const desc = (currentStockMeta && currentStockMeta.desc) ? ` Bolagsbeskrivning: ${currentStockMeta.desc}` : '';
+  const [perf, news] = await Promise.all([buildPerfContext(ticker), buildNewsContext(ticker)]);
+  if(currentTicker !== ticker) return; // användaren bytte aktie under tiden
+  aiStockDetail = `Data för ${name} (${ticker}): ${ft ? ft + '.' : ''}${perf}${news}${desc}`;
+}
+
+// Kursutveckling över perioder + 52v-intervall (så AI:n ser rörelser).
+async function buildPerfContext(ticker) {
+  try {
+    const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2y`);
+    const r = data.chart.result[0];
+    const ts = r.timestamp || [], closes = (r.indicators.quote[0].close || []);
+    const valid = closes.filter(v => v != null);
+    if(!valid.length) return '';
+    const price = r.meta.regularMarketPrice != null ? r.meta.regularMarketPrice : valid[valid.length-1];
+    const cur = r.meta.currency || '';
+    const closeSince = (secAgo) => { const target = Date.now()/1000 - secAgo; for(let i=0;i<ts.length;i++){ if(ts[i] >= target && closes[i] != null) return closes[i]; } return null; };
+    const chg = (past) => past ? ((price - past)/past*100) : null;
+    const parts = [];
+    const add = (lbl, days) => { const c = chg(closeSince(days*86400)); if(c != null) parts.push(`${lbl} ${c>=0?'+':''}${c.toFixed(1)}%`); };
+    add('1 vecka',7); add('1 mån',30); add('3 mån',91); add('6 mån',182); add('1 år',365); add('2 år',730);
+    const yStart = new Date(new Date().getFullYear(),0,1).getTime()/1000;
+    let ytdClose = null; for(let i=0;i<ts.length;i++){ if(ts[i] >= yStart && closes[i] != null){ ytdClose = closes[i]; break; } }
+    const ytd = chg(ytdClose); if(ytd != null) parts.push(`i år ${ytd>=0?'+':''}${ytd.toFixed(1)}%`);
+    const hi = r.meta.fiftyTwoWeekHigh, lo = r.meta.fiftyTwoWeekLow;
+    const range = (hi && lo) ? ` 52-veckorsintervall ${lo.toFixed(2)}–${hi.toFixed(2)} ${cur}, aktuell kurs ${price.toFixed(2)} ${cur}.` : '';
+    return parts.length ? ` Kursutveckling: ${parts.join(', ')}.${range}` : range;
+  } catch(e) { return ''; }
+}
+// Senaste nyhetsrubriker för tickern (från Yahoo).
+async function buildNewsContext(ticker) {
+  try {
+    const j = await fetchYahoo(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=0&newsCount=6`);
+    const news = (j.news || []).slice(0,6).map(n => {
+      const d = n.providerPublishTime ? ' (' + new Date(n.providerPublishTime*1000).toISOString().slice(0,10) + ')' : '';
+      return `- ${n.title}${d}`;
+    });
+    return news.length ? ` Senaste nyheter (Yahoo):\n${news.join('\n')}` : '';
+  } catch(e) { return ''; }
+}
+
+async function aiAnalyzeStock() {
   openAI();
   if(currentIsFund) {
     const m = currentStockMeta;
@@ -1874,31 +1949,11 @@ function aiAnalyzeStock() {
     return;
   }
   const m = currentStockMeta || {};
-  const f = m.fund || {};
-  const cur = f.currency || '';
-  const parts = [];
-  if(m.sektor) parts.push(`sektor ${m.sektor}`);
-  if(m.industry) parts.push(`bransch ${m.industry}`);
-  if(f.pe != null) parts.push(`P/E ${f.pe.toFixed(1)}`);
-  if(f.forwardPe != null) parts.push(`forward P/E ${f.forwardPe.toFixed(1)}`);
-  if(f.pb != null) parts.push(`P/B ${f.pb.toFixed(1)}`);
-  if(f.ps != null) parts.push(`P/S ${f.ps.toFixed(1)}`);
-  if(f.eps != null) parts.push(`EPS ${f.eps.toFixed(2)} ${cur}`);
-  if(m.div != null) parts.push(`direktavkastning ${m.div.toFixed(2)}%`);
-  if(m.mcap) parts.push(`börsvärde ${m.mcap}`);
-  if(f.revenue != null) parts.push(`omsättning ${fmtMcap(f.revenue, cur)}`);
-  if(f.revenueGrowth != null) parts.push(`oms.tillväxt ${f.revenueGrowth.toFixed(1)}%`);
-  if(f.profitMargin != null) parts.push(`vinstmarginal ${f.profitMargin.toFixed(1)}%`);
-  if(f.grossMargin != null) parts.push(`bruttomarginal ${f.grossMargin.toFixed(1)}%`);
-  if(f.roe != null) parts.push(`avk. eget kapital ${f.roe.toFixed(1)}%`);
-  if(f.cash != null) parts.push(`kassa ${fmtMcap(f.cash, cur)}`);
-  if(f.debt != null) parts.push(`skuld ${fmtMcap(f.debt, cur)}`);
-  if(f.fcf != null) parts.push(`fritt kassaflöde ${fmtMcap(f.fcf, cur)}`);
-  if(f.targetMean != null) parts.push(`analytikers riktkurs ${f.targetMean.toFixed(2)} ${cur}${f.numAnalysts?` (${f.numAnalysts} analytiker)`:''}`);
-  if(f.recommendation) parts.push(`rekommendation ${REC_LABELS[f.recommendation]||f.recommendation}`);
-  const ctx = parts.length ? `Aktuella nyckeltal (live från Yahoo): ${parts.join(', ')}.` : '';
+  const ft = stockFundamentalsText();
+  const ctx = ft ? `Aktuella nyckeltal (live från Yahoo): ${ft}.` : '';
   const desc = m.desc ? ` Bolagsbeskrivning: ${m.desc}` : '';
-  setTimeout(()=>sendAIWithText(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx}${desc} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation. Om du saknar tillförlitlig information om just detta bolag, säg det tydligt istället för att gissa.`), 100);
+  const [perf, news] = await Promise.all([buildPerfContext(currentTicker), buildNewsContext(currentTicker)]);
+  sendAIWithText(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx}${desc}${perf}${news} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation. Om frågan gäller en specifik kursrörelse, använd kursutvecklingen och nyheterna ovan för att förklara den. Om du fortfarande saknar tillförlitlig information, säg det tydligt istället för att gissa.`);
 }
 
 // ══════════ MACRO CHART ══════════
@@ -2464,6 +2519,7 @@ Du har tillgång till följande aktiedata från plattformen (ÅTD = utveckling h
 ${stockData}
 
 ${aiContext ? 'Nuvarande kontext: ' + aiContext : ''}
+${aiStockDetail ? '\nLIVE-DATA för aktien användaren tittar på (kurser, nyckeltal och nyheter från Yahoo – använd i första hand för frågor om just denna aktie):\n' + aiStockDetail : ''}
 
 Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. Håll svaren strukturerade men lättlästa. OBS: Detta är inte personlig finansiell rådgivning.`;
 
