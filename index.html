@@ -1416,6 +1416,37 @@ async function fetchYahoo(url) {
   return await r.json();
 }
 
+// Live fundamenta för valfri ticker via quoteSummary-proxyn.
+async function fetchFundamentals(ticker) {
+  try {
+    const r = await fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}`);
+    const j = await r.json();
+    const res = j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0];
+    if(!res) return null;
+    const sd = res.summaryDetail || {}, pr = res.price || {}, ap = res.assetProfile || {};
+    const raw = o => (o && typeof o.raw === 'number') ? o.raw : null;
+    const dy = raw(sd.dividendYield);
+    return {
+      pe: raw(sd.trailingPE) != null ? raw(sd.trailingPE) : raw(sd.forwardPE),
+      div: dy != null ? dy * 100 : (raw(sd.trailingAnnualDividendYield) != null ? raw(sd.trailingAnnualDividendYield) * 100 : null),
+      mcap: raw(pr.marketCap) != null ? raw(pr.marketCap) : raw(sd.marketCap),
+      currency: pr.currency || null,
+      sector: ap.sector || null,
+      industry: ap.industry || null,
+      description: ap.longBusinessSummary || null
+    };
+  } catch(e) { return null; }
+}
+
+function fmtMcap(v, cur) {
+  if(v == null) return null;
+  const c = cur ? ' ' + cur : '';
+  if(v >= 1e12) return (v/1e12).toFixed(2) + 'T' + c;
+  if(v >= 1e9) return (v/1e9).toFixed(1) + 'B' + c;
+  if(v >= 1e6) return (v/1e6).toFixed(1) + 'M' + c;
+  return v.toLocaleString('sv-SE') + c;
+}
+
 async function loadStockQuote(ticker, name) {
   const local = stocks.find(s=>s.ticker===ticker);
   try {
@@ -1427,20 +1458,28 @@ async function loadStockQuote(ticker, name) {
     const change = price - prev;
     const changePct = (change/prev)*100;
     const currency = meta.currency;
+    // Live fundamenta för valfri ticker (fallback till lokala storbolagslistan).
+    const fund = await fetchFundamentals(ticker);
+    const pe = fund?.pe != null ? fund.pe : (local?.pe || null);
+    const div = fund?.div != null ? fund.div : (local?.div || null);
+    const sector = fund?.sector || local?.sektor || 'Aktie';
+    const mcapStr = fund?.mcap != null
+      ? fmtMcap(fund.mcap, fund.currency || currency)
+      : (local ? (local.mcap >= 1000 ? (local.mcap/1000).toFixed(1) + 'T USD' : '$' + local.mcap + 'B USD') : null);
+    const desc = fund?.description
+      || `${name} är ett bolag noterat på ${meta.exchangeName || ticker}. Klicka "Analysera med AI" för en fullständig bolagsanalys.`;
     currentStockMeta = {
       kurs: price.toFixed(2) + ' ' + currency,
       ytd: local ? local.ytd : null,
-      pe: local ? (local.pe || null) : null,
-      div: local ? (local.div || null) : null,
-      mcap: local ? (local.mcap || null) : null,
-      sektor: local ? local.sektor : 'Aktie',
+      pe, div, mcap: mcapStr, sektor: sector,
       flag: local ? local.flag : '',
-      r: local ? local.r : ''
+      r: local ? local.r : '',
+      desc, industry: fund?.industry || null
     };
     document.getElementById('d-name').textContent = name;
     document.getElementById('d-fullname').textContent = meta.longName || meta.shortName || '';
     document.getElementById('d-exchange').textContent = meta.exchangeName || ticker;
-    document.getElementById('d-sector-tag').textContent = local?.sektor || 'Aktie';
+    document.getElementById('d-sector-tag').textContent = sector;
     document.getElementById('d-price').textContent = price.toLocaleString('sv-SE', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ' + currency;
     const chEl = document.getElementById('d-change');
     chEl.textContent = `${change>=0?'+':''}${change.toFixed(2)} (${changePct>=0?'+':''}${changePct.toFixed(2)}%) idag`;
@@ -1458,10 +1497,10 @@ async function loadStockQuote(ticker, name) {
       {l:'Senaste kurs',v: price.toFixed(2)+' '+currency},
       {l:'Dagens förändring',v: (change>=0?'+':'')+change.toFixed(2), cls: change>=0?'green':'red'},
       {l:'ÅTD (portfölj)', v: local?(local.ytd>=0?'+':'')+local.ytd.toFixed(1)+'%':'–', cls: local&&local.ytd>=0?'green':'red'},
-      {l:'P/E-tal', v: local?.pe?local.pe.toFixed(1):'–'},
-      {l:'Direktavkastning', v: local?.div?local.div.toFixed(1)+'%':'–'},
-      {l:'Marknadsv.', v: local?((local.mcap>=1000?(local.mcap/1000).toFixed(1)+'T':'$'+local.mcap+'B')+' USD'):'–'},
-      {l:'Sektor', v: local?.sektor||'–'},
+      {l:'P/E-tal', v: pe!=null?pe.toFixed(1):'–'},
+      {l:'Direktavkastning', v: div!=null?div.toFixed(2)+'%':'–'},
+      {l:'Marknadsv.', v: mcapStr||'–'},
+      {l:'Sektor', v: sector||'–'},
       {l:'Marknad', v: meta.exchangeName||ticker},
     ];
     document.getElementById('d-kpis').innerHTML = kpis.map(k=>`<div class="kpi-mini"><div class="kpi-mini-label">${k.l}</div><div class="kpi-mini-val ${k.cls||''}">${k.v}</div></div>`).join('');
@@ -1469,10 +1508,11 @@ async function loadStockQuote(ticker, name) {
       `Ticker: <span style="color:var(--text);font-family:var(--mono)">${ticker}</span>`,
       `Valuta: <span style="color:var(--text)">${currency}</span>`,
       `Marknad: <span style="color:var(--text)">${meta.exchangeName||'–'}</span>`,
-      local?`ÅTD 2026: <span style="color:${local.ytd>=0?'var(--green)':'var(--red)'}">${local.ytd>=0?'+':''}${local.ytd.toFixed(1)}%</span>`:'',
-      local?.div?`Direktavkastning: <span style="color:var(--text)">${local.div.toFixed(1)}%</span>`:'',
+      fund?.industry?`Bransch: <span style="color:var(--text)">${escHtml(fund.industry)}</span>`:'',
+      pe!=null?`P/E: <span style="color:var(--text)">${pe.toFixed(1)}</span>`:'',
+      div!=null?`Direktavkastning: <span style="color:var(--text)">${div.toFixed(2)}%</span>`:'',
     ].filter(Boolean).map(l=>`<div>${l}</div>`).join('');
-    document.getElementById('d-description').textContent = `${name} är ett bolag noterat på ${meta.exchangeName||ticker}. Klicka "Analysera med AI" för en fullständig bolagsanalys.`;
+    document.getElementById('d-description').textContent = desc;
   } catch(e) {
     loadStockFallback(ticker, name);
   }
@@ -1554,9 +1594,16 @@ function aiAnalyzeStock() {
     setTimeout(()=>sendAIWithText(`Analysera fonden ${currentStockName}. ${ctx} Beskriv fondens inriktning, risk, avgift, historisk utveckling och vilken typ av sparare den passar. Avsluta med en sammanfattande bedömning.`), 100);
     return;
   }
-  const local = stocks.find(s=>s.ticker===currentTicker);
-  const ctx = local ? `Nyckeltal: P/E ${local.pe||'–'}, direktavkastning ${local.div||0}%, ÅTD ${local.ytd}%, mkt cap ${local.mcap}B USD, sektor: ${local.sektor}.` : '';
-  setTimeout(()=>sendAIWithText(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation.`), 100);
+  const m = currentStockMeta || {};
+  const parts = [];
+  if(m.pe != null) parts.push(`P/E ${m.pe.toFixed(1)}`);
+  if(m.div != null) parts.push(`direktavkastning ${m.div.toFixed(2)}%`);
+  if(m.mcap) parts.push(`börsvärde ${m.mcap}`);
+  if(m.sektor) parts.push(`sektor ${m.sektor}`);
+  if(m.industry) parts.push(`bransch ${m.industry}`);
+  const ctx = parts.length ? `Nyckeltal (live): ${parts.join(', ')}.` : '';
+  const desc = m.desc ? ` Bolagsbeskrivning: ${m.desc}` : '';
+  setTimeout(()=>sendAIWithText(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx}${desc} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation. Om du saknar tillförlitlig information om just detta bolag, säg det tydligt istället för att gissa.`), 100);
 }
 
 // ══════════ MACRO CHART ══════════
