@@ -14,13 +14,9 @@ const MEGATREND_TOOL = {
   input_schema: {
     type: 'object',
     properties: {
-      analysis: {
-        type: 'string',
-        description: 'Analys på svenska (4–6 meningar): drivkrafter, risker. Avsluta med en rad "Utsikt: <kort omdöme>".'
-      },
       companies: {
         type: 'array',
-        description: 'De 4–8 viktigaste bolagen/fonderna som påverkas av temat.',
+        description: 'De 4–8 viktigaste bolagen/fonderna som påverkas av temat. Fyll i FÖRST.',
         items: {
           type: 'object',
           properties: {
@@ -31,9 +27,13 @@ const MEGATREND_TOOL = {
           },
           required: ['name', 'direction', 'reason']
         }
+      },
+      analysis: {
+        type: 'string',
+        description: 'Analys på svenska, HÖGST 5 meningar (drivkrafter, risker). Avsluta med en rad "Utsikt: <kort omdöme>".'
       }
     },
-    required: ['analysis', 'companies']
+    required: ['companies', 'analysis']
   }
 };
 
@@ -89,9 +89,11 @@ async function runMegatrends() {
       `med din egen kunskap om temat.`;
 
     try {
-      const { input, model } = await extract(prompt, MEGATREND_TOOL, { model: TREND_MODEL, maxTokens: 1200 });
+      const { input, model } = await extract(prompt, MEGATREND_TOOL, { model: TREND_MODEL, maxTokens: 2500 });
+      const analysis = (input.analysis || '').trim();
       const companies = Array.isArray(input.companies) ? input.companies.slice(0, 8) : [];
-      await upsertMegatrend({ date, theme: t.id, name: t.name, analysis: input.analysis || '', companies, signal_count: rel.length, model });
+      if (!analysis) throw new Error('tom analys (troligen avklippt svar)');
+      await upsertMegatrend({ date, theme: t.id, name: t.name, analysis, companies, signal_count: rel.length, model });
       done.push(`${t.name} (${rel.length} signaler, ${companies.length} bolag)`);
       console.log(`  ✓ ${t.name}: ${rel.length} signaler, ${companies.length} bolag`);
     } catch (e) {
