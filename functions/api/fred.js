@@ -1,4 +1,4 @@
-// Proxy mot FRED (Federal Reserve Economic Data) – makrostatistik (BNP, inflation,
+// FRED-proxy (v1). Makrostatistik (BNP, inflation,
 // arbetslöshet m.m.) för USA och, via OECD-serier, Sverige. Gratis, men kräver en
 // API-nyckel: sätt FRED_API_KEY som miljövariabel i Cloudflare Pages (Settings →
 // Environment variables). Returnerar senaste observationen som { value, date }.
