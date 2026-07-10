@@ -538,8 +538,8 @@
         <div class="kpi-card"><div class="kpi-label">Brent råolja</div><div class="kpi-value" id="m-brent">…</div><div class="kpi-sub muted" id="m-brent-sub">hämtar…</div></div>
       </div>
       <div class="grid-3">
-        <div class="card"><div class="card-title">USA</div><div id="macro-usa" style="font-size:12px;line-height:2;color:var(--text2)">10-årsränta: <span id="m-us10y" style="color:var(--text)">…</span><br>BNP-tillväxt: ~2,4%<br>Inflation (CPI): ~2,9%<br>Arbetslöshet: 4,2%<br>ISM Manufacturing: 54<div style="margin-top:8px;font-size:10px;color:var(--text3)">Ränta live · BNP/CPI/arbetslöshet/ISM: senast kända (manuellt)</div></div></div>
-        <div class="card"><div class="card-title">Sverige</div><div id="macro-se" style="font-size:12px;line-height:2;color:var(--text2)">USD/SEK: <span id="m-usdsek" style="color:var(--text)">…</span><br>Styrränta: <span id="m-se-repo" style="color:var(--text)">…</span><br>BNP-tillväxt: återhämtning<br>KPIF: 1,5%<br>10-årsränta: 2,76%<div style="margin-top:8px;font-size:10px;color:var(--text3)">USD/SEK & styrränta live · BNP/KPIF/10-årsränta: senast kända (manuellt)</div></div></div>
+        <div class="card"><div class="card-title">USA</div><div id="macro-usa" style="font-size:12px;line-height:2;color:var(--text2)">10-årsränta: <span id="m-us10y" style="color:var(--text)">…</span><br>BNP-tillväxt (årstakt): <span id="m-us-gdp" style="color:var(--text)">…</span><br>Inflation (CPI å/å): <span id="m-us-cpi" style="color:var(--text)">…</span><br>Kärninflation (å/å): <span id="m-us-core" style="color:var(--text)">…</span><br>Arbetslöshet: <span id="m-us-unemp" style="color:var(--text)">…</span><div style="margin-top:8px;font-size:10px;color:var(--text3)">Live · ränta: Yahoo, statistik: FRED (månad inom parentes)</div></div></div>
+        <div class="card"><div class="card-title">Sverige</div><div id="macro-se" style="font-size:12px;line-height:2;color:var(--text2)">USD/SEK: <span id="m-usdsek" style="color:var(--text)">…</span><br>Styrränta: <span id="m-se-repo" style="color:var(--text)">…</span><br>Inflation (CPI å/å): <span id="m-se-cpi" style="color:var(--text)">…</span><br>Arbetslöshet: <span id="m-se-unemp" style="color:var(--text)">…</span><br>BNP-tillväxt (å/å): <span id="m-se-gdp" style="color:var(--text)">…</span><div style="margin-top:8px;font-size:10px;color:var(--text3)">Live · USD/SEK & styrränta: Yahoo/Riksbank, statistik: FRED/OECD</div></div></div>
         <div class="card"><div class="card-title">Geopolitik & risker</div><div id="macro-geo" style="font-size:12px;line-height:2;color:var(--text2)">Iran-USA konflikt · Oljepriser<br>Trump-tullar · Handelskrig<br>NATO-upprustning Europa<br>AI-kapplöpning · Halvledare<br>SpaceX IPO $1,75T (jun 2026)</div></div>
       </div>
       <div class="card">
@@ -2062,6 +2062,24 @@ async function dismissTheme(id) {
   loadThemeSuggestions();
 }
 
+// Hämtar senaste värdet för en FRED-serie via proxyn.
+async function fetchFred(series, units) {
+  try {
+    const r = await fetch(`/api/fred?series=${encodeURIComponent(series)}${units?`&units=${units}`:''}`);
+    const j = await r.json();
+    if(j && typeof j.value === 'number' && isFinite(j.value)) return { value: j.value, date: j.date };
+  } catch(e){}
+  return null;
+}
+async function fillFred(id, series, units, dec) {
+  const el = document.getElementById(id);
+  if(!el) return;
+  const d = await fetchFred(series, units);
+  el.textContent = d
+    ? d.value.toFixed(dec == null ? 1 : dec) + '%' + (d.date ? ' (' + d.date.slice(0,7) + ')' : '')
+    : '–';
+}
+
 async function renderMacro() {
   // Datumstämpel: aktuell månad/år istället för fast "juni 2026"
   const dateEl = document.getElementById('macro-date');
@@ -2091,6 +2109,15 @@ async function renderMacro() {
     setUpdatedStamp('stamp-macro');
   } catch(e) { /* behåll fallback-siffrorna om Yahoo strular */ }
   refreshRates();
+
+  // Makrostatistik live via FRED (USA) och FRED/OECD (Sverige).
+  fillFred('m-us-gdp',   'A191RL1Q225SBEA', 'lin', 1);
+  fillFred('m-us-cpi',   'CPIAUCSL',        'pc1', 1);
+  fillFred('m-us-core',  'CPILFESL',        'pc1', 1);
+  fillFred('m-us-unemp', 'UNRATE',          'lin', 1);
+  fillFred('m-se-cpi',   'CPALTT01SEM659N', 'lin', 1);
+  fillFred('m-se-unemp', 'LRHUTTTTSEM156S', 'lin', 1);
+  fillFred('m-se-gdp',   'NAEXKP01SEQ657S', 'lin', 1);
 }
 
 // Centralbankernas styrräntor via egen Netlify-funktion (nyckelfria källor).
