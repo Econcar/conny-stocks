@@ -513,8 +513,8 @@
           </details>
         </div>
         <div class="card" style="margin-bottom:14px">
-          <div class="card-title">Bolagsbeskrivning</div>
-          <div id="d-description" style="font-size:13px;color:var(--text2);line-height:1.8;max-height:120px;overflow:hidden;"></div>
+          <div class="card-title">Bolagsbeskrivning <span id="d-desc-translate" style="float:right;font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+          <div id="d-description" style="font-size:13px;color:var(--text2);line-height:1.8"></div>
         </div>
       </div>
       <div id="detail-error" style="display:none" class="error-msg"></div>
@@ -538,8 +538,8 @@
         <div class="kpi-card"><div class="kpi-label">Brent råolja</div><div class="kpi-value" id="m-brent">…</div><div class="kpi-sub muted" id="m-brent-sub">hämtar…</div></div>
       </div>
       <div class="grid-3">
-        <div class="card"><div class="card-title">USA</div><div id="macro-usa" style="font-size:12px;line-height:2;color:var(--text2)">BNP-tillväxt: ~2,4% 2026<br>Inflation (CPI): ~2,9% maj<br>Arbetslöshet: 4,2%<br>10-årsränta: 4,48%<br>ISM Manufacturing: 54 (maj)</div></div>
-        <div class="card"><div class="card-title">Sverige</div><div id="macro-se" style="font-size:12px;line-height:2;color:var(--text2)">BNP-tillväxt: återhämtning 2026<br>KPIF: 1,5% maj 2026<br>Riksbanksränta: 2,25%<br>10-årsränta: 2,76%<br>USD/SEK: <span id="m-usdsek">9,48</span></div></div>
+        <div class="card"><div class="card-title">USA</div><div id="macro-usa" style="font-size:12px;line-height:2;color:var(--text2)">10-årsränta: <span id="m-us10y" style="color:var(--text)">…</span><br>BNP-tillväxt: ~2,4%<br>Inflation (CPI): ~2,9%<br>Arbetslöshet: 4,2%<br>ISM Manufacturing: 54<div style="margin-top:8px;font-size:10px;color:var(--text3)">Ränta live · BNP/CPI/arbetslöshet/ISM: senast kända (manuellt)</div></div></div>
+        <div class="card"><div class="card-title">Sverige</div><div id="macro-se" style="font-size:12px;line-height:2;color:var(--text2)">USD/SEK: <span id="m-usdsek" style="color:var(--text)">…</span><br>Styrränta: <span id="m-se-repo" style="color:var(--text)">…</span><br>BNP-tillväxt: återhämtning<br>KPIF: 1,5%<br>10-årsränta: 2,76%<div style="margin-top:8px;font-size:10px;color:var(--text3)">USD/SEK & styrränta live · BNP/KPIF/10-årsränta: senast kända (manuellt)</div></div></div>
         <div class="card"><div class="card-title">Geopolitik & risker</div><div id="macro-geo" style="font-size:12px;line-height:2;color:var(--text2)">Iran-USA konflikt · Oljepriser<br>Trump-tullar · Handelskrig<br>NATO-upprustning Europa<br>AI-kapplöpning · Halvledare<br>SpaceX IPO $1,75T (jun 2026)</div></div>
       </div>
       <div class="card">
@@ -1524,12 +1524,15 @@ let currentDescRaw = '';
 // Visar bolagsbeskrivningen; erbjuder svensk översättning (cachas per bolag).
 function renderDescription(ticker, desc) {
   const el = document.getElementById('d-description');
+  const tr = document.getElementById('d-desc-translate');
   if(!el) return;
   currentDescRaw = desc || '';
   const cached = ticker ? localStorage.getItem('descsv_' + ticker) : null;
-  if(cached) { el.innerHTML = `<div>${escHtml(cached)}</div>`; return; }
-  const btn = desc ? `<div style="margin-top:8px"><span onclick="translateDesc('${escQuote(ticker)}')" style="color:var(--accent);cursor:pointer;font-size:12px">🌐 Översätt till svenska</span></div>` : '';
-  el.innerHTML = `<div>${escHtml(desc || '')}</div>${btn}`;
+  if(cached) { el.innerHTML = escHtml(cached); if(tr) tr.innerHTML = ''; return; }
+  el.innerHTML = escHtml(desc || '');
+  if(tr) tr.innerHTML = desc
+    ? `<span onclick="translateDesc('${escQuote(ticker)}')" style="color:var(--accent);cursor:pointer;font-size:12px">🌐 Översätt till svenska</span>`
+    : '';
 }
 
 async function translateDesc(ticker) {
@@ -1551,9 +1554,10 @@ async function translateDesc(ticker) {
     const sv = j.content && j.content[0] && j.content[0].text && j.content[0].text.trim();
     if(!sv) throw new Error('tomt svar');
     try { localStorage.setItem('descsv_' + ticker, sv); } catch(e){}
-    el.innerHTML = `<div>${escHtml(sv)}</div>`;
+    el.innerHTML = escHtml(sv);
+    const tr = document.getElementById('d-desc-translate'); if(tr) tr.innerHTML = '';
   } catch(e) {
-    el.innerHTML = `<div>${escHtml(raw)}</div><div style="margin-top:8px;color:#fca5a5;font-size:12px">Kunde inte översätta (kontrollera API-nyckeln).</div>`;
+    el.innerHTML = `${escHtml(raw)}<div style="margin-top:8px;color:#fca5a5;font-size:12px">Kunde inte översätta (kontrollera API-nyckeln).</div>`;
   }
 }
 
@@ -1611,12 +1615,11 @@ async function loadStockQuote(ticker, name) {
     const currency = meta.currency;
     // Live fundamenta för valfri ticker (fallback till lokala storbolagslistan).
     const fund = await fetchFundamentals(ticker);
-    const pe = fund?.pe != null ? fund.pe : (local?.pe || null);
-    const div = fund?.div != null ? fund.div : (local?.div || null);
+    // Nyckeltal: enbart live från Yahoo (inga hårdkodade reservvärden).
+    const pe = fund?.pe != null ? fund.pe : null;
+    const div = fund?.div != null ? fund.div : null;
     const sector = fund?.sector || local?.sektor || 'Aktie';
-    const mcapStr = fund?.mcap != null
-      ? fmtMcap(fund.mcap, fund.currency || currency)
-      : (local ? (local.mcap >= 1000 ? (local.mcap/1000).toFixed(1) + 'T USD' : '$' + local.mcap + 'B USD') : null);
+    const mcapStr = fund?.mcap != null ? fmtMcap(fund.mcap, fund.currency || currency) : null;
     const desc = fund?.description
       || `${name} är ett bolag noterat på ${meta.exchangeName || ticker}. Klicka "Analysera med AI" för en fullständig bolagsanalys.`;
     currentStockMeta = {
@@ -2068,7 +2071,7 @@ async function renderMacro() {
   drawMacroChart(MACRO_INDICES.map(i=>i.label), MACRO_INDICES.map(i=>i.fallback));
 
   try {
-    const bySym = await fetchSparkData([...MACRO_INDICES.map(i=>i.sym), 'BZ=F', 'SEK=X']);
+    const bySym = await fetchSparkData([...MACRO_INDICES.map(i=>i.sym), 'BZ=F', 'SEK=X', '^TNX']);
     const values = MACRO_INDICES.map(i => (bySym[i.sym] && bySym[i.sym].ytd != null) ? +bySym[i.sym].ytd.toFixed(1) : i.fallback);
     drawMacroChart(MACRO_INDICES.map(i=>i.label), values);
 
@@ -2083,6 +2086,8 @@ async function renderMacro() {
     }
     const sek = bySym['SEK=X'];
     if(sek) { const el = document.getElementById('m-usdsek'); if(el) el.textContent = fmtSekNum(sek.price, 2); }
+    const tnx = bySym['^TNX'];
+    if(tnx) { const el = document.getElementById('m-us10y'); if(el) el.textContent = fmtSekNum(tnx.price, 2) + '%'; }
     setUpdatedStamp('stamp-macro');
   } catch(e) { /* behåll fallback-siffrorna om Yahoo strular */ }
   refreshRates();
@@ -2102,6 +2107,7 @@ async function refreshRates() {
     if(d.riksbank) {
       set('r-riks', fmtSekNum(d.riksbank.rate, 2) + '%');
       set('r-riks-sub', 'Styrränta · ' + dstr(d.riksbank.date));
+      set('m-se-repo', fmtSekNum(d.riksbank.rate, 2) + '%');
     }
     if(d.ecb) {
       set('r-ecb', fmtSekNum(d.ecb.rate, 2) + '%');
