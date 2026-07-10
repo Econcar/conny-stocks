@@ -2521,6 +2521,8 @@ ${stockData}
 ${aiContext ? 'Nuvarande kontext: ' + aiContext : ''}
 ${aiStockDetail ? '\nLIVE-DATA för aktien användaren tittar på (kurser, nyckeltal och nyheter från Yahoo – använd i första hand för frågor om just denna aktie):\n' + aiStockDetail : ''}
 
+Du har ett webbsök-verktyg. Om du saknar tillförlitlig eller aktuell information – t.ex. färska nyheter, senaste kurser/rapporter, händelser efter din träningsdata – sök på nätet istället för att gissa. Undvik onödiga sökningar när du redan har svaret (t.ex. från live-datan ovan). Ange gärna källa när du använder webbfakta.
+
 Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. Håll svaren strukturerade men lättlästa. OBS: Detta är inte personlig finansiell rådgivning.`;
 
   const messages = [
@@ -2530,18 +2532,26 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
 
   try {
     const selectedModel = document.getElementById('model-select')?.value || 'claude-sonnet-4-6';
+    // Låt AI:n söka på nätet vid behov. Dynamisk filtrering (_20260209) stöds av
+    // Fable 5 / Opus 4.8 / Sonnet 4.6; Haiku 4.5 använder grundvarianten.
+    const searchType = /haiku/.test(selectedModel) ? 'web_search_20250305' : 'web_search_20260209';
     const response = await fetch('/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
       body: JSON.stringify({
         model: selectedModel,
-        max_tokens: 1000,
+        max_tokens: 1500,
         system: systemPrompt,
+        tools: [{ type: searchType, name: 'web_search', max_uses: 5 }],
         messages: messages
       })
     });
     const data = await response.json();
-    const reply = data.content?.[0]?.text || 'Kunde inte hämta svar. Kontrollera din API-nyckel.';
+    // Webbsök-svar innehåller flera block (server_tool_use, web_search_tool_result,
+    // och ett eller flera text-block) – slå ihop alla text-block, inte bara det första.
+    const reply = (Array.isArray(data.content)
+      ? data.content.filter(b => b.type === 'text').map(b => b.text).join('').trim()
+      : '') || 'Kunde inte hämta svar. Kontrollera din API-nyckel.';
     aiHistory.push({role:'assistant', content: reply});
     const typingEl = document.getElementById(typingId);
     if(typingEl) typingEl.remove();
