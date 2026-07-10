@@ -1333,7 +1333,7 @@ async function loadFundChart(orderBookId, period) {
   try {
     const data = await avanzaGet('/_api/fund-guide/chart/' + orderBookId + '/' + period);
     const serie = data.dataSerie || [];
-    const labels = serie.map(p=>new Date(p.x).toLocaleDateString('sv-SE',{month:'short',day:'numeric'}));
+    const labels = serie.map(p=>new Date(p.x).toLocaleDateString('sv-SE',{year:'numeric',month:'short',day:'numeric'}));
     const values = serie.map(p=>+p.y.toFixed(2));
     if(currentPriceChart) currentPriceChart.destroy();
     const ctx = document.getElementById('priceChart').getContext('2d');
@@ -1527,12 +1527,16 @@ function renderDescription(ticker, desc) {
   const tr = document.getElementById('d-desc-translate');
   if(!el) return;
   currentDescRaw = desc || '';
+  if(tr) tr.innerHTML = '';
   const cached = ticker ? localStorage.getItem('descsv_' + ticker) : null;
-  if(cached) { el.innerHTML = escHtml(cached); if(tr) tr.innerHTML = ''; return; }
-  el.innerHTML = escHtml(desc || '');
-  if(tr) tr.innerHTML = desc
-    ? `<span onclick="translateDesc('${escQuote(ticker)}')" style="color:var(--accent);cursor:pointer;font-size:12px">🌐 Översätt till svenska</span>`
-    : '';
+  if(cached) { el.innerHTML = escHtml(cached); return; }        // redan svensk (cachad)
+  if(!desc) { el.innerHTML = ''; return; }
+  el.innerHTML = escHtml(desc);                                 // visa engelska medan vi översätter
+  if(getApiKey()) {
+    translateDesc(ticker);                                      // alltid svenska: auto-översätt
+  } else if(tr) {
+    tr.innerHTML = `<span onclick="translateDesc('${escQuote(ticker)}')" style="color:var(--accent);cursor:pointer;font-size:12px">🌐 Översätt till svenska</span>`;
+  }
 }
 
 async function translateDesc(ticker) {
@@ -1710,8 +1714,8 @@ async function loadPriceChart(ticker, period) {
     const labels = timestamps.map(t=>{
       const d = new Date(t*1000);
       return intraday
-        ? d.toLocaleString('sv-SE',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
-        : d.toLocaleDateString('sv-SE',{month:'short',day:'numeric'});
+        ? d.toLocaleString('sv-SE',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+        : d.toLocaleDateString('sv-SE',{year:'numeric',month:'short',day:'numeric'});
     });
     const validCloses = closes.map(v=>v!==null?+v.toFixed(2):null);
     if(currentPriceChart) currentPriceChart.destroy();
@@ -1893,7 +1897,7 @@ async function loadRiskChart(sym, period) {
     const r = data.chart.result[0];
     const ts = r.timestamp || [];
     const closes = (r.indicators.quote[0].close || []).map(v => v!=null ? +v.toFixed(2) : null);
-    const labels = ts.map(t => new Date(t*1000).toLocaleDateString('sv-SE', {month:'short', day:'numeric'}));
+    const labels = ts.map(t => new Date(t*1000).toLocaleDateString('sv-SE', {year:'numeric', month:'short', day:'numeric'}));
     const valid = closes.filter(v => v!=null);
     const up = valid.length ? valid[valid.length-1] >= valid[0] : true;
     const color = up ? '#22c55e' : '#ef4444';
