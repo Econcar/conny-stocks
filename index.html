@@ -539,7 +539,7 @@
       </div>
       <div class="grid-3">
         <div class="card"><div class="card-title">USA</div><div id="macro-usa" style="font-size:12px;line-height:2;color:var(--text2)">10-årsränta: <span id="m-us10y" style="color:var(--text)">…</span><br>BNP-tillväxt (årstakt): <span id="m-us-gdp" style="color:var(--text)">…</span><br>Inflation (CPI å/å): <span id="m-us-cpi" style="color:var(--text)">…</span><br>Kärninflation (å/å): <span id="m-us-core" style="color:var(--text)">…</span><br>Arbetslöshet: <span id="m-us-unemp" style="color:var(--text)">…</span><div style="margin-top:8px;font-size:10px;color:var(--text3)">Live · ränta: Yahoo, statistik: FRED (månad inom parentes)</div></div></div>
-        <div class="card"><div class="card-title">Sverige</div><div id="macro-se" style="font-size:12px;line-height:2;color:var(--text2)">USD/SEK: <span id="m-usdsek" style="color:var(--text)">…</span><br>Styrränta: <span id="m-se-repo" style="color:var(--text)">…</span><br>Inflation (CPI å/å): <span id="m-se-cpi" style="color:var(--text)">…</span><br>Arbetslöshet: <span id="m-se-unemp" style="color:var(--text)">…</span><br>BNP-tillväxt (å/å): <span id="m-se-gdp" style="color:var(--text)">…</span><div style="margin-top:8px;font-size:10px;color:var(--text3)">Live · USD/SEK & styrränta: Yahoo/Riksbank, statistik: FRED/OECD</div></div></div>
+        <div class="card"><div class="card-title">Sverige</div><div id="macro-se" style="font-size:12px;line-height:2;color:var(--text2)">USD/SEK: <span id="m-usdsek" style="color:var(--text)">…</span><br>Styrränta: <span id="m-se-repo" style="color:var(--text)">…</span><br>Inflation (KPIF å/å): <span id="m-se-cpi" style="color:var(--text)">…</span><br>Arbetslöshet: <span id="m-se-unemp" style="color:var(--text)">…</span><br>BNP-tillväxt (å/å): <span id="m-se-gdp" style="color:var(--text)">…</span><div style="margin-top:8px;font-size:10px;color:var(--text3)">Live · USD/SEK & styrränta: Yahoo/Riksbank, KPIF: SCB, övrigt: FRED/OECD</div></div></div>
         <div class="card"><div class="card-title">Geopolitik & risker</div><div id="macro-geo" style="font-size:12px;line-height:2;color:var(--text2)">Iran-USA konflikt · Oljepriser<br>Trump-tullar · Handelskrig<br>NATO-upprustning Europa<br>AI-kapplöpning · Halvledare<br>SpaceX IPO $1,75T (jun 2026)</div></div>
       </div>
       <div class="card">
@@ -2084,6 +2084,23 @@ async function fillFred(id, series, units, dec) {
     : '–';
 }
 
+// Svensk KPIF (12-månadersförändring) live från SCB.
+async function fillScbKpif(id) {
+  const el = document.getElementById(id);
+  if(!el) return;
+  try {
+    const params = new URLSearchParams({
+      path: 'tables/TAB6445/data', lang: 'sv', outputFormat: 'json-stat2',
+      'valueCodes[PrelAggr]': 'SKPI02', 'valueCodes[ContentsCode]': '000007PM', 'valueCodes[Tid]': 'top(1)'
+    });
+    const j = await (await fetch('/api/scb?' + params)).json();
+    const val = j && j.value && j.value[0];
+    const tidLab = j && j.dimension && j.dimension.Tid && j.dimension.Tid.category.label;
+    const period = tidLab ? Object.values(tidLab).pop() : '';
+    el.textContent = (val != null) ? val.toFixed(1) + '%' + (period ? ' (' + period.replace('M', '-') + ')' : '') : '–';
+  } catch(e) { el.textContent = '–'; }
+}
+
 async function renderMacro() {
   // Datumstämpel: aktuell månad/år istället för fast "juni 2026"
   const dateEl = document.getElementById('macro-date');
@@ -2119,7 +2136,7 @@ async function renderMacro() {
   fillFred('m-us-cpi',   'CPIAUCSL',        'pc1', 1);
   fillFred('m-us-core',  'CPILFESL',        'pc1', 1);
   fillFred('m-us-unemp', 'UNRATE',          'lin', 1);
-  fillFred('m-se-cpi',   'CPALTT01SEM659N',  'lin', 1);
+  fillScbKpif('m-se-cpi'); // svensk inflation (KPIF) live från SCB
   fillFred('m-se-unemp', 'LRHUTTTTSEM156S',  'lin', 1);
   fillFred('m-se-gdp',   'CLVMNACSCAB1GQSE', 'pc1', 1);
 }
