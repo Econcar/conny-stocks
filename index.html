@@ -478,6 +478,17 @@
               <div class="filter-chip" onclick="setPeriod(this,'2y')">2Å</div>
               <div class="filter-chip" onclick="setPeriod(this,'5y')">5Å</div>
             </div>
+            <div class="filter-row" id="chart-controls" style="margin-bottom:10px;align-items:center;gap:6px">
+              <div class="filter-chip on" id="mode-price" onclick="setChartMode('price')">Kurs</div>
+              <div class="filter-chip" id="mode-pct" onclick="setChartMode('pct')">%</div>
+              <span style="width:8px"></span>
+              <span style="font-size:11px;color:var(--text3)">Jämför:</span>
+              <div class="filter-chip" onclick="addCompare('^GSPC','S&P 500')">S&amp;P 500</div>
+              <div class="filter-chip" onclick="addCompare('^IXIC','Nasdaq')">Nasdaq</div>
+              <div class="filter-chip" onclick="addCompare('^OMX','OMXS30')">OMXS30</div>
+              <input class="filter-input" id="compare-input" placeholder="+ ticker/fond" onkeydown="if(event.key==='Enter')addCompareInput()" style="width:110px">
+            </div>
+            <div id="compare-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
             <div class="chart-wrap"><canvas id="priceChart" role="img" aria-label="Kursutveckling"></canvas></div>
           </div>
           <div class="card">
@@ -1266,6 +1277,9 @@ async function loadFund(orderBookId, name) {
   stopDetailAutoRefresh(); // fonder prissätts en gång per dag – ingen auto-uppdatering
   currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Fond', flag:'🇸🇪', r:'' };
   currentPeriod = '3mo';
+  renderFundamentals(null);
+  compareSyms = [];
+  const _cc = document.getElementById('chart-controls'); if(_cc) _cc.style.display = 'none'; // jämförelse stöds ej för fonder
   document.getElementById('nav-detail').style.display = 'flex';
   document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
   showSection('detail');
@@ -1432,6 +1446,9 @@ async function loadStock(ticker, name) {
   currentFundId = null;
   currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Aktie', flag:'', r:'' };
   renderFundamentals(null);
+  compareSyms = [];
+  const _cc = document.getElementById('chart-controls'); if(_cc) _cc.style.display = 'flex';
+  const _ch = document.getElementById('compare-chips'); if(_ch) _ch.innerHTML = '';
   document.getElementById('d-chart-title').textContent = 'Kursutveckling';
   document.getElementById('nav-detail').style.display = 'flex';
   document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
@@ -1701,37 +1718,121 @@ function loadStockFallback(ticker, name) {
   document.getElementById('detail-content').style.display = 'block';
 }
 
+let chartMode = 'price';   // 'price' | 'pct'
+let compareSyms = [];      // [{sym, name}]
+const COMPARE_COLORS = ['#4f8ef7', '#f59e0b', '#a78bfa', '#06b6d4', '#ec4899', '#84cc16'];
+
+async function fetchChartSeries(sym, range, interval) {
+  try {
+    const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`);
+    const r = data.chart.result[0];
+    return { ts: r.timestamp || [], closes: (r.indicators.quote[0].close || []) };
+  } catch(e) { return null; }
+}
+
 async function loadPriceChart(ticker, period) {
   const rangeMap = {'1w':'5d','1mo':'1mo','3mo':'3mo','6mo':'6mo','1y':'1y','2y':'2y','5y':'5y'};
   const intervalMap = {'1w':'60m','1mo':'1d','3mo':'1d','6mo':'1wk','1y':'1wk','2y':'1wk','5y':'1mo'};
+  const range = rangeMap[period], interval = intervalMap[period];
+  const intraday = /[mh]$/.test(interval);
   try {
-    const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=${intervalMap[period]}&range=${rangeMap[period]}`);
-    const result = data.chart.result[0];
-    const timestamps = result.timestamp;
-    const closes = result.indicators.quote[0].close;
-    // Intradagsintervall (t.ex. veckovyn) visar även klockslag i etiketten.
-    const intraday = /[mh]$/.test(intervalMap[period]);
-    const labels = timestamps.map(t=>{
+    const primary = await fetchChartSeries(ticker, range, interval);
+    if(!primary || !primary.ts.length) return;
+    const comp = [];
+    for(const c of compareSyms) {
+      const s = await fetchChartSeries(c.sym, range, interval);
+      if(s && s.ts.length) comp.push({ ...c, ...s });
+    }
+    const hasCompare = comp.length > 0;
+    const pct = chartMode === 'pct' || hasCompare; // jämförelse kräver %
+
+    const ts = primary.ts;
+    const labels = ts.map(t=>{
       const d = new Date(t*1000);
       return intraday
         ? d.toLocaleString('sv-SE',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
         : d.toLocaleDateString('sv-SE',{year:'numeric',month:'short',day:'numeric'});
     });
-    const validCloses = closes.map(v=>v!==null?+v.toFixed(2):null);
+
+    // Rikta in en serie mot primärens tidsaxel; rebasera till % om pct-läge.
+    const alignRebase = (series) => {
+      const m = new Map();
+      series.ts.forEach((t,i) => { if(series.closes[i] != null) m.set(t, series.closes[i]); });
+      const vals = ts.map(t => m.has(t) ? m.get(t) : null);
+      if(!pct) return vals.map(v => v != null ? +v.toFixed(2) : null);
+      const base = vals.find(v => v != null);
+      return vals.map(v => (v != null && base) ? +(((v - base) / base) * 100).toFixed(2) : null);
+    };
+
+    const primVals = alignRebase(primary);
+    const pf = primVals.find(v => v != null), pl = [...primVals].reverse().find(v => v != null);
+    const primColor = (pl >= pf) ? '#22c55e' : '#ef4444';
+    const datasets = [{
+      label: currentStockName || ticker, data: primVals,
+      borderColor: primColor, backgroundColor: hasCompare ? 'transparent' : primColor + '18',
+      fill: !hasCompare, borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, spanGaps: true
+    }];
+    comp.forEach((c, i) => {
+      const col = COMPARE_COLORS[i % COMPARE_COLORS.length];
+      datasets.push({
+        label: c.name || c.sym, data: alignRebase(c),
+        borderColor: col, backgroundColor: 'transparent', fill: false,
+        borderWidth: 1.6, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, spanGaps: true
+      });
+    });
+
     if(currentPriceChart) currentPriceChart.destroy();
     const ctx = document.getElementById('priceChart').getContext('2d');
-    const first = validCloses.find(v=>v!==null);
-    const last = validCloses.filter(v=>v!==null).slice(-1)[0];
-    const isUp = last >= first;
-    const color = isUp ? '#22c55e' : '#ef4444';
     currentPriceChart = new Chart(ctx, {
       type: 'line',
-      data: { labels, datasets: [{ data: validCloses, borderColor: color, borderWidth: 2, backgroundColor: color+'18', fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4 }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
-        scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, maxTicksLimit: 8 } },
-          y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 } } } } }
+      data: { labels, datasets },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: datasets.length > 1, labels: { color: '#8b91a8', font: { size: 11 }, boxWidth: 12 } },
+          tooltip: { mode: 'index', intersect: false,
+            callbacks: pct ? { label: (c) => `${c.dataset.label}: ${c.parsed.y >= 0 ? '+' : ''}${c.parsed.y}%` } : {} }
+        },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, maxTicksLimit: 8 } },
+          y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, callback: pct ? (v => (v >= 0 ? '+' : '') + v + '%') : undefined } }
+        } }
     });
+    updateCompareChips();
   } catch(e) {}
+}
+
+function reloadChart() {
+  if(currentIsFund && currentFundId) loadFundChart(currentFundId, avanzaPeriodMap[currentPeriod] || 'three_months');
+  else if(currentTicker) loadPriceChart(currentTicker, currentPeriod);
+}
+function setChartMode(m) {
+  chartMode = m;
+  document.getElementById('mode-price').classList.toggle('on', m === 'price');
+  document.getElementById('mode-pct').classList.toggle('on', m === 'pct');
+  reloadChart();
+}
+function addCompare(sym, name) {
+  sym = sym.trim();
+  if(!sym || sym === currentTicker || compareSyms.find(c => c.sym === sym)) return;
+  if(compareSyms.length >= 5) return;
+  compareSyms.push({ sym, name: name || sym });
+  reloadChart();
+}
+function addCompareInput() {
+  const el = document.getElementById('compare-input');
+  const v = (el.value || '').trim();
+  if(v) { addCompare(v, v); el.value = ''; }
+}
+function removeCompare(sym) {
+  compareSyms = compareSyms.filter(c => c.sym !== sym);
+  reloadChart();
+}
+function updateCompareChips() {
+  const el = document.getElementById('compare-chips');
+  if(!el) return;
+  el.innerHTML = compareSyms.map(c =>
+    `<span class="ticker-chip" style="cursor:default">${escHtml(c.name)} <span onclick="removeCompare('${escQuote(c.sym)}')" style="cursor:pointer;color:var(--text3)">×</span></span>`
+  ).join('');
 }
 
 async function setPeriod(el, period) {
