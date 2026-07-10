@@ -26,7 +26,7 @@ export async function onRequest(context) {
   if (!symbol || !/^[A-Za-z0-9.^=\-]{1,25}$/.test(symbol)) {
     return json({ error: 'Ogiltig symbol' }, 400);
   }
-  const modules = 'price,summaryDetail,assetProfile,defaultKeyStatistics';
+  const modules = 'price,summaryDetail,assetProfile,defaultKeyStatistics,financialData';
 
   async function run(auth) {
     const url =

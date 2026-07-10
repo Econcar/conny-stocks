@@ -485,6 +485,10 @@
             <div id="d-facts" style="font-size:12px;line-height:2;color:var(--text2)"></div>
           </div>
         </div>
+        <div class="card" id="d-fund-card" style="margin-bottom:14px;display:none">
+          <div class="card-title">Nyckeltal <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· live från Yahoo</span></div>
+          <div id="d-fundamentals" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
+        </div>
         <div class="card" style="margin-bottom:14px">
           <div class="card-title">Bolagsbeskrivning</div>
           <div id="d-description" style="font-size:13px;color:var(--text2);line-height:1.8;max-height:120px;overflow:hidden;"></div>
@@ -951,6 +955,8 @@ function pct(v, color) {
   return (color ? '' : '') + (v>=0?'+':'') + v.toFixed(1) + '%';
 }
 
+const RATING_LABELS = { 'Strong Buy':'Stark köp', 'Buy':'Köp', 'Hold':'Behåll', 'Underperform':'Underprestera', 'Sell':'Sälj' };
+
 // Valbara datakolumner. sortField = Yahoo-fält → sortering över HELA universumet.
 // sortField:null = går bara att sortera på den aktuella sidan (Yahoo saknar fältet).
 const COL_DEFS = {
@@ -968,6 +974,15 @@ const COL_DEFS = {
     cell:s=>`<td style="text-align:right;color:${(s.ar52||0)>=0?'var(--green)':'var(--red)'}" class="td-mono">${pct(s.ar52)}</td>` },
   pe:      { label:'P/E', align:'right', sortField:'peratio.lasttwelvemonths', val:s=>(s.pe!=null?s.pe:1e12),
     cell:s=>`<td style="text-align:right" class="td-mono">${s.pe!=null?s.pe.toFixed(1):'–'}</td>` },
+  fpe:     { label:'Fwd P/E', align:'right', sortField:null, val:s=>(s.fpe!=null?s.fpe:1e12),
+    cell:s=>`<td style="text-align:right" class="td-mono">${s.fpe!=null?s.fpe.toFixed(1):'–'}</td>` },
+  pb:      { label:'P/B', align:'right', sortField:null, val:s=>(s.pb!=null?s.pb:1e12),
+    cell:s=>`<td style="text-align:right" class="td-mono">${s.pb!=null?s.pb.toFixed(1):'–'}</td>` },
+  eps:     { label:'EPS', align:'right', sortField:null, val:s=>(s.eps!=null?s.eps:-1e12),
+    cell:s=>`<td style="text-align:right" class="td-mono">${s.eps!=null?s.eps.toFixed(2):'–'}</td>` },
+  rating:  { label:'Analytiker', align:'left', sortField:null,
+    val:s=>{const m=(s.rating||'').match(/^([\d.]+)/);return m?parseFloat(m[1]):99;},
+    cell:s=>{ if(!s.rating) return '<td style="color:var(--text3)">–</td>'; const n=parseFloat(s.rating); const col=n<=1.5?'var(--green)':n<=2.5?'#86c34a':n<=3.5?'var(--amber)':'var(--red)'; const lbl=RATING_LABELS[(s.rating.split(' - ')[1]||'').trim()]||(s.rating.split(' - ')[1]||s.rating); return `<td style="font-size:12px;color:${col}">${escHtml(lbl)}</td>`; } },
   div:     { label:'Utd.%', align:'right', sortField:'forward_dividend_yield', val:s=>(s.div||0),
     cell:s=>`<td style="text-align:right" class="td-mono">${s.div>0?s.div.toFixed(1)+'%':'–'}</td>` },
   mcap:    { label:'Mkt cap', align:'right', sortField:'intradaymarketcap', val:s=>(s.mcap||0),
@@ -975,7 +990,7 @@ const COL_DEFS = {
   volym:   { label:'Volym', align:'right', sortField:'dayvolume', val:s=>(s.volym||0),
     cell:s=>`<td style="text-align:right;color:var(--text2);font-size:12px">${s.volym!=null?fmtVol(s.volym):'–'}</td>` },
 };
-const COL_ORDER = ['marknad','sektor','kurs','ytd','dag','ar52','pe','div','mcap','volym'];
+const COL_ORDER = ['marknad','sektor','kurs','ytd','dag','ar52','pe','fpe','pb','eps','div','mcap','volym','rating'];
 const DEFAULT_COLS = ['marknad','sektor','kurs','ytd','pe','div','mcap']; // samma 7 som tidigare
 
 function getCols() {
@@ -1112,6 +1127,10 @@ async function loadScreener() {
       ar52: q.fiftyTwoWeekChangePercent != null ? +q.fiftyTwoWeekChangePercent.toFixed(1) : null,
       volym: q.regularMarketVolume != null ? q.regularMarketVolume : null,
       pe: q.trailingPE != null ? +q.trailingPE.toFixed(1) : null,
+      fpe: q.forwardPE != null ? +q.forwardPE.toFixed(1) : null,
+      pb: q.priceToBook != null ? +q.priceToBook.toFixed(1) : null,
+      eps: q.epsTrailingTwelveMonths != null ? +q.epsTrailingTwelveMonths.toFixed(2) : null,
+      rating: q.averageAnalystRating || null,
       div: q.trailingAnnualDividendYield != null ? +(q.trailingAnnualDividendYield*100).toFixed(1)
            : (q.dividendYield != null ? +q.dividendYield.toFixed(1) : 0),
       mcap: q.marketCap != null ? Math.round(q.marketCap/1e9) : null,
@@ -1389,6 +1408,7 @@ async function loadStock(ticker, name) {
   currentIsFund = false;
   currentFundId = null;
   currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Aktie', flag:'', r:'' };
+  renderFundamentals(null);
   document.getElementById('d-chart-title').textContent = 'Kursutveckling';
   document.getElementById('nav-detail').style.display = 'flex';
   document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
@@ -1423,14 +1443,41 @@ async function fetchFundamentals(ticker) {
     const j = await r.json();
     const res = j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0];
     if(!res) return null;
-    const sd = res.summaryDetail || {}, pr = res.price || {}, ap = res.assetProfile || {};
+    const sd = res.summaryDetail || {}, pr = res.price || {}, ap = res.assetProfile || {},
+          ks = res.defaultKeyStatistics || {}, fd = res.financialData || {};
     const raw = o => (o && typeof o.raw === 'number') ? o.raw : null;
+    const pct1 = o => raw(o) != null ? raw(o) * 100 : null;
     const dy = raw(sd.dividendYield);
     return {
-      pe: raw(sd.trailingPE) != null ? raw(sd.trailingPE) : raw(sd.forwardPE),
+      pe: raw(sd.trailingPE),
+      forwardPe: raw(sd.forwardPE) != null ? raw(sd.forwardPE) : raw(ks.forwardPE),
+      pb: raw(ks.priceToBook),
+      peg: raw(ks.pegRatio),
+      ps: raw(sd.priceToSalesTrailing12Months),
+      beta: raw(sd.beta),
+      eps: raw(ks.trailingEps),
       div: dy != null ? dy * 100 : (raw(sd.trailingAnnualDividendYield) != null ? raw(sd.trailingAnnualDividendYield) * 100 : null),
+      payout: pct1(sd.payoutRatio),
       mcap: raw(pr.marketCap) != null ? raw(pr.marketCap) : raw(sd.marketCap),
+      ev: raw(ks.enterpriseValue),
+      evEbitda: raw(ks.enterpriseToEbitda),
       currency: pr.currency || null,
+      revenue: raw(fd.totalRevenue),
+      revenueGrowth: pct1(fd.revenueGrowth),
+      grossMargin: pct1(fd.grossMargins),
+      opMargin: pct1(fd.operatingMargins),
+      profitMargin: pct1(fd.profitMargins),
+      roe: pct1(fd.returnOnEquity),
+      cash: raw(fd.totalCash),
+      debt: raw(fd.totalDebt),
+      debtToEquity: raw(fd.debtToEquity),
+      currentRatio: raw(fd.currentRatio),
+      fcf: raw(fd.freeCashflow),
+      targetMean: raw(fd.targetMeanPrice),
+      targetHigh: raw(fd.targetHighPrice),
+      targetLow: raw(fd.targetLowPrice),
+      recommendation: fd.recommendationKey || null,
+      numAnalysts: raw(fd.numberOfAnalystOpinions),
       sector: ap.sector || null,
       industry: ap.industry || null,
       description: ap.longBusinessSummary || null
@@ -1441,10 +1488,54 @@ async function fetchFundamentals(ticker) {
 function fmtMcap(v, cur) {
   if(v == null) return null;
   const c = cur ? ' ' + cur : '';
-  if(v >= 1e12) return (v/1e12).toFixed(2) + 'T' + c;
-  if(v >= 1e9) return (v/1e9).toFixed(1) + 'B' + c;
-  if(v >= 1e6) return (v/1e6).toFixed(1) + 'M' + c;
+  const s = Math.abs(v);
+  if(s >= 1e12) return (v/1e12).toFixed(2) + 'T' + c;
+  if(s >= 1e9) return (v/1e9).toFixed(1) + 'B' + c;
+  if(s >= 1e6) return (v/1e6).toFixed(1) + 'M' + c;
   return v.toLocaleString('sv-SE') + c;
+}
+
+const REC_LABELS = { strong_buy:'Stark köp', buy:'Köp', hold:'Behåll', underperform:'Underprestera', sell:'Sälj', none:'–' };
+
+// Renderar det rika Nyckeltal-kortet i aktiedetaljen.
+function renderFundamentals(f, currency) {
+  const card = document.getElementById('d-fund-card');
+  const el = document.getElementById('d-fundamentals');
+  if(!card || !el) return;
+  if(!f) { card.style.display = 'none'; return; }
+  const cur = f.currency || currency || '';
+  const money = v => v == null ? null : fmtMcap(v, cur);
+  const pctv = v => v == null ? null : (v>=0?'+':'') + v.toFixed(1) + '%';
+  const nn = (v, d) => v == null ? null : v.toFixed(d);
+  const rows = [
+    ['P/E (TTM)', nn(f.pe,1)],
+    ['Forward P/E', nn(f.forwardPe,1)],
+    ['P/B', nn(f.pb,1)],
+    ['PEG', nn(f.peg,2)],
+    ['P/S', nn(f.ps,1)],
+    ['EPS', f.eps!=null ? nn(f.eps,2)+' '+cur : null],
+    ['Direktavkastning', f.div!=null ? f.div.toFixed(2)+'%' : null],
+    ['Utdelningsandel', pctv(f.payout)],
+    ['Beta', nn(f.beta,2)],
+    ['Börsvärde', money(f.mcap)],
+    ['EV', money(f.ev)],
+    ['EV/EBITDA', nn(f.evEbitda,1)],
+    ['Omsättning', money(f.revenue)],
+    ['Oms.tillväxt', pctv(f.revenueGrowth)],
+    ['Bruttomarginal', pctv(f.grossMargin)],
+    ['Rörelsemarginal', pctv(f.opMargin)],
+    ['Vinstmarginal', pctv(f.profitMargin)],
+    ['Avk. eget kap.', pctv(f.roe)],
+    ['Kassa', money(f.cash)],
+    ['Skuld', money(f.debt)],
+    ['Skuld/EK', nn(f.debtToEquity,0)],
+    ['Fritt kassaflöde', money(f.fcf)],
+    ['Riktkurs (snitt)', f.targetMean!=null ? f.targetMean.toFixed(2)+' '+cur+(f.numAnalysts?` (${f.numAnalysts} analytiker)`:'') : null],
+    ['Rekommendation', f.recommendation ? (REC_LABELS[f.recommendation]||f.recommendation) : null],
+  ].filter(r => r[1] != null);
+  if(!rows.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  el.innerHTML = rows.map(([l,v]) => `<div class="kpi-card" style="padding:11px 13px"><div class="kpi-label">${l}</div><div class="kpi-value" style="font-size:16px">${escHtml(v)}</div></div>`).join('');
 }
 
 async function loadStockQuote(ticker, name) {
@@ -1474,8 +1565,9 @@ async function loadStockQuote(ticker, name) {
       pe, div, mcap: mcapStr, sektor: sector,
       flag: local ? local.flag : '',
       r: local ? local.r : '',
-      desc, industry: fund?.industry || null
+      desc, industry: fund?.industry || null, fund
     };
+    renderFundamentals(fund, currency);
     document.getElementById('d-name').textContent = name;
     document.getElementById('d-fullname').textContent = meta.longName || meta.shortName || '';
     document.getElementById('d-exchange').textContent = meta.exchangeName || ticker;
@@ -1595,13 +1687,29 @@ function aiAnalyzeStock() {
     return;
   }
   const m = currentStockMeta || {};
+  const f = m.fund || {};
+  const cur = f.currency || '';
   const parts = [];
-  if(m.pe != null) parts.push(`P/E ${m.pe.toFixed(1)}`);
-  if(m.div != null) parts.push(`direktavkastning ${m.div.toFixed(2)}%`);
-  if(m.mcap) parts.push(`börsvärde ${m.mcap}`);
   if(m.sektor) parts.push(`sektor ${m.sektor}`);
   if(m.industry) parts.push(`bransch ${m.industry}`);
-  const ctx = parts.length ? `Nyckeltal (live): ${parts.join(', ')}.` : '';
+  if(f.pe != null) parts.push(`P/E ${f.pe.toFixed(1)}`);
+  if(f.forwardPe != null) parts.push(`forward P/E ${f.forwardPe.toFixed(1)}`);
+  if(f.pb != null) parts.push(`P/B ${f.pb.toFixed(1)}`);
+  if(f.ps != null) parts.push(`P/S ${f.ps.toFixed(1)}`);
+  if(f.eps != null) parts.push(`EPS ${f.eps.toFixed(2)} ${cur}`);
+  if(m.div != null) parts.push(`direktavkastning ${m.div.toFixed(2)}%`);
+  if(m.mcap) parts.push(`börsvärde ${m.mcap}`);
+  if(f.revenue != null) parts.push(`omsättning ${fmtMcap(f.revenue, cur)}`);
+  if(f.revenueGrowth != null) parts.push(`oms.tillväxt ${f.revenueGrowth.toFixed(1)}%`);
+  if(f.profitMargin != null) parts.push(`vinstmarginal ${f.profitMargin.toFixed(1)}%`);
+  if(f.grossMargin != null) parts.push(`bruttomarginal ${f.grossMargin.toFixed(1)}%`);
+  if(f.roe != null) parts.push(`avk. eget kapital ${f.roe.toFixed(1)}%`);
+  if(f.cash != null) parts.push(`kassa ${fmtMcap(f.cash, cur)}`);
+  if(f.debt != null) parts.push(`skuld ${fmtMcap(f.debt, cur)}`);
+  if(f.fcf != null) parts.push(`fritt kassaflöde ${fmtMcap(f.fcf, cur)}`);
+  if(f.targetMean != null) parts.push(`analytikers riktkurs ${f.targetMean.toFixed(2)} ${cur}${f.numAnalysts?` (${f.numAnalysts} analytiker)`:''}`);
+  if(f.recommendation) parts.push(`rekommendation ${REC_LABELS[f.recommendation]||f.recommendation}`);
+  const ctx = parts.length ? `Aktuella nyckeltal (live från Yahoo): ${parts.join(', ')}.` : '';
   const desc = m.desc ? ` Bolagsbeskrivning: ${m.desc}` : '';
   setTimeout(()=>sendAIWithText(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx}${desc} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation. Om du saknar tillförlitlig information om just detta bolag, säg det tydligt istället för att gissa.`), 100);
 }
