@@ -488,6 +488,29 @@
         <div class="card" id="d-fund-card" style="margin-bottom:14px;display:none">
           <div class="card-title">Nyckeltal <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· live från Yahoo</span></div>
           <div id="d-fundamentals" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
+          <details style="margin-top:14px">
+            <summary style="cursor:pointer;color:var(--accent);font-size:12px;user-select:none">Vad betyder nyckeltalen? ▾</summary>
+            <div style="font-size:12px;line-height:1.7;color:var(--text2);margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+              <p style="margin:0 0 8px"><b style="color:var(--text)">Tips:</b> jämför alltid nyckeltal <b>inom samma bransch</b> – "normala" nivåer skiljer sig kraftigt mellan t.ex. bank, tech och industri.</p>
+              <div style="color:var(--text);font-weight:600;margin:8px 0 3px">Värdering – är aktien dyr eller billig?</div>
+              <b>P/E</b> = kurs / vinst per aktie. Lågt = billigt eller låga förväntningar; högt = dyrt eller hög tillväxtförväntan. <b>Forward P/E</b> använder nästa års förväntade vinst.<br>
+              <b>P/B</b> = kurs / bokfört värde. Under 1 = handlas under bokfört egetkapital.<br>
+              <b>PEG</b> = P/E / vinsttillväxt. Under 1 ses ofta som attraktivt (billigt relativt tillväxten).<br>
+              <b>P/S</b> = kurs / omsättning. Användbart för bolag utan vinst.<br>
+              <b>EV/EBITDA</b> = bolagsvärde (inkl. skuld) / rörelseresultat. Värderingsmått oberoende av kapitalstruktur; lägre = billigare.
+              <div style="color:var(--text);font-weight:600;margin:10px 0 3px">Lönsamhet – hur bra tjänar bolaget pengar?</div>
+              <b>Brutto-/rörelse-/vinstmarginal</b> = hur stor andel av omsättningen som blir kvar efter kostnader. Högre = mer lönsamt.<br>
+              <b>Avk. eget kapital (ROE)</b> = vinst / eget kapital. Hur effektivt ägarnas pengar förräntas; >15% ses ofta som bra.<br>
+              <b>Oms.tillväxt</b> = omsättningsökning mot föregående period.
+              <div style="color:var(--text);font-weight:600;margin:10px 0 3px">Finansiell styrka – hur stabilt är bolaget?</div>
+              <b>Kassa / Skuld</b> = likvida medel resp. räntebärande skulder. <b>Skuld/EK</b> = hävstång; högt = mer risk vid motgång.<br>
+              <b>Fritt kassaflöde</b> = pengar kvar efter investeringar. Positivt och växande = sunt; negativt = bolaget förbränner kassa.
+              <div style="color:var(--text);font-weight:600;margin:10px 0 3px">Utdelning & övrigt</div>
+              <b>Direktavkastning</b> = årlig utdelning / kurs. <b>Utdelningsandel</b> = andel av vinsten som delas ut; över ~80–100% kan vara ohållbart.<br>
+              <b>Beta</b> = hur mycket aktien svänger mot marknaden (1 = som index, >1 = mer volatil).<br>
+              <b>EPS</b> = vinst per aktie. <b>Riktkurs & rekommendation</b> = analytikernas snittförväntan – en indikation, inte en garanti.
+            </div>
+          </details>
         </div>
         <div class="card" style="margin-bottom:14px">
           <div class="card-title">Bolagsbeskrivning</div>
@@ -1496,6 +1519,43 @@ function fmtMcap(v, cur) {
 }
 
 const REC_LABELS = { strong_buy:'Stark köp', buy:'Köp', hold:'Behåll', underperform:'Underprestera', sell:'Sälj', none:'–' };
+let currentDescRaw = '';
+
+// Visar bolagsbeskrivningen; erbjuder svensk översättning (cachas per bolag).
+function renderDescription(ticker, desc) {
+  const el = document.getElementById('d-description');
+  if(!el) return;
+  currentDescRaw = desc || '';
+  const cached = ticker ? localStorage.getItem('descsv_' + ticker) : null;
+  if(cached) { el.innerHTML = `<div>${escHtml(cached)}</div>`; return; }
+  const btn = desc ? `<div style="margin-top:8px"><span onclick="translateDesc('${escQuote(ticker)}')" style="color:var(--accent);cursor:pointer;font-size:12px">🌐 Översätt till svenska</span></div>` : '';
+  el.innerHTML = `<div>${escHtml(desc || '')}</div>${btn}`;
+}
+
+async function translateDesc(ticker) {
+  const raw = currentDescRaw;
+  if(!raw) return;
+  if(!getApiKey()) { openAI(); return; }
+  const el = document.getElementById('d-description');
+  el.innerHTML = `<div class="muted" style="font-size:12px">Översätter…</div>`;
+  try {
+    const r = await fetch('/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5', max_tokens: 800,
+        messages: [{ role: 'user', content: `Översätt följande bolagsbeskrivning till svenska. Behåll alla fakta exakt – hitta inte på något och lägg inte till något. Svara ENDAST med den svenska översättningen:\n\n${raw}` }]
+      })
+    });
+    const j = await r.json();
+    const sv = j.content && j.content[0] && j.content[0].text && j.content[0].text.trim();
+    if(!sv) throw new Error('tomt svar');
+    try { localStorage.setItem('descsv_' + ticker, sv); } catch(e){}
+    el.innerHTML = `<div>${escHtml(sv)}</div>`;
+  } catch(e) {
+    el.innerHTML = `<div>${escHtml(raw)}</div><div style="margin-top:8px;color:#fca5a5;font-size:12px">Kunde inte översätta (kontrollera API-nyckeln).</div>`;
+  }
+}
 
 // Renderar det rika Nyckeltal-kortet i aktiedetaljen.
 function renderFundamentals(f, currency) {
@@ -1604,7 +1664,7 @@ async function loadStockQuote(ticker, name) {
       pe!=null?`P/E: <span style="color:var(--text)">${pe.toFixed(1)}</span>`:'',
       div!=null?`Direktavkastning: <span style="color:var(--text)">${div.toFixed(2)}%</span>`:'',
     ].filter(Boolean).map(l=>`<div>${l}</div>`).join('');
-    document.getElementById('d-description').textContent = desc;
+    renderDescription(ticker, desc);
   } catch(e) {
     loadStockFallback(ticker, name);
   }
