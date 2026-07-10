@@ -1729,7 +1729,7 @@ async function fetchChartSeries(sym, range, interval) {
   try {
     const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`);
     const r = data.chart.result[0];
-    return { ts: r.timestamp || [], closes: (r.indicators.quote[0].close || []) };
+    return { ts: r.timestamp || [], closes: (r.indicators.quote[0].close || []), off: (r.meta && r.meta.gmtoffset) || 0 };
   } catch(e) { return null; }
 }
 
@@ -1759,12 +1759,15 @@ async function loadPriceChart(ticker, period) {
 
     // Rikta in en serie mot primärens tidsaxel; rebasera till % om pct-läge.
     // Nyckel per DATUM för dags-/vecko-/månadsdata (så olika börser aligner trots
-    // olika stängningstider); exakt tidsstämpel bara för intradag.
-    const keyOf = intraday ? (t => t) : (t => new Date(t*1000).toISOString().slice(0,10));
-    const primKeys = ts.map(keyOf);
+    // olika stängningstider); exakt tidsstämpel bara för intradag. Datumet räknas i
+    // varje börs LOKALA tid (via gmtoffset) – annars hamnar t.ex. Stockholms
+    // veckostaplar (midnatt lokal tid = föregående dag i UTC) på fel datum och
+    // matchar aldrig en nordamerikansk primäraxel (så OMXS30-linjen blev osynlig).
+    const keyOf = intraday ? ((t,off) => t) : ((t,off) => new Date((t + (off||0))*1000).toISOString().slice(0,10));
+    const primKeys = ts.map(t => keyOf(t, primary.off));
     const alignRebase = (series) => {
       const m = new Map();
-      series.ts.forEach((t,i) => { if(series.closes[i] != null) m.set(keyOf(t), series.closes[i]); });
+      series.ts.forEach((t,i) => { if(series.closes[i] != null) m.set(keyOf(t, series.off), series.closes[i]); });
       const vals = primKeys.map(k => m.has(k) ? m.get(k) : null);
       if(!pct) return vals.map(v => v != null ? +v.toFixed(2) : null);
       const base = vals.find(v => v != null);
