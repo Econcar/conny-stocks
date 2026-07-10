@@ -3,12 +3,12 @@
 // så analysen speglar dagens nyhetsläge – inte modellens träningsdata.
 
 const { synthesize } = require('./anthropic');
-const { recentSignals, upsertMegatrend } = require('./store');
+const { recentSignals, upsertMegatrend, getThemes } = require('./store');
 
 const TREND_MODEL = process.env.ENGINE_TREND_MODEL; // default = synthesize's default (djupmodell)
 
-// Teman med matchnings-nyckelord (gemener; matchas mot summary + ticker + sektor).
-const THEMES = [
+// Fallback-teman om databasen är tom/otillgänglig (matchar seedet i supabase-themes.sql).
+const SEED_THEMES = [
   { id: 'ai',             name: 'AI & halvledare',       kw: ['ai', 'artificial intelligence', 'halvledar', 'chip', 'gpu', 'nvidia', 'semiconductor', 'datacenter', 'språkmodell', 'llm', 'openai', 'tsmc', 'amd', 'broadcom', 'avgo', 'nvda'] },
   { id: 'electrification', name: 'Elektrifiering & EV',   kw: ['elbil', 'battery', 'batteri', 'laddning', 'tesla', 'elektrifiering', 'rivian', 'lucid', 'byd', 'charging', 'tsla', 'polestar'] },
   { id: 'defense',        name: 'Försvar & säkerhet',    kw: ['försvar', 'vapen', 'militär', 'nato', 'saab', 'lockheed', 'defense', 'missile', 'rheinmetall', 'upprustning', 'ukraina', 'lmt'] },
@@ -21,6 +21,17 @@ function matches(sig, kw) {
   return kw.some(k => hay.includes(k));
 }
 
+// Aktiva teman från DB, med fallback till seedet.
+async function activeThemes() {
+  try {
+    const rows = await getThemes('active');
+    if (rows && rows.length) return rows.map(r => ({ id: r.id, name: r.name, kw: r.keywords || [] }));
+  } catch (e) {
+    console.error(`[megatrends] kunde inte läsa teman, använder seed: ${e.message}`);
+  }
+  return SEED_THEMES;
+}
+
 async function runMegatrends() {
   let signals = [];
   try {
@@ -29,10 +40,11 @@ async function runMegatrends() {
     console.error(`[megatrends] kunde inte läsa signaler: ${e.message}`);
   }
 
+  const themes = await activeThemes();
   const date = new Date().toISOString().slice(0, 10);
   const done = [];
 
-  for (const t of THEMES) {
+  for (const t of themes) {
     const rel = signals.filter(s => matches(s, t.kw)).slice(0, 25);
     const ctx = rel.length
       ? rel.map(s => `- ${s.summary}${s.ticker ? ` [${s.ticker}]` : ''} (impact ${s.impact_score != null ? s.impact_score : '?'})`).join('\n')
@@ -58,4 +70,4 @@ async function runMegatrends() {
   return { date, themes: done };
 }
 
-module.exports = { runMegatrends, THEMES };
+module.exports = { runMegatrends, SEED_THEMES };

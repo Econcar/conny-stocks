@@ -109,4 +109,40 @@ async function upsertMegatrend(row) {
   if (!res.ok) throw new Error(`Supabase-skrivning (megatrends) misslyckades (${res.status}): ${await res.text()}`);
 }
 
-module.exports = { upsertSignals, recentExternalIds, upsertRiskAnalysis, recentSignals, upsertMegatrend };
+// Läser teman (valfritt filtrerat på status).
+async function getThemes(status) {
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
+  }
+  const filter = status ? `&status=eq.${encodeURIComponent(status)}` : '';
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/themes?select=id,name,keywords,status,origin${filter}`, {
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` }
+  });
+  if (!res.ok) throw new Error(`Supabase-läsning (themes) misslyckades (${res.status}): ${await res.text()}`);
+  return res.json();
+}
+
+// Lägger till nya teman (t.ex. AI-förslag). Hoppar över id:n som redan finns.
+async function insertThemes(rows) {
+  if (!rows.length) return 0;
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
+  }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/themes?on_conflict=id`, {
+    method: 'POST',
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=ignore-duplicates,return=minimal'
+    },
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok) throw new Error(`Supabase-skrivning (themes) misslyckades (${res.status}): ${await res.text()}`);
+  return rows.length;
+}
+
+module.exports = {
+  upsertSignals, recentExternalIds, upsertRiskAnalysis, recentSignals, upsertMegatrend,
+  getThemes, insertThemes
+};

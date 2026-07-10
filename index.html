@@ -572,8 +572,9 @@
     <!-- ── MEGATRENDER ── -->
     <div class="section" id="section-trends">
       <div class="page-title">Megatrender <span>· Långsiktiga investeringsteman</span><span class="live-badge"><span class="live-dot"></span>AI-analys</span><span class="update-stamp" id="stamp-trends"></span></div>
-      <div class="info-msg" style="margin-bottom:14px">Daglig AI-analys av långsiktiga teman, grundad i motorns färska nyhetssignaler. Uppdateras varje dag.</div>
+      <div class="info-msg" style="margin-bottom:14px">Daglig AI-analys av långsiktiga teman, grundad i motorns färska nyhetssignaler. Uppdateras varje dag. Motorn spanar veckovis efter nya framväxande teman – förslagen dyker upp längst ner.</div>
       <div id="trends-list"></div>
+      <div id="trends-suggestions" style="margin-top:20px"></div>
     </div>
 
   </div><!-- /content -->
@@ -1780,6 +1781,45 @@ async function renderTrends() {
   const stamp = document.getElementById('stamp-trends');
   if(stamp) stamp.textContent = '· Analys ' + latest;
   el.innerHTML = rows.map(trendCard).join('');
+  loadThemeSuggestions();
+}
+
+// Visar AI-föreslagna nya teman (status 'suggested') med aktivera/avfärda.
+async function loadThemeSuggestions() {
+  const el = document.getElementById('trends-suggestions');
+  if(!el) return;
+  if(!cloudEnabled || !sb) { el.innerHTML = ''; return; }
+  let data;
+  try {
+    const res = await sb.from('themes').select('id,name,rationale').eq('status', 'suggested').order('created_at', { ascending: false });
+    if(res.error) throw new Error(res.error.message);
+    data = res.data || [];
+  } catch(e) { el.innerHTML = ''; return; }
+  if(!data.length) { el.innerHTML = ''; return; }
+  const items = data.map(t => {
+    const actions = currentUser
+      ? `<span class="ticker-chip" onclick="activateTheme('${escQuote(t.id)}')">✓ Aktivera</span><span class="ticker-chip macro" onclick="dismissTheme('${escQuote(t.id)}')">Avfärda</span>`
+      : '<span class="muted">Logga in för att aktivera</span>';
+    return `<div class="signal-item" style="border-left-color:var(--purple)">
+      <div class="signal-body">
+        <div class="signal-summary"><b>${escHtml(t.name)}</b>${t.rationale ? ` — <span class="muted">${escHtml(t.rationale)}</span>` : ''}</div>
+        <div class="signal-meta">${actions}</div>
+      </div></div>`;
+  }).join('');
+  el.innerHTML = `<div class="card-title" style="margin:2px 0 10px">✦ Föreslagna teman (AI) <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· aktiveras och analyseras vid nästa dagliga körning</span></div>${items}`;
+}
+
+async function activateTheme(id) {
+  if(!sb || !currentUser) return;
+  const { error } = await sb.from('themes').update({ status: 'active' }).eq('id', id);
+  if(error) { alert('Kunde inte aktivera temat: ' + error.message); return; }
+  loadThemeSuggestions();
+}
+async function dismissTheme(id) {
+  if(!sb || !currentUser) return;
+  const { error } = await sb.from('themes').update({ status: 'dismissed' }).eq('id', id);
+  if(error) { alert('Kunde inte avfärda temat: ' + error.message); return; }
+  loadThemeSuggestions();
 }
 
 async function renderMacro() {

@@ -23,15 +23,27 @@ const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.5);
 const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 20);
 
 function parseArgs(argv) {
-  const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false };
+  const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false, discover: false };
   for (const a of argv.slice(2)) {
     if (a === '--demo') args.demo = true;
     else if (a === '--dry') args.dry = true;
     else if (a === '--risk-only') args.riskOnly = true;
     else if (a === '--trends-only') args.trendsOnly = true;
+    else if (a === '--discover') args.discover = true;
     else if (a.startsWith('--source=')) args.source = a.slice('--source='.length);
   }
   return args;
+}
+
+// Trendspaning: AI föreslår nya teman (körs veckovis i det schemalagda jobbet).
+async function runDiscovery() {
+  try {
+    const { discoverThemes } = require('./lib/discovery');
+    const info = await discoverThemes();
+    console.log(`Trendspaning (${info.model}): ${info.proposed} förslag, ${info.added.length} nya${info.added.length ? ' – ' + info.added.join(', ') : ''}.`);
+  } catch (err) {
+    console.error(`Trendspaning misslyckades: ${err.message}`);
+  }
 }
 
 // Daglig AI-sammanvägning av riskbarometern (körs efter källorna).
@@ -69,6 +81,11 @@ async function main() {
   if (args.trendsOnly) {
     console.log('Kör endast megatrend-analysen.');
     await runDailyTrends();
+    return;
+  }
+  if (args.discover) {
+    console.log('Kör endast trendspaningen.');
+    await runDiscovery();
     return;
   }
 
@@ -172,6 +189,8 @@ async function main() {
   if (!args.dry) {
     await runDailyRisk();
     await runDailyTrends();
+    // Trendspaning körs veckovis (måndagar UTC) för att hålla nere brus/kostnad.
+    if (new Date().getUTCDay() === 1) await runDiscovery();
   }
 
   if (errCount && !docCount) process.exit(1); // allt föll → låt jobbet fallera

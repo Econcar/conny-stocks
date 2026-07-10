@@ -109,4 +109,24 @@ async function synthesize(prompt, opts = {}) {
   return { text, model };
 }
 
-module.exports = { analyze, deepAnalyze, synthesize, TRIAGE_MODEL, DEEP_MODEL };
+// Generiskt structured-output-anrop: tvingar ett verktyg och returnerar dess input.
+async function extract(prompt, tool, opts = {}) {
+  if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY i miljön');
+  const model = opts.model || process.env.ENGINE_DISCOVERY_MODEL || DEEP_MODEL;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model, max_tokens: opts.maxTokens || 1024,
+      tools: [tool], tool_choice: { type: 'tool', name: tool.name },
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  if (!res.ok) throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${await res.text()}`);
+  const data = await res.json();
+  const toolUse = (data.content || []).find(b => b.type === 'tool_use');
+  if (!toolUse) throw new Error('Inget tool_use-svar');
+  return { input: toolUse.input, model };
+}
+
+module.exports = { analyze, deepAnalyze, synthesize, extract, TRIAGE_MODEL, DEEP_MODEL };

@@ -84,3 +84,7 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
   de senaste dagarnas signaler (matchas på nyckelord). Sparas i `megatrends` (kräver
   `../supabase-megatrends.sql`). Modell via `ENGINE_TREND_MODEL`. Kör enbart den med
   `node engine/run.js --trends-only`.
+- **Teman i databasen + trendspaning:** temana ligger i `themes` (kräver
+  `../supabase-themes.sql`, seedat med 5 st). Motorn spanar **veckovis** (måndagar UTC) efter
+  nya framväxande teman (`lib/discovery.js`) och sparar dem som `status='suggested'` – du
+  aktiverar dem i appen. Kör enbart spaningen med `node engine/run.js --discover`.
