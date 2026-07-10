@@ -1755,10 +1755,14 @@ async function loadPriceChart(ticker, period) {
     });
 
     // Rikta in en serie mot primärens tidsaxel; rebasera till % om pct-läge.
+    // Nyckel per DATUM för dags-/vecko-/månadsdata (så olika börser aligner trots
+    // olika stängningstider); exakt tidsstämpel bara för intradag.
+    const keyOf = intraday ? (t => t) : (t => new Date(t*1000).toISOString().slice(0,10));
+    const primKeys = ts.map(keyOf);
     const alignRebase = (series) => {
       const m = new Map();
-      series.ts.forEach((t,i) => { if(series.closes[i] != null) m.set(t, series.closes[i]); });
-      const vals = ts.map(t => m.has(t) ? m.get(t) : null);
+      series.ts.forEach((t,i) => { if(series.closes[i] != null) m.set(keyOf(t), series.closes[i]); });
+      const vals = primKeys.map(k => m.has(k) ? m.get(k) : null);
       if(!pct) return vals.map(v => v != null ? +v.toFixed(2) : null);
       const base = vals.find(v => v != null);
       return vals.map(v => (v != null && base) ? +(((v - base) / base) * 100).toFixed(2) : null);
