@@ -8,6 +8,7 @@ create table if not exists public.megatrends (
   theme        text        not null,        -- tema-id, t.ex. "ai"
   name         text        not null,        -- visningsnamn
   analysis     text        not null,        -- AI:ns temaanalys
+  companies    jsonb,                        -- påverkade bolag/fonder (riktning + hur)
   signal_count integer,                     -- antal signaler som grundade analysen
   model        text,
   created_at   timestamptz not null default now(),

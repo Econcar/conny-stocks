@@ -1750,11 +1750,33 @@ async function renderRisk() {
 
 // ══════════ MEGATRENDER ══════════
 // Visar motorns dagliga temaanalyser (senaste datumet), en per tema.
+function trendCompanyRow(c) {
+  const dir = c.direction === 'gynnas' ? { sym: '▲', col: 'var(--green)' }
+    : c.direction === 'missgynnas' ? { sym: '▼', col: 'var(--red)' }
+    : { sym: '◆', col: 'var(--amber)' };
+  const chip = c.ticker
+    ? `<span class="ticker-chip" onclick="loadStock('${escQuote(c.ticker)}','${escQuote(c.name || c.ticker)}')">${escHtml(c.ticker)}</span>`
+    : `<span class="ticker-chip macro">${escHtml(c.name || '')}</span>`;
+  const nm = c.ticker && c.name ? escHtml(c.name) + ' — ' : '';
+  return `<div style="display:flex;gap:8px;align-items:baseline;margin-bottom:6px;font-size:12.5px">
+    <span style="color:${dir.col};flex-shrink:0" title="${c.direction || ''}">${dir.sym}</span>
+    ${chip}
+    <span style="color:var(--text2)">${nm}${escHtml(c.reason || '')}</span>
+  </div>`;
+}
+
 function trendCard(r) {
   const modelShort = r.model ? ' · ' + r.model.replace('claude-', '').replace(/-\d.*$/, '') : '';
+  const companies = Array.isArray(r.companies) ? r.companies : [];
+  const compHtml = companies.length ? `
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+      <div class="kpi-label" style="margin-bottom:8px">Påverkade bolag</div>
+      ${companies.map(trendCompanyRow).join('')}
+    </div>` : '';
   return `<div class="card" style="margin-bottom:12px">
     <div class="card-title">${escHtml(r.name)} <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· ${r.signal_count || 0} signaler${escHtml(modelShort)}</span></div>
     <div style="font-size:13px;line-height:1.65;color:var(--text)">${escHtml(r.analysis || '').replace(/\n/g, '<br>')}</div>
+    ${compHtml}
   </div>`;
 }
 
@@ -1765,7 +1787,7 @@ async function renderTrends() {
   let data;
   try {
     const res = await sb.from('megatrends')
-      .select('date,theme,name,analysis,signal_count,model').order('date', { ascending: false }).limit(30);
+      .select('date,theme,name,analysis,companies,signal_count,model').order('date', { ascending: false }).limit(30);
     if(res.error) throw new Error(res.error.message);
     data = res.data || [];
   } catch(e) {
