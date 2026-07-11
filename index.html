@@ -850,7 +850,12 @@ async function fetchSparkData(symbols, range = 'ytd') {
     const closes = ((resp.indicators && resp.indicators.quote[0] && resp.indicators.quote[0].close) || []).filter(v=>v!=null);
     const price = meta.regularMarketPrice != null ? meta.regularMarketPrice : (closes.length ? closes[closes.length-1] : null);
     if(price == null) return;
-    const prev = meta.previousClose != null ? meta.previousClose : meta.chartPreviousClose;
+    // Dagsförändring från de två SENASTE stängningarna. Spark saknar previousClose,
+    // och meta.chartPreviousClose är föregående års sista kurs vid range=ytd – att
+    // använda den gav "1 dag" = hela YTD-uppgången (helt fel dagssiffra).
+    let prev;
+    if(closes.length >= 2) prev = (Math.abs(closes[closes.length-1] - price) < 1e-6) ? closes[closes.length-2] : closes[closes.length-1];
+    else prev = meta.previousClose != null ? meta.previousClose : meta.chartPreviousClose;
     const ytd = closes.length ? ((price - closes[0]) / closes[0]) * 100 : null;
     const day = prev ? ((price - prev) / prev) * 100 : null;
     bySym[r.symbol] = { price, ytd, day, closes };
