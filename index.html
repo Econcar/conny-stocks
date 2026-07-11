@@ -317,6 +317,7 @@
     <div class="nav-item" onclick="showSection('macro')"><span class="nav-icon">◎</span> Makro</div>
     <div class="nav-item" onclick="showSection('risk')"><span class="nav-icon">◔</span> Riskbarometer</div>
     <div class="nav-item" onclick="showSection('trends')"><span class="nav-icon">◇</span> Megatrender</div>
+    <div class="nav-item" onclick="showSection('portfolio')"><span class="nav-icon">▤</span> Min portfölj</div>
   </div>
 
   <div class="watchlist-section">
@@ -613,6 +614,26 @@
       <div class="info-msg" style="margin-bottom:14px">Daglig AI-analys av långsiktiga teman, grundad i motorns färska nyhetssignaler. Uppdateras varje dag. Motorn spanar veckovis efter nya framväxande teman – förslagen dyker upp längst ner.</div>
       <div id="trends-list"></div>
       <div id="trends-suggestions" style="margin-top:20px"></div>
+    </div>
+
+    <div class="section" id="section-portfolio">
+      <style>
+        .pf-table{width:100%;border-collapse:collapse;font-size:13px}
+        .pf-table th{color:var(--text3);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid var(--border2)}
+        .pf-table td{padding:9px 10px;border-bottom:1px solid var(--border)}
+        .pf-table tbody tr:hover{background:rgba(255,255,255,0.03)}
+        #pf-paste{width:100%;min-height:90px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:10px;font-family:var(--mono);font-size:12px;outline:none;resize:vertical}
+        .pf-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px}
+      </style>
+      <div class="page-title">Min portfölj <span>· Dina innehav från Avanza</span><span class="update-stamp" id="stamp-portfolio"></span></div>
+      <div class="pf-card">
+        <div style="font-weight:600;margin-bottom:6px">Importera från Avanza</div>
+        <div class="info-msg" style="margin-bottom:10px">Gå till <b>Innehav</b> i Avanza, byt undertabben till <b>Inköpsinfo</b> (visar antal och GAV), markera hela tabellen inklusive rubrikraden och kopiera (Ctrl+C). Klistra sedan in här och tryck <b>Tolka</b>. Inget skickas någonstans förrän du sparar.</div>
+        <textarea id="pf-paste" placeholder="Klistra in tabellen från Avanza här…  (Namn⇥Kortnamn⇥Volym⇥…⇥ISIN⇥Marknad)"></textarea>
+        <div style="margin-top:10px"><button class="action-btn" onclick="parsePortfolioPaste()">Tolka</button></div>
+      </div>
+      <div id="pf-map"></div>
+      <div id="pf-view"></div>
     </div>
 
   </div><!-- /content -->
@@ -915,6 +936,7 @@ function showSection(s) {
   if(s === 'risk') renderRisk();
   if(s === 'trends') renderTrends();
   if(s === 'compare') renderCompare();
+  if(s === 'portfolio') renderPortfolio();
 }
 
 // ══════════ DASHBOARD ══════════
@@ -2352,6 +2374,216 @@ let searchSeq = 0;
 function escQuote(s) { return String(s).replace(/'/g, "\\'"); }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+// ══════════ PORTFÖLJ (Avanza-import) ══════════
+let portfolio = loadPortfolioLocal();
+let pfParsed = [];
+
+function loadPortfolioLocal(){ try{ const s=localStorage.getItem('portfolio'); if(s) return JSON.parse(s); }catch(e){} return []; }
+function savePortfolioLocal(){ try{ localStorage.setItem('portfolio', JSON.stringify(portfolio)); }catch(e){} }
+
+// Börskod (MIC från Avanzas "Marknad") → Yahoo-suffix. '' = USA (inget suffix).
+const MIC_SUFFIX = { XNYS:'', XNAS:'', ARCX:'', BATS:'', XASE:'', PINX:'', OTCM:'',
+  XPAR:'.PA', XSTO:'.ST', XNGM:'.ST', FNSE:'.ST', XSAT:'.ST', XETR:'.DE', XFRA:'.DE',
+  XLON:'.L', XAMS:'.AS', XBRU:'.BR', XHEL:'.HE', XCSE:'.CO', XOSL:'.OL', MERK:'.OL',
+  XMIL:'.MI', XMAD:'.MC', XSWX:'.SW', XVTX:'.SW', XTSE:'.TO', XTSX:'.V', XLIS:'.LS',
+  XWBO:'.VI', XIST:'.IS', XDUB:'.IR', XHKG:'.HK', XTKS:'.T' };
+// Valuta → Yahoo FX-symbol (1 enhet i SEK).
+const FX_SYMBOL = { USD:'SEK=X', EUR:'EURSEK=X', GBP:'GBPSEK=X', DKK:'DKKSEK=X',
+  NOK:'NOKSEK=X', CAD:'CADSEK=X', CHF:'CHFSEK=X', JPY:'JPYSEK=X', GBX:'GBPSEK=X' };
+
+// Tolka svenskt tal ("36 622", "1 483,50") → number.
+function pfNum(s){
+  if(s==null) return null;
+  const n = parseFloat(String(s).replace(/ /g,'').replace(/\s/g,'').replace(',', '.').replace(/[^0-9.\-]/g,''));
+  return isFinite(n) ? n : null;
+}
+
+function avanzaToYahoo(kortnamn, marknad){
+  const base = (kortnamn||'').trim().toUpperCase().replace(/\s+/g,'-');
+  if(!base) return '';
+  const suf = MIC_SUFFIX[(marknad||'').trim().toUpperCase()];
+  return base + (suf != null ? suf : '');
+}
+
+function parsePortfolioPaste(){
+  const raw = (document.getElementById('pf-paste').value || '').trim();
+  const mapEl = document.getElementById('pf-map');
+  if(!raw){ mapEl.innerHTML = '<div class="info-msg">Klistra in tabellen först.</div>'; return; }
+  const lines = raw.split(/\r?\n/).filter(l => l.trim());
+  const splitCells = l => l.includes('\t') ? l.split('\t') : l.split(/ {2,}/);
+  let hi = lines.findIndex(l => /namn/i.test(l) && /(kortnamn|isin|volym|marknad)/i.test(l));
+  if(hi < 0) hi = 0;
+  const header = splitCells(lines[hi]).map(c => c.trim().toLowerCase());
+  const col = name => header.indexOf(name);
+  const idx = { namn:col('namn'), kort:col('kortnamn'), vol:col('volym'), gav:col('gav'),
+    val:col('valuta'), land:col('land'), isin:col('isin'), mark:col('marknad') };
+  const rows = [];
+  for(let i = hi+1; i < lines.length; i++){
+    const c = splitCells(lines[i]).map(x => x.trim());
+    if(c.length < 2) continue;
+    const namn = idx.namn >= 0 ? c[idx.namn] : c[0];
+    if(!namn) continue;
+    const kort = idx.kort >= 0 ? c[idx.kort] : '';
+    const marknad = idx.mark >= 0 ? c[idx.mark] : '';
+    rows.push({
+      namn, kort, isin: idx.isin >= 0 ? c[idx.isin] : '', marknad,
+      qty: pfNum(idx.vol >= 0 ? c[idx.vol] : null),
+      gav: pfNum(idx.gav >= 0 ? c[idx.gav] : null),
+      currency: (idx.val >= 0 ? c[idx.val] : '') || '',
+      ticker: avanzaToYahoo(kort, marknad)
+    });
+  }
+  pfParsed = rows;
+  renderPortfolioMap();
+}
+
+function renderPortfolioMap(){
+  const el = document.getElementById('pf-map');
+  if(!pfParsed.length){ el.innerHTML = '<div class="info-msg">Hittade inga rader. Kontrollera att du kopierade hela tabellen (inkl. rubrikraden med Namn/Kortnamn/ISIN).</div>'; return; }
+  const rows = pfParsed.map((r,i) => `
+    <tr>
+      <td style="text-align:center"><input type="checkbox" id="pf-inc-${i}" checked></td>
+      <td>${escHtml(r.namn)}</td>
+      <td><input id="pf-tk-${i}" value="${escHtml(r.ticker)}" style="width:120px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:4px 6px;font-family:var(--mono);font-size:12px"></td>
+      <td style="text-align:right">${r.qty != null ? fmtSekNum(r.qty,0) : '–'}</td>
+      <td style="text-align:right">${r.gav != null ? fmtSekNum(r.gav,2) : '–'} ${escHtml(r.currency)}</td>
+      <td style="font-size:11px;color:var(--text3);font-family:var(--mono)">${escHtml(r.isin)}</td>
+    </tr>`).join('');
+  el.innerHTML = `
+    <div class="pf-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:12px;flex-wrap:wrap">
+        <div style="font-weight:600">Kontrollera tickers (${pfParsed.length} innehav)</div>
+        <div style="display:flex;gap:8px">
+          <button class="action-btn" onclick="verifyPortfolioTickers(this)">Verifiera via Yahoo</button>
+          <button class="action-btn" onclick="savePortfolio()">Spara portfölj</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto"><table class="pf-table">
+        <thead><tr><th></th><th style="text-align:left">Namn</th><th style="text-align:left">Yahoo-ticker</th><th style="text-align:right">Antal</th><th style="text-align:right">GAV</th><th style="text-align:left">ISIN</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div class="info-msg" style="margin-top:10px">Justera Yahoo-tickern om någon ser fel ut (t.ex. <b>VOLV-B.ST</b>, <b>CS.PA</b>, <b>AMZN</b>). <b>Verifiera via Yahoo</b> slår upp varje ISIN och fyller i rätt symbol automatiskt. Bocka ur innehav du inte vill spara.</div>
+    </div>`;
+}
+
+async function verifyPortfolioTickers(btn){
+  const old = btn.textContent; btn.disabled = true;
+  for(let i = 0; i < pfParsed.length; i++){
+    btn.textContent = `Verifierar ${i+1}/${pfParsed.length}…`;
+    const q = pfParsed[i].isin || pfParsed[i].namn;
+    if(!q) continue;
+    try { const r = await resolveSymbol(q); if(r && r.sym){ const inp = document.getElementById('pf-tk-'+i); if(inp) inp.value = r.sym; } } catch(e){}
+  }
+  btn.textContent = old; btn.disabled = false;
+}
+
+async function savePortfolio(){
+  const list = [];
+  pfParsed.forEach((r,i) => {
+    const inc = document.getElementById('pf-inc-'+i); if(inc && !inc.checked) return;
+    const tk = (document.getElementById('pf-tk-'+i)?.value || '').trim();
+    if(!tk) return;
+    list.push({ ticker: tk, name: r.namn, isin: r.isin, qty: r.qty, gav: r.gav, currency: r.currency });
+  });
+  if(!list.length){ alert('Inga innehav valda att spara.'); return; }
+  portfolio = list;
+  savePortfolioLocal();
+  await pushPortfolioCloud(list);
+  document.getElementById('pf-paste').value = '';
+  document.getElementById('pf-map').innerHTML = '';
+  pfParsed = [];
+  renderPortfolio();
+}
+
+async function pushPortfolioCloud(list){
+  if(!sb || !currentUser) return;
+  try {
+    await sb.from('portfolio').delete().eq('user_id', currentUser.id);
+    const rows = list.map(h => ({ user_id: currentUser.id, ticker: h.ticker, name: h.name || null,
+      isin: h.isin || null, quantity: h.qty, gav: h.gav, currency: h.currency || null }));
+    const { error } = await sb.from('portfolio').insert(rows);
+    if(error) console.warn('portfolio push:', error.message);
+  } catch(e){ console.warn('portfolio push:', e.message); }
+}
+async function pullPortfolioCloud(){
+  if(!sb || !currentUser) return null;
+  const { data, error } = await sb.from('portfolio').select('ticker,name,isin,quantity,gav,currency').order('name');
+  if(error){ console.warn('portfolio pull:', error.message); return null; }
+  return data.map(r => ({ ticker: r.ticker, name: r.name, isin: r.isin, qty: r.quantity, gav: r.gav, currency: r.currency }));
+}
+
+async function removeHolding(tk){
+  portfolio = portfolio.filter(h => h.ticker !== tk);
+  savePortfolioLocal();
+  if(sb && currentUser){ try { await sb.from('portfolio').delete().eq('user_id', currentUser.id).eq('ticker', tk); } catch(e){} }
+  renderPortfolio();
+}
+
+async function renderPortfolio(){
+  const view = document.getElementById('pf-view');
+  if(!view) return;
+  if(sb && currentUser){ const cloud = await pullPortfolioCloud(); if(cloud){ portfolio = cloud; savePortfolioLocal(); } }
+  if(!portfolio.length){ view.innerHTML = '<div class="info-msg">Ingen portfölj sparad än. Klistra in dina innehav från Avanza ovan och tryck Tolka → Spara.</div>'; return; }
+  view.innerHTML = '<div class="info-msg">Hämtar kurser…</div>';
+  const tickers = [...new Set(portfolio.map(h => h.ticker))];
+  let quotes = {}; try { quotes = await fetchSparkData(tickers); } catch(e){}
+  const currencies = [...new Set(portfolio.map(h => (h.currency||'SEK').toUpperCase()).filter(c => c && c !== 'SEK'))];
+  const fxSyms = [...new Set(currencies.map(c => FX_SYMBOL[c]).filter(Boolean))];
+  let fx = {};
+  if(fxSyms.length){ try { const fd = await fetchSparkData(fxSyms); currencies.forEach(c => { const s = FX_SYMBOL[c]; if(s && fd[s]) fx[c] = fd[s].price; }); } catch(e){} }
+  const rateOf = c => { c = (c||'SEK').toUpperCase(); if(c === 'SEK') return 1; if(c === 'GBX') return (fx.GBX||0)/100; return fx[c] != null ? fx[c] : null; };
+
+  let totalSek = 0, totalCostSek = 0, partial = false;
+  const rowsHtml = portfolio.map(h => {
+    const q = quotes[h.ticker], price = q ? q.price : null, day = q ? q.day : null;
+    const rate = rateOf(h.currency);
+    const valSek = (price != null && h.qty != null && rate != null) ? price*h.qty*rate : null;
+    const costSek = (h.gav != null && h.qty != null && rate != null) ? h.gav*h.qty*rate : null;
+    if(valSek != null) totalSek += valSek; else partial = true;
+    if(costSek != null) totalCostSek += costSek;
+    const gain = (price != null && h.gav) ? ((price - h.gav)/h.gav)*100 : null;
+    const dayCol = day == null ? 'var(--text3)' : (day >= 0 ? 'var(--green)' : 'var(--red)');
+    const gainCol = gain == null ? 'var(--text3)' : (gain >= 0 ? 'var(--green)' : 'var(--red)');
+    return `<tr onclick="loadStock('${escQuote(h.ticker)}','${escQuote(h.name||h.ticker)}')" style="cursor:pointer">
+      <td>${escHtml(h.name||h.ticker)}<div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(h.ticker)}</div></td>
+      <td style="text-align:right">${h.qty != null ? fmtSekNum(h.qty,0) : '–'}</td>
+      <td style="text-align:right">${h.gav != null ? fmtSekNum(h.gav,2) : '–'} ${escHtml(h.currency||'')}</td>
+      <td style="text-align:right">${price != null ? fmtSekNum(price,2) : '–'}</td>
+      <td style="text-align:right;color:${dayCol}">${day != null ? fmtSekPct(day) : '–'}</td>
+      <td style="text-align:right;color:${gainCol}">${gain != null ? fmtSekPct(gain) : '–'}</td>
+      <td style="text-align:right">${valSek != null ? fmtSekNum(valSek,0)+' kr' : '–'}</td>
+      <td style="text-align:center"><button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();removeHolding('${escQuote(h.ticker)}')" style="opacity:.6">×</button></td>
+    </tr>`;
+  }).join('');
+  const totalGain = totalCostSek > 0 ? ((totalSek - totalCostSek)/totalCostSek)*100 : null;
+  view.innerHTML = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+      <div class="kpi-card"><div class="kpi-label">Totalt värde${partial ? ' (delvis)' : ''}</div><div class="kpi-value">${fmtSekNum(totalSek,0)} kr</div></div>
+      ${totalGain != null ? `<div class="kpi-card"><div class="kpi-label">Utveckling vs GAV</div><div class="kpi-value" style="color:${totalGain>=0?'var(--green)':'var(--red)'}">${fmtSekPct(totalGain)}</div></div>` : ''}
+      <div class="kpi-card"><div class="kpi-label">Antal innehav</div><div class="kpi-value">${portfolio.length}</div></div>
+    </div>
+    <div style="margin-bottom:12px"><button class="action-btn" onclick="analyzePortfolioAI()">✦ Analysera min portfölj med AI</button></div>
+    <div style="overflow-x:auto"><table class="pf-table">
+      <thead><tr><th style="text-align:left">Innehav</th><th style="text-align:right">Antal</th><th style="text-align:right">GAV</th><th style="text-align:right">Kurs</th><th style="text-align:right">1 dag</th><th style="text-align:right">Sedan köp</th><th style="text-align:right">Värde</th><th></th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table></div>
+    ${partial ? '<div class="info-msg" style="margin-top:8px">Vissa värden saknas (okänd kurs eller valutakurs) och räknas inte in i totalen.</div>' : ''}`;
+  setUpdatedStamp('stamp-portfolio');
+}
+
+async function analyzePortfolioAI(){
+  if(!portfolio.length) return;
+  openAI();
+  const tickers = [...new Set(portfolio.map(h => h.ticker))];
+  let quotes = {}; try { quotes = await fetchSparkData(tickers); } catch(e){}
+  const lines = portfolio.map(h => {
+    const q = quotes[h.ticker], price = q ? q.price : null;
+    const gain = (price != null && h.gav) ? (((price - h.gav)/h.gav)*100).toFixed(1)+'%' : '?';
+    return `- ${h.name||h.ticker} (${h.ticker}): ${h.qty != null ? h.qty : '?'} st, GAV ${h.gav != null ? h.gav : '?'} ${h.currency||''}, kurs ${price != null ? price.toFixed(2) : '?'}, sedan köp ${gain}`;
+  }).join('\n');
+  sendAIWithText(`Här är min aktieportfölj (importerad från Avanza):\n${lines}\n\nGör en genomlysning: fördelning och koncentration (sektorer, regioner, valutaexponering), de största riskerna, hur väl diversifierad den är, samt konkreta förslag på förbättringar. Lyft fram vilka innehav som ser starka respektive svaga ut just nu. Sök gärna på nätet om du behöver aktuell information om enskilda bolag.`);
+}
+
 async function avanzaGet(path) {
   const r = await fetch(`/api/avanza?path=${encodeURIComponent(path)}`);
   return await r.json();
@@ -2543,7 +2775,7 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
       headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
       body: JSON.stringify({
         model: selectedModel,
-        max_tokens: 1500,
+        max_tokens: 4000,
         system: systemPrompt,
         tools: [{ type: searchType, name: 'web_search', max_uses: 5 }],
         messages: messages
@@ -2688,7 +2920,7 @@ function initAuth() {
   sb.auth.onAuthStateChange((event, session) => {
     currentUser = (session && session.user) ? session.user : null;
     renderAccountBar();
-    if(currentUser) syncWatchlistFromCloud();
+    if(currentUser) { syncWatchlistFromCloud(); if(currentSection === 'portfolio') renderPortfolio(); }
   });
 }
 
