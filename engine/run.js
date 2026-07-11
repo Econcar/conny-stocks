@@ -19,8 +19,8 @@ const { upsertSignals, recentExternalIds } = require('./lib/store');
 // Kaskad (Fas 2): materiella dokument (impact ≥ tröskel) skickas vidare till
 // djupanalys med en starkare modell. Max-taket bundnar kostnaden per varv.
 const DEEP_ENABLED = process.env.ENGINE_DEEP_ENABLED !== 'false';
-const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.5);
-const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 20);
+const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.6);
+const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 10);
 
 function parseArgs(argv) {
   const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false, discover: false };

@@ -673,10 +673,13 @@
       <div class="ai-sug" onclick="sendSuggestion(this)">Makroläget 2026</div>
       <div class="ai-sug" onclick="sendSuggestion(this)">Bästa utdelningsaktier</div>
     </div>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
       <label style="font-size:12px;color:var(--text2);margin-right:6px">Model:</label>
       <select id="model-select" style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:6px 8px;border-radius:8px;font-family:var(--font)"></select>
-      <div id="model-status" style="font-size:12px;color:var(--text3);margin-left:8px">Läser modeller...</div>
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:4px" title="Låt AI:n söka på nätet. Kostar extra – ha av för billigare svar.">
+        <input type="checkbox" id="websearch-toggle" onchange="setWebSearch(this.checked)"> Webbsök
+      </label>
+      <div id="model-status" style="font-size:12px;color:var(--text3);margin-left:4px">Läser modeller...</div>
     </div>
     <div class="ai-input-row">
       <textarea id="ai-input" placeholder="Ställ en fråga om aktier, marknader, nyckeltal..." rows="1" onkeydown="handleAIKey(event)"></textarea>
@@ -1965,8 +1968,8 @@ async function buildPerfContext(ticker) {
 // Senaste nyhetsrubriker för tickern (från Yahoo).
 async function buildNewsContext(ticker) {
   try {
-    const j = await fetchYahoo(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=0&newsCount=6`);
-    const news = (j.news || []).slice(0,6).map(n => {
+    const j = await fetchYahoo(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=0&newsCount=3`);
+    const news = (j.news || []).slice(0,3).map(n => {
       const d = n.providerPublishTime ? ' (' + new Date(n.providerPublishTime*1000).toISOString().slice(0,10) + ')' : '';
       return `- ${n.title}${d}`;
     });
@@ -2913,6 +2916,10 @@ function formatAIText(text) {
     .replace(/\n/g, '<br>');
 }
 
+// Webbsök av som standard (kostar extra). Sparas lokalt.
+let webSearchOn = localStorage.getItem('ai_websearch') === '1';
+function setWebSearch(v){ webSearchOn = !!v; try { localStorage.setItem('ai_websearch', v ? '1' : '0'); } catch(e){} }
+
 async function callClaudeAPI(userMsg, typingId) {
   const today = new Date().toLocaleDateString('sv-SE', { year:'numeric', month:'long', day:'numeric' });
 
@@ -2934,30 +2941,29 @@ ${stockData}
 ${aiContext ? 'Nuvarande kontext: ' + aiContext : ''}
 ${aiStockDetail ? '\nLIVE-DATA för aktien användaren tittar på (kurser, nyckeltal och nyheter från Yahoo – använd i första hand för frågor om just denna aktie):\n' + aiStockDetail : ''}
 
-Du har ett webbsök-verktyg. Om du saknar tillförlitlig eller aktuell information – t.ex. färska nyheter, senaste kurser/rapporter, händelser efter din träningsdata – sök på nätet istället för att gissa. Undvik onödiga sökningar när du redan har svaret (t.ex. från live-datan ovan). Ange gärna källa när du använder webbfakta.
+${webSearchOn ? 'Du har ett webbsök-verktyg. Om du saknar tillförlitlig eller aktuell information – t.ex. färska nyheter, senaste kurser/rapporter, händelser efter din träningsdata – sök på nätet istället för att gissa. Undvik onödiga sökningar när du redan har svaret (t.ex. från live-datan ovan). Ange gärna källa när du använder webbfakta.' : 'Du saknar live-webbåtkomst i detta läge – svara utifrån din kunskap och plattformens data ovan. Är du osäker på färska uppgifter, säg det istället för att gissa.'}
 
 Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. Håll svaren strukturerade men lättlästa. OBS: Detta är inte personlig finansiell rådgivning.`;
 
   const messages = [
-    ...aiHistory.slice(-8).slice(0,-1),
+    ...aiHistory.slice(-4).slice(0,-1),
     {role:'user', content: userMsg}
   ];
 
   try {
-    const selectedModel = document.getElementById('model-select')?.value || 'claude-sonnet-4-6';
-    // Låt AI:n söka på nätet vid behov. Dynamisk filtrering (_20260209) stöds av
-    // Fable 5 / Opus 4.8 / Sonnet 4.6; Haiku 4.5 använder grundvarianten.
-    const searchType = /haiku/.test(selectedModel) ? 'web_search_20250305' : 'web_search_20260209';
+    const selectedModel = document.getElementById('model-select')?.value || 'claude-haiku-4-5';
+    const body = { model: selectedModel, max_tokens: 4000, system: systemPrompt, messages };
+    // Bifoga webbsök-verktyget bara när användaren slagit på det (kostar extra).
+    // Dynamisk filtrering (_20260209) stöds av Fable 5 / Opus 4.8 / Sonnet 4.6; Haiku
+    // 4.5 använder grundvarianten.
+    if(webSearchOn){
+      const searchType = /haiku/.test(selectedModel) ? 'web_search_20250305' : 'web_search_20260209';
+      body.tools = [{ type: searchType, name: 'web_search', max_uses: 5 }];
+    }
     const response = await fetch('/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
-      body: JSON.stringify({
-        model: selectedModel,
-        max_tokens: 4000,
-        system: systemPrompt,
-        tools: [{ type: searchType, name: 'web_search', max_uses: 5 }],
-        messages: messages
-      })
+      body: JSON.stringify(body)
     });
     const data = await response.json();
     // Visa API:ets riktiga felmeddelande (t.ex. slut på credits, ogiltig nyckel)
@@ -3005,7 +3011,10 @@ async function loadModels() {
 }
 
 // Kör vid laddning
-window.addEventListener('load', () => { loadModels(); });
+window.addEventListener('load', () => {
+  loadModels();
+  const wt = document.getElementById('websearch-toggle'); if(wt) wt.checked = webSearchOn;
+});
 
 // ══════════ API KEY MANAGEMENT ══════════
 function saveApiKey() {

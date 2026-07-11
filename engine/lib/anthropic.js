@@ -1,6 +1,6 @@
 // AI-analyssteget (delat, källoberoende). Tvåstegs-kaskad (spec §6.1):
 //   1. Triage – Haiku 4.5, körs på ALLT.
-//   2. Djupanalys – Opus 4.8, bara på materiellt flaggade dokument.
+//   2. Djupanalys – Sonnet 4.6, bara på materiellt flaggade dokument.
 // Tvingad tool_use ger garanterat parsbar JSON. Prompt caching på den fasta
 // instruktionen (cache_control) → billigt över många dokument.
 
@@ -8,7 +8,9 @@ const { ANALYSIS_TOOL, DEEP_ANALYSIS_TOOL } = require('./schema');
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const TRIAGE_MODEL = process.env.ENGINE_TRIAGE_MODEL || 'claude-haiku-4-5';
-const DEEP_MODEL = process.env.ENGINE_DEEP_MODEL || 'claude-opus-4-8';
+// Sonnet 4.6 för djupanalys/risk/megatrender – stark nog för nyhetsanalys men
+// klart billigare än Opus. Sätt ENGINE_DEEP_MODEL=claude-opus-4-8 för att gå tillbaka.
+const DEEP_MODEL = process.env.ENGINE_DEEP_MODEL || 'claude-sonnet-4-6';
 
 // Fasta instruktioner – ligger först med cache_control så de cachas mellan anrop.
 const TRIAGE_SYSTEM = [

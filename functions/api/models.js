@@ -7,7 +7,7 @@ export async function onRequest() {
       'claude-sonnet-4-6',
       'claude-haiku-4-5'
     ],
-    default: 'claude-sonnet-4-6'
+    default: 'claude-haiku-4-5'
   }), {
     headers: { 'Content-Type': 'application/json' }
   });
