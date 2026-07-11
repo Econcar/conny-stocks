@@ -2390,6 +2390,14 @@ let pfParsed = [];
 function loadPortfolioLocal(){ try{ const s=localStorage.getItem('portfolio'); if(s) return JSON.parse(s); }catch(e){} return []; }
 function savePortfolioLocal(){ try{ localStorage.setItem('portfolio', JSON.stringify(portfolio)); }catch(e){} }
 
+// Likvida medel (kontanter) – sparas lokalt, läggs till i totalvärdet.
+let portfolioCash = (function(){ const v = parseFloat(localStorage.getItem('portfolio_cash')||''); return isFinite(v) ? v : 0; })();
+function setCash(v){
+  const n = pfNum(v); portfolioCash = n != null ? n : 0;
+  try { localStorage.setItem('portfolio_cash', String(portfolioCash)); } catch(e){}
+  renderPortfolio();
+}
+
 // Börskod (MIC från Avanzas "Marknad") → Yahoo-suffix. '' = USA (inget suffix).
 const MIC_SUFFIX = { XNYS:'', XNAS:'', ARCX:'', BATS:'', XASE:'', PINX:'', OTCM:'',
   XPAR:'.PA', XSTO:'.ST', XNGM:'.ST', FNSE:'.ST', XSAT:'.ST', XETR:'.DE', XFRA:'.DE',
@@ -2722,7 +2730,8 @@ async function renderPortfolio(){
   const totalGain = totalCostSek > 0 ? ((totalSek - totalCostSek)/totalCostSek)*100 : null;
   view.innerHTML = `
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
-      <div class="kpi-card"><div class="kpi-label">Totalt värde${partial ? ' (delvis)' : ''}</div><div class="kpi-value">${fmtSekNum(totalSek,0)} kr</div></div>
+      <div class="kpi-card"><div class="kpi-label">Totalt värde${partial ? ' (delvis)' : ''}</div><div class="kpi-value">${fmtSekNum(totalSek + portfolioCash,0)} kr</div>${portfolioCash ? `<div class="kpi-sub muted">varav värdepapper ${fmtSekNum(totalSek,0)} kr</div>` : ''}</div>
+      <div class="kpi-card"><div class="kpi-label">Likvida medel</div><input type="text" value="${portfolioCash ? fmtSekNum(portfolioCash,0) : ''}" placeholder="0" onchange="setCash(this.value)" style="width:120px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:6px 8px;font-family:var(--mono);font-size:18px;font-weight:600"></div>
       ${hasMv ? `<div class="kpi-card"><div class="kpi-label">Avanza-värde (import)</div><div class="kpi-value">${fmtSekNum(totalMv,0)} kr</div></div>` : ''}
       ${totalGain != null ? `<div class="kpi-card"><div class="kpi-label">Utveckling vs GAV</div><div class="kpi-value" style="color:${totalGain>=0?'var(--green)':'var(--red)'}">${fmtSekPct(totalGain)}</div></div>` : ''}
       <div class="kpi-card"><div class="kpi-label">Antal innehav</div><div class="kpi-value">${portfolio.length}</div></div>
@@ -2749,7 +2758,8 @@ async function analyzePortfolioAI(){
     const gain = (price != null && h.gav) ? (((price - h.gav)/h.gav)*100).toFixed(1)+'%' : '?';
     return `- ${h.name||h.ticker} (${h.ticker}): ${h.qty != null ? h.qty : '?'} st, GAV ${h.gav != null ? h.gav : '?'} ${h.currency||''}, kurs ${price != null ? price.toFixed(2) : '?'}, sedan köp ${gain}`;
   }).join('\n');
-  sendAIWithText(`Här är min aktieportfölj (importerad från Avanza):\n${lines}\n\nGör en genomlysning: fördelning och koncentration (sektorer, regioner, valutaexponering), de största riskerna, hur väl diversifierad den är, samt konkreta förslag på förbättringar. Lyft fram vilka innehav som ser starka respektive svaga ut just nu. Sök gärna på nätet om du behöver aktuell information om enskilda bolag.`);
+  const cashLine = portfolioCash ? `\n\nLikvida medel (kontanter): ${fmtSekNum(portfolioCash,0)} kr.` : '';
+  sendAIWithText(`Här är min aktieportfölj (importerad från Avanza):\n${lines}${cashLine}\n\nGör en genomlysning: fördelning och koncentration (sektorer, regioner, valutaexponering), de största riskerna, hur väl diversifierad den är, samt konkreta förslag på förbättringar. Lyft fram vilka innehav som ser starka respektive svaga ut just nu. Sök gärna på nätet om du behöver aktuell information om enskilda bolag.`);
 }
 
 async function avanzaGet(path) {
@@ -2950,11 +2960,18 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
       })
     });
     const data = await response.json();
-    // Webbsök-svar innehåller flera block (server_tool_use, web_search_tool_result,
-    // och ett eller flera text-block) – slå ihop alla text-block, inte bara det första.
-    const reply = (Array.isArray(data.content)
-      ? data.content.filter(b => b.type === 'text').map(b => b.text).join('').trim()
-      : '') || 'Kunde inte hämta svar. Kontrollera din API-nyckel.';
+    // Visa API:ets riktiga felmeddelande (t.ex. slut på credits, ogiltig nyckel)
+    // istället för en missvisande gissning.
+    let reply;
+    if(data && data.error){
+      reply = '**API-fel:** ' + (data.error.message || data.error.type || 'okänt fel');
+    } else {
+      // Webbsök-svar innehåller flera block (server_tool_use, web_search_tool_result,
+      // och ett eller flera text-block) – slå ihop alla text-block, inte bara det första.
+      reply = (Array.isArray(data.content)
+        ? data.content.filter(b => b.type === 'text').map(b => b.text).join('').trim()
+        : '') || 'Kunde inte hämta svar (tomt svar från API:t).';
+    }
     aiHistory.push({role:'assistant', content: reply});
     const typingEl = document.getElementById(typingId);
     if(typingEl) typingEl.remove();
