@@ -2454,7 +2454,8 @@ function ingestPortfolioCells(cellRows){
     return -1;
   };
   const idx = { namn:find('namn'), kort:find('kortnamn'), vol:find('volym','antal'),
-    gav:find('gav'), val:find('valuta'), isin:find('isin'), mark:find('marknad') };
+    gav:find('gav'), val:find('valuta'), isin:find('isin'), mark:find('marknad'),
+    mv:find('marknadsvärde','marknadsvarde') };
   const rows = [];
   for(let i = hi+1; i < cellRows.length; i++){
     const c = cellRows[i].map(x => x.trim());
@@ -2469,6 +2470,7 @@ function ingestPortfolioCells(cellRows){
       namn, kort, isin, marknad,
       qty: pfNum(idx.vol >= 0 ? c[idx.vol] : null),
       gav: pfNum(idx.gav >= 0 ? c[idx.gav] : null),
+      mv: pfNum(idx.mv >= 0 ? c[idx.mv] : null),
       currency: (idx.val >= 0 ? c[idx.val] : '') || '',
       ticker: avanzaToYahoo(kort, marknad)
     });
@@ -2591,7 +2593,7 @@ async function savePortfolio(){
     const inc = document.getElementById('pf-inc-'+i); if(inc && !inc.checked) return;
     const tk = (document.getElementById('pf-tk-'+i)?.value || '').trim();
     if(!tk) return;
-    raw.push({ ticker: tk, name: r.namn, isin: r.isin, qty: r.qty, gav: r.gav, currency: r.currency });
+    raw.push({ ticker: tk, name: r.namn, isin: r.isin, qty: r.qty, gav: r.gav, mv: r.mv, currency: r.currency });
   });
   if(!raw.length){ alert('Inga innehav valda att spara.'); return; }
   // Slå ihop rader med samma ticker (samma aktie på flera konton – "Alla konton"):
@@ -2604,6 +2606,7 @@ async function savePortfolio(){
     if(ex.gav != null && h.gav != null && tot > 0) ex.gav = +(((ex.gav*q1 + h.gav*q2)/tot).toFixed(4));
     else if(ex.gav == null) ex.gav = h.gav;
     ex.qty = tot || ex.qty;
+    if(ex.mv != null || h.mv != null) ex.mv = (ex.mv || 0) + (h.mv || 0);
     if(!ex.currency) ex.currency = h.currency;
     if(!ex.name) ex.name = h.name;
   }
@@ -2664,7 +2667,9 @@ async function renderPortfolio(){
   if(fxSyms.length){ try { const fd = await fetchSparkData(fxSyms); currencies.forEach(c => { const s = FX_SYMBOL[c]; if(s && fd[s]) fx[c] = fd[s].price; }); } catch(e){} }
   const rateOf = c => { c = (c||'SEK').toUpperCase(); if(c === 'SEK') return 1; if(c === 'GBX') return (fx.GBX||0)/100; return fx[c] != null ? fx[c] : null; };
 
-  let totalSek = 0, totalCostSek = 0, partial = false;
+  const hasMv = portfolio.some(h => h.mv != null);
+  let totalSek = 0, totalCostSek = 0, totalMv = 0, partial = false;
+  const outliers = [];
   const rowsHtml = portfolio.map(h => {
     const q = quotes[h.ticker], price = q ? q.price : null, day = q ? q.day : null;
     const rate = rateOf(h.currency);
@@ -2672,9 +2677,17 @@ async function renderPortfolio(){
     const costSek = (h.gav != null && h.qty != null && rate != null) ? h.gav*h.qty*rate : null;
     if(valSek != null) totalSek += valSek; else partial = true;
     if(costSek != null) totalCostSek += costSek;
+    if(h.mv != null) totalMv += h.mv;
     const gain = (price != null && h.gav) ? ((price - h.gav)/h.gav)*100 : null;
+    // Jämför vårt live-värde med Avanzas importerade marknadsvärde – stor avvikelse
+    // = troligen fel börs/valuta på tickern.
+    const diff = (valSek != null && h.mv) ? ((valSek - h.mv)/h.mv)*100 : null;
+    const off = diff != null && Math.abs(diff) > 10;
+    if(off) outliers.push(`${h.name||h.ticker} (${h.ticker}): vårt ${fmtSekNum(valSek,0)} kr vs Avanza ${fmtSekNum(h.mv,0)} kr`);
     const dayCol = day == null ? 'var(--text3)' : (day >= 0 ? 'var(--green)' : 'var(--red)');
     const gainCol = gain == null ? 'var(--text3)' : (gain >= 0 ? 'var(--green)' : 'var(--red)');
+    const valCol = off ? 'var(--red)' : 'var(--text)';
+    const avSub = hasMv ? `<div style="font-size:10px;color:var(--text3)">${h.mv != null ? 'Avanza ' + fmtSekNum(h.mv,0) : '–'}</div>` : '';
     return `<tr onclick="loadStock('${escQuote(h.ticker)}','${escQuote(h.name||h.ticker)}')" style="cursor:pointer">
       <td>${escHtml(h.name||h.ticker)}<div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(h.ticker)}</div></td>
       <td style="text-align:right">${h.qty != null ? fmtSekNum(h.qty,0) : '–'}</td>
@@ -2682,7 +2695,7 @@ async function renderPortfolio(){
       <td style="text-align:right">${price != null ? fmtSekNum(price,2) : '–'}</td>
       <td style="text-align:right;color:${dayCol}">${day != null ? fmtSekPct(day) : '–'}</td>
       <td style="text-align:right;color:${gainCol}">${gain != null ? fmtSekPct(gain) : '–'}</td>
-      <td style="text-align:right">${valSek != null ? fmtSekNum(valSek,0)+' kr' : '–'}</td>
+      <td style="text-align:right;color:${valCol}">${off ? '⚠ ' : ''}${valSek != null ? fmtSekNum(valSek,0)+' kr' : '–'}${avSub}</td>
       <td style="text-align:center"><button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();removeHolding('${escQuote(h.ticker)}')" style="opacity:.6">×</button></td>
     </tr>`;
   }).join('');
@@ -2690,6 +2703,7 @@ async function renderPortfolio(){
   view.innerHTML = `
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
       <div class="kpi-card"><div class="kpi-label">Totalt värde${partial ? ' (delvis)' : ''}</div><div class="kpi-value">${fmtSekNum(totalSek,0)} kr</div></div>
+      ${hasMv ? `<div class="kpi-card"><div class="kpi-label">Avanza-värde (import)</div><div class="kpi-value">${fmtSekNum(totalMv,0)} kr</div></div>` : ''}
       ${totalGain != null ? `<div class="kpi-card"><div class="kpi-label">Utveckling vs GAV</div><div class="kpi-value" style="color:${totalGain>=0?'var(--green)':'var(--red)'}">${fmtSekPct(totalGain)}</div></div>` : ''}
       <div class="kpi-card"><div class="kpi-label">Antal innehav</div><div class="kpi-value">${portfolio.length}</div></div>
     </div>
@@ -2698,6 +2712,7 @@ async function renderPortfolio(){
       <thead><tr><th style="text-align:left">Innehav</th><th style="text-align:right">Antal</th><th style="text-align:right">GAV</th><th style="text-align:right">Kurs</th><th style="text-align:right">1 dag</th><th style="text-align:right">Sedan köp</th><th style="text-align:right">Värde</th><th></th></tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table></div>
+    ${outliers.length ? `<div class="info-msg" style="margin-top:8px;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">⚠ Dessa innehav avviker mycket mot Avanzas värde (trolig fel börs/valuta – kolla tickern):<br>${outliers.map(escHtml).join('<br>')}</div>` : ''}
     ${partial ? '<div class="info-msg" style="margin-top:8px">Vissa värden saknas (okänd kurs eller valutakurs) och räknas inte in i totalen.</div>' : ''}`;
   setUpdatedStamp('stamp-portfolio');
 }
