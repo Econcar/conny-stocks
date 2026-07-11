@@ -1294,7 +1294,7 @@ function analyzeSelected() {
   const prompt = names.length === 1
     ? `Analysera ${names[0]} (${tickers[0]}) – ge mig nyckeltal, styrkor, risker och en sammanfattande bedömning.`
     : `Jämför och analysera dessa aktier: ${names.join(', ')}. Visa styrkor, risker och vilken som ser mest attraktiv ut.`;
-  setTimeout(()=>sendAIWithText(prompt), 100);
+  stageAnalysis(prompt);
 }
 
 // ══════════ AVANZA FUND DETAIL ══════════
@@ -1470,7 +1470,7 @@ function analyzeCompareList() {
   const prompt = names.length === 1
     ? `Analysera ${names[0]} – ge mig nyckeltal, styrkor, risker och en sammanfattande bedömning.`
     : `Jämför och analysera dessa aktier: ${names.join(', ')}. Visa styrkor, risker och vilken som ser mest attraktiv ut.`;
-  setTimeout(()=>sendAIWithText(prompt), 100);
+  stageAnalysis(prompt);
 }
 
 // ══════════ STOCK DETAIL ══════════
@@ -1982,7 +1982,7 @@ async function aiAnalyzeStock() {
   if(currentIsFund) {
     const m = currentStockMeta;
     const ctx = `Det är en svensk fond. Avgift: ${m.fee!=null?m.fee+'%':'okänd'}, risknivå: ${m.risk!=null?m.risk+'/7':'okänd'}, utveckling i år: ${m.ytd!=null?m.ytd.toFixed(1)+'%':'okänd'}, 1 år: ${m.dev1y!=null?m.dev1y.toFixed(1)+'%':'okänd'}.`;
-    setTimeout(()=>sendAIWithText(`Analysera fonden ${currentStockName}. ${ctx} Beskriv fondens inriktning, risk, avgift, historisk utveckling och vilken typ av sparare den passar. Avsluta med en sammanfattande bedömning.`), 100);
+    stageAnalysis(`Analysera fonden ${currentStockName}. ${ctx} Beskriv fondens inriktning, risk, avgift, historisk utveckling och vilken typ av sparare den passar. Avsluta med en sammanfattande bedömning.`);
     return;
   }
   const m = currentStockMeta || {};
@@ -1990,7 +1990,7 @@ async function aiAnalyzeStock() {
   const ctx = ft ? `Aktuella nyckeltal (live från Yahoo): ${ft}.` : '';
   const desc = m.desc ? ` Bolagsbeskrivning: ${m.desc}` : '';
   const [perf, news] = await Promise.all([buildPerfContext(currentTicker), buildNewsContext(currentTicker)]);
-  sendAIWithText(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx}${desc}${perf}${news} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation. Om frågan gäller en specifik kursrörelse, använd kursutvecklingen och nyheterna ovan för att förklara den. Om du fortfarande saknar tillförlitlig information, säg det tydligt istället för att gissa.`);
+  stageAnalysis(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx}${desc}${perf}${news} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation. Om frågan gäller en specifik kursrörelse, använd kursutvecklingen och nyheterna ovan för att förklara den. Om du fortfarande saknar tillförlitlig information, säg det tydligt istället för att gissa.`);
 }
 
 // ══════════ MACRO CHART ══════════
@@ -2153,7 +2153,7 @@ function aiAnalyzeRisk() {
     `risk-på eller risk-av just nu, och hur starkt? Vilka indikatorer drar åt vilket håll, ` +
     `och finns det motstridiga signaler? Vad betyder helheten för mig som långsiktig svensk ` +
     `investerare? Avsluta med en kort, tydlig slutsats i en mening.`;
-  setTimeout(() => sendAIWithText(prompt), 100);
+  stageAnalysis(prompt);
 }
 
 // Visar den senaste dagliga AI-sammanvägningen (skriven av motorn till Supabase).
@@ -2762,7 +2762,7 @@ async function analyzePortfolioAI(){
     return `- ${h.name||h.ticker} (${h.ticker}): ${h.qty != null ? h.qty : '?'} st, GAV ${h.gav != null ? h.gav : '?'} ${h.currency||''}, kurs ${price != null ? price.toFixed(2) : '?'}, sedan köp ${gain}`;
   }).join('\n');
   const cashLine = portfolioCash ? `\n\nLikvida medel (kontanter): ${fmtSekNum(portfolioCash,0)} kr.` : '';
-  sendAIWithText(`Här är min aktieportfölj (importerad från Avanza):\n${lines}${cashLine}\n\nGör en genomlysning: fördelning och koncentration (sektorer, regioner, valutaexponering), de största riskerna, hur väl diversifierad den är, samt konkreta förslag på förbättringar. Lyft fram vilka innehav som ser starka respektive svaga ut just nu. Sök gärna på nätet om du behöver aktuell information om enskilda bolag.`);
+  stageAnalysis(`Här är min aktieportfölj (importerad från Avanza):\n${lines}${cashLine}\n\nGör en genomlysning: fördelning och koncentration (sektorer, regioner, valutaexponering), de största riskerna, hur väl diversifierad den är, samt konkreta förslag på förbättringar. Lyft fram vilka innehav som ser starka respektive svaga ut just nu. Sök gärna på nätet om du behöver aktuell information om enskilda bolag.`);
 }
 
 async function avanzaGet(path) {
@@ -2885,6 +2885,28 @@ function sendAIWithText(text) {
   document.getElementById('send-btn').disabled = true;
   document.getElementById('ai-suggestions').style.display = 'none';
   callClaudeAPI(text, typingId);
+}
+
+// "Analysera"-knapparna förbereder analysen och väntar på "Kör", så användaren
+// hinner välja modell/webbsök innan det (kostsamma) anropet går.
+let pendingAnalysis = null;
+function stageAnalysis(prompt) {
+  openAI();
+  pendingAnalysis = prompt;
+  const existing = document.getElementById('stage-analysis'); if(existing) existing.remove();
+  document.getElementById('ai-suggestions').style.display = 'none';
+  const msgs = document.getElementById('ai-messages');
+  const div = document.createElement('div');
+  div.className = 'msg ai'; div.id = 'stage-analysis';
+  div.innerHTML = `<div class="msg-label">AI-analytiker</div><div class="msg-bubble">Analysen är förberedd. Välj <strong>modell</strong> längst ner och slå på <strong>Webbsök</strong> om du vill ha färska nätfakta – tryck sedan Kör.<div style="margin-top:10px"><button class="action-btn" onclick="runPendingAnalysis()">▸ Kör analys</button></div></div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+function runPendingAnalysis() {
+  if(!pendingAnalysis) return;
+  const p = pendingAnalysis; pendingAnalysis = null;
+  const stage = document.getElementById('stage-analysis'); if(stage) stage.remove();
+  sendAIWithText(p);
 }
 
 function appendMsg(role, text, meta) {
