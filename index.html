@@ -2887,14 +2887,43 @@ function sendAIWithText(text) {
   callClaudeAPI(text, typingId);
 }
 
-function appendMsg(role, text) {
+function appendMsg(role, text, meta) {
   const msgs = document.getElementById('ai-messages');
   const div = document.createElement('div');
   div.className = 'msg ' + role;
-  div.innerHTML = `<div class="msg-label">${role==='user'?'Du':'AI-analytiker'}</div><div class="msg-bubble">${formatAIText(text)}</div>`;
+  div.innerHTML = `<div class="msg-label">${role==='user'?'Du':'AI-analytiker'}</div><div class="msg-bubble">${formatAIText(text)}${meta ? `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(meta)}</div>` : ''}</div>`;
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
   return div;
+}
+
+// Ungefärlig kostnad per anrop utifrån API:ets usage (tokens) + ev. webbsökningar.
+// Priser i USD per 1M tokens (in/ut) – samma som Anthropics prislista.
+const AI_PRICES = {
+  'claude-haiku-4-5': { in: 1, out: 5 },
+  'claude-sonnet-4-6': { in: 3, out: 15 },
+  'claude-opus-4-8': { in: 5, out: 25 },
+  'claude-fable-5': { in: 10, out: 50 }
+};
+let aiSessionCostUsd = 0;
+function estimateCostText(model, usage){
+  if(!usage) return '';
+  const p = AI_PRICES[model] || { in: 3, out: 15 };
+  const inTok = usage.input_tokens || 0;
+  const outTok = usage.output_tokens || 0;
+  const cRead = usage.cache_read_input_tokens || 0;
+  const cCreate = usage.cache_creation_input_tokens || 0;
+  const searches = (usage.server_tool_use && usage.server_tool_use.web_search_requests) || 0;
+  const usd = (inTok*p.in + cCreate*p.in*1.25 + cRead*p.in*0.1 + outTok*p.out)/1e6 + searches*0.01;
+  aiSessionCostUsd += usd;
+  const parts = [
+    `≈ $${usd.toFixed(4)}`,
+    `${(inTok+cRead+cCreate).toLocaleString('sv-SE')} in / ${outTok.toLocaleString('sv-SE')} ut`,
+    model.replace('claude-', '')
+  ];
+  if(searches) parts.push(`${searches} webbsök`);
+  parts.push(`session $${aiSessionCostUsd.toFixed(3)}`);
+  return parts.join('  ·  ');
 }
 
 function appendTyping() {
@@ -2981,7 +3010,8 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
     aiHistory.push({role:'assistant', content: reply});
     const typingEl = document.getElementById(typingId);
     if(typingEl) typingEl.remove();
-    appendMsg('ai', reply);
+    const costMeta = (data && !data.error) ? estimateCostText(selectedModel, data.usage) : '';
+    appendMsg('ai', reply, costMeta);
   } catch(e) {
     const typingEl = document.getElementById(typingId);
     if(typingEl) typingEl.remove();
