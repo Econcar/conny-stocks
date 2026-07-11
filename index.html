@@ -858,7 +858,7 @@ async function fetchSparkData(symbols, range = 'ytd') {
     else prev = meta.previousClose != null ? meta.previousClose : meta.chartPreviousClose;
     const ytd = closes.length ? ((price - closes[0]) / closes[0]) * 100 : null;
     const day = prev ? ((price - prev) / prev) * 100 : null;
-    bySym[r.symbol] = { price, ytd, day, closes };
+    bySym[r.symbol] = { price, ytd, day, closes, currency: meta.currency };
   });
   return bySym;
 }
@@ -2398,7 +2398,18 @@ const MIC_SUFFIX = { XNYS:'', XNAS:'', ARCX:'', BATS:'', XASE:'', PINX:'', OTCM:
   XWBO:'.VI', XIST:'.IS', XDUB:'.IR', XHKG:'.HK', XTKS:'.T' };
 // Valuta → Yahoo FX-symbol (1 enhet i SEK).
 const FX_SYMBOL = { USD:'SEK=X', EUR:'EURSEK=X', GBP:'GBPSEK=X', DKK:'DKKSEK=X',
-  NOK:'NOKSEK=X', CAD:'CADSEK=X', CHF:'CHFSEK=X', JPY:'JPYSEK=X', GBX:'GBPSEK=X' };
+  NOK:'NOKSEK=X', CAD:'CADSEK=X', CHF:'CHFSEK=X', JPY:'JPYSEK=X', PLN:'PLNSEK=X',
+  ZAR:'ZARSEK=X', ILS:'ILSSEK=X', HKD:'HKDSEK=X', AUD:'AUDSEK=X' };
+
+// Yahoos prisvaluta kan vara en minorenhet (pence, cent). Normalisera till
+// huvudvaluta + delare. GBp/GBX = pence (÷100) osv – annars blir London-aktier
+// (som prissätts i pence) 100× för dyra.
+function normPriceCurrency(cur){
+  const c = (cur || '').trim();
+  const minor = { GBp:['GBP',100], GBX:['GBP',100], ZAc:['ZAR',100], ILA:['ILS',100], ZAX:['ZAR',100] };
+  if(minor[c]) return { ccy: minor[c][0], div: minor[c][1] };
+  return { ccy: c.toUpperCase(), div: 1 };
+}
 
 // Tolka svenskt tal ("36 622", "1 483,50") → number.
 function pfNum(s){
@@ -2661,20 +2672,29 @@ async function renderPortfolio(){
   view.innerHTML = '<div class="info-msg">Hämtar kurser…</div>';
   const tickers = [...new Set(portfolio.map(h => h.ticker))];
   let quotes = await fetchQuotesChunked(tickers);
-  const currencies = [...new Set(portfolio.map(h => (h.currency||'SEK').toUpperCase()).filter(c => c && c !== 'SEK'))];
-  const fxSyms = [...new Set(currencies.map(c => FX_SYMBOL[c]).filter(Boolean))];
+  // Valutakurser baseras på Yahoos EGEN prisvaluta per innehav (inte Avanzas etikett),
+  // så pence/cent och felnoteringar hanteras rätt.
+  const priceCcys = [...new Set(Object.values(quotes).map(q => normPriceCurrency(q.currency).ccy).filter(c => c && c !== 'SEK'))];
+  const avanzaCcys = portfolio.map(h => (h.currency||'SEK').toUpperCase()).filter(c => c && c !== 'SEK');
+  const allCcys = [...new Set([...priceCcys, ...avanzaCcys])];
+  const fxSyms = [...new Set(allCcys.map(c => FX_SYMBOL[c]).filter(Boolean))];
   let fx = {};
-  if(fxSyms.length){ try { const fd = await fetchSparkData(fxSyms); currencies.forEach(c => { const s = FX_SYMBOL[c]; if(s && fd[s]) fx[c] = fd[s].price; }); } catch(e){} }
-  const rateOf = c => { c = (c||'SEK').toUpperCase(); if(c === 'SEK') return 1; if(c === 'GBX') return (fx.GBX||0)/100; return fx[c] != null ? fx[c] : null; };
+  if(fxSyms.length){ try { const fd = await fetchSparkData(fxSyms); allCcys.forEach(c => { const s = FX_SYMBOL[c]; if(s && fd[s]) fx[c] = fd[s].price; }); } catch(e){} }
+  const rateOf = c => { c = (c||'SEK').toUpperCase(); if(c === 'SEK') return 1; return fx[c] != null ? fx[c] : null; };
 
   const hasMv = portfolio.some(h => h.mv != null);
   let totalSek = 0, totalCostSek = 0, totalMv = 0, partial = false;
   const outliers = [];
   const rowsHtml = portfolio.map(h => {
-    const q = quotes[h.ticker], price = q ? q.price : null, day = q ? q.day : null;
-    const rate = rateOf(h.currency);
+    const q = quotes[h.ticker], day = q ? q.day : null;
+    // Normalisera kursen till huvudvaluta (pence→pund) och räkna om med Yahoos valuta.
+    const pc = q && q.currency ? normPriceCurrency(q.currency) : null;
+    const price = q && q.price != null ? (pc ? q.price / pc.div : q.price) : null;
+    const priceCcy = pc ? pc.ccy : (h.currency||'SEK').toUpperCase();
+    const rate = rateOf(priceCcy);
+    const gavRate = rateOf(h.currency);
     const valSek = (price != null && h.qty != null && rate != null) ? price*h.qty*rate : null;
-    const costSek = (h.gav != null && h.qty != null && rate != null) ? h.gav*h.qty*rate : null;
+    const costSek = (h.gav != null && h.qty != null && gavRate != null) ? h.gav*h.qty*gavRate : null;
     if(valSek != null) totalSek += valSek; else partial = true;
     if(costSek != null) totalCostSek += costSek;
     if(h.mv != null) totalMv += h.mv;
@@ -2723,7 +2743,9 @@ async function analyzePortfolioAI(){
   const tickers = [...new Set(portfolio.map(h => h.ticker))];
   let quotes = await fetchQuotesChunked(tickers);
   const lines = portfolio.map(h => {
-    const q = quotes[h.ticker], price = q ? q.price : null;
+    const q = quotes[h.ticker];
+    const pc = q && q.currency ? normPriceCurrency(q.currency) : null;
+    const price = q && q.price != null ? (pc ? q.price / pc.div : q.price) : null;
     const gain = (price != null && h.gav) ? (((price - h.gav)/h.gav)*100).toFixed(1)+'%' : '?';
     return `- ${h.name||h.ticker} (${h.ticker}): ${h.qty != null ? h.qty : '?'} st, GAV ${h.gav != null ? h.gav : '?'} ${h.currency||''}, kurs ${price != null ? price.toFixed(2) : '?'}, sedan köp ${gain}`;
   }).join('\n');
