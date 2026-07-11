@@ -2683,6 +2683,43 @@ async function removeHolding(tk){
   renderPortfolio();
 }
 
+// Sortering av portföljtabellen (klickbara rubriker). Standard: värde fallande.
+let pfSort = { col: 'value', dir: 'desc' };
+let pfEnriched = [];
+function sortPortfolio(col){
+  if(pfSort.col === col) pfSort.dir = pfSort.dir === 'asc' ? 'desc' : 'asc';
+  else pfSort = { col, dir: col === 'name' ? 'asc' : 'desc' };
+  renderPortfolioTable();
+}
+function renderPortfolioTable(){
+  const wrap = document.getElementById('pf-table-wrap'); if(!wrap) return;
+  const dir = pfSort.dir === 'asc' ? 1 : -1;
+  const keyer = { name:r=>r.name, qty:r=>r.h.qty, gav:r=>r.h.gav, price:r=>r.price, day:r=>r.day, gain:r=>r.gain, value:r=>r.valSek };
+  const getk = keyer[pfSort.col] || keyer.value;
+  const sorted = pfEnriched.slice().sort((a,b) => {
+    const va = getk(a), vb = getk(b);
+    if(va == null && vb == null) return 0;
+    if(va == null) return 1; if(vb == null) return -1;
+    if(typeof va === 'string' && typeof vb === 'string') return va < vb ? -dir : va > vb ? dir : 0;
+    return (va - vb) * dir;
+  });
+  const arrow = c => pfSort.col === c ? (pfSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  const s = 'cursor:pointer;user-select:none';
+  wrap.innerHTML = `<div style="overflow-x:auto"><table class="pf-table">
+    <thead><tr>
+      <th style="text-align:left;${s}" onclick="sortPortfolio('name')">Innehav${arrow('name')}</th>
+      <th style="text-align:right;${s}" onclick="sortPortfolio('qty')">Antal${arrow('qty')}</th>
+      <th style="text-align:right;${s}" onclick="sortPortfolio('gav')">GAV${arrow('gav')}</th>
+      <th style="text-align:right;${s}" onclick="sortPortfolio('price')">Kurs${arrow('price')}</th>
+      <th style="text-align:right;${s}" onclick="sortPortfolio('day')">1 dag${arrow('day')}</th>
+      <th style="text-align:right;${s}" onclick="sortPortfolio('gain')">Sedan köp${arrow('gain')}</th>
+      <th style="text-align:right;${s}" onclick="sortPortfolio('value')">Värde${arrow('value')}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>${sorted.map(r => r.html).join('')}</tbody>
+  </table></div>`;
+}
+
 async function renderPortfolio(){
   const view = document.getElementById('pf-view');
   if(!view) return;
@@ -2704,7 +2741,7 @@ async function renderPortfolio(){
   const hasMv = portfolio.some(h => h.mv != null);
   let totalSek = 0, totalCostSek = 0, totalMv = 0, partial = false;
   const outliers = [];
-  const rowsHtml = portfolio.map(h => {
+  pfEnriched = portfolio.map(h => {
     const q = quotes[h.ticker], day = q ? q.day : null;
     // Normalisera kursen till huvudvaluta (pence→pund) och räkna om med Yahoos valuta.
     const pc = q && q.currency ? normPriceCurrency(q.currency) : null;
@@ -2727,7 +2764,7 @@ async function renderPortfolio(){
     const gainCol = gain == null ? 'var(--text3)' : (gain >= 0 ? 'var(--green)' : 'var(--red)');
     const valCol = off ? 'var(--red)' : 'var(--text)';
     const avSub = hasMv ? `<div style="font-size:10px;color:var(--text3)">${h.mv != null ? 'Avanza ' + fmtSekNum(h.mv,0) : '–'}</div>` : '';
-    return `<tr onclick="loadStock('${escQuote(h.ticker)}','${escQuote(h.name||h.ticker)}')" style="cursor:pointer">
+    const html = `<tr onclick="loadStock('${escQuote(h.ticker)}','${escQuote(h.name||h.ticker)}')" style="cursor:pointer">
       <td>${escHtml(h.name||h.ticker)}<div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(h.ticker)}</div></td>
       <td style="text-align:right">${h.qty != null ? fmtSekNum(h.qty,0) : '–'}</td>
       <td style="text-align:right">${h.gav != null ? fmtSekNum(h.gav,2) : '–'} ${escHtml(h.currency||'')}</td>
@@ -2737,7 +2774,8 @@ async function renderPortfolio(){
       <td style="text-align:right;color:${valCol}">${off ? '⚠ ' : ''}${valSek != null ? fmtSekNum(valSek,0)+' kr' : '–'}${avSub}</td>
       <td style="text-align:center"><button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();removeHolding('${escQuote(h.ticker)}')" style="opacity:.6">×</button></td>
     </tr>`;
-  }).join('');
+    return { h, price, day, valSek, gain, name: (h.name||h.ticker).toLowerCase(), html };
+  });
   const totalGain = totalCostSek > 0 ? ((totalSek - totalCostSek)/totalCostSek)*100 : null;
   view.innerHTML = `
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
@@ -2748,12 +2786,10 @@ async function renderPortfolio(){
       <div class="kpi-card"><div class="kpi-label">Antal innehav</div><div class="kpi-value">${portfolio.length}</div></div>
     </div>
     <div style="margin-bottom:12px"><button class="action-btn" onclick="analyzePortfolioAI()">✦ Analysera min portfölj med AI</button></div>
-    <div style="overflow-x:auto"><table class="pf-table">
-      <thead><tr><th style="text-align:left">Innehav</th><th style="text-align:right">Antal</th><th style="text-align:right">GAV</th><th style="text-align:right">Kurs</th><th style="text-align:right">1 dag</th><th style="text-align:right">Sedan köp</th><th style="text-align:right">Värde</th><th></th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table></div>
+    <div id="pf-table-wrap"></div>
     ${outliers.length ? `<div class="info-msg" style="margin-top:8px;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">⚠ Dessa innehav avviker mycket mot Avanzas värde (trolig fel börs/valuta – kolla tickern):<br>${outliers.map(escHtml).join('<br>')}</div>` : ''}
     ${partial ? '<div class="info-msg" style="margin-top:8px">Vissa värden saknas (okänd kurs eller valutakurs) och räknas inte in i totalen.</div>' : ''}`;
+  renderPortfolioTable();
   setUpdatedStamp('stamp-portfolio');
 }
 
