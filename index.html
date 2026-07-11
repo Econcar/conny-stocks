@@ -2478,32 +2478,55 @@ async function verifyPortfolioTickers(btn){
 }
 
 async function savePortfolio(){
-  const list = [];
+  const raw = [];
   pfParsed.forEach((r,i) => {
     const inc = document.getElementById('pf-inc-'+i); if(inc && !inc.checked) return;
     const tk = (document.getElementById('pf-tk-'+i)?.value || '').trim();
     if(!tk) return;
-    list.push({ ticker: tk, name: r.namn, isin: r.isin, qty: r.qty, gav: r.gav, currency: r.currency });
+    raw.push({ ticker: tk, name: r.namn, isin: r.isin, qty: r.qty, gav: r.gav, currency: r.currency });
   });
-  if(!list.length){ alert('Inga innehav valda att spara.'); return; }
+  if(!raw.length){ alert('Inga innehav valda att spara.'); return; }
+  // Slå ihop rader med samma ticker (samma aktie på flera konton – "Alla konton"):
+  // summera antal och räkna viktad GAV. Krävs, annars krockar unika (user_id,ticker).
+  const byT = new Map();
+  for(const h of raw){
+    const ex = byT.get(h.ticker);
+    if(!ex){ byT.set(h.ticker, { ...h }); continue; }
+    const q1 = ex.qty || 0, q2 = h.qty || 0, tot = q1 + q2;
+    if(ex.gav != null && h.gav != null && tot > 0) ex.gav = +(((ex.gav*q1 + h.gav*q2)/tot).toFixed(4));
+    else if(ex.gav == null) ex.gav = h.gav;
+    ex.qty = tot || ex.qty;
+    if(!ex.currency) ex.currency = h.currency;
+    if(!ex.name) ex.name = h.name;
+  }
+  const list = [...byT.values()];
   portfolio = list;
   savePortfolioLocal();
-  await pushPortfolioCloud(list);
+  const res = await pushPortfolioCloud(list);
   document.getElementById('pf-paste').value = '';
   document.getElementById('pf-map').innerHTML = '';
   pfParsed = [];
-  renderPortfolio();
+  await renderPortfolio();
+  if(res && res.ok === false) alert('Portföljen sparades lokalt, men molnsynk misslyckades: ' + (res.error || 'okänt fel') + '\nInnehaven visas ändå.');
 }
 
 async function pushPortfolioCloud(list){
-  if(!sb || !currentUser) return;
+  if(!sb || !currentUser) return { ok: true, skipped: true };
   try {
-    await sb.from('portfolio').delete().eq('user_id', currentUser.id);
+    // Upsert (uppdatera/lägg till) – raderar inte först, så inget wipe:as om det fallerar.
     const rows = list.map(h => ({ user_id: currentUser.id, ticker: h.ticker, name: h.name || null,
       isin: h.isin || null, quantity: h.qty, gav: h.gav, currency: h.currency || null }));
-    const { error } = await sb.from('portfolio').insert(rows);
-    if(error) console.warn('portfolio push:', error.message);
-  } catch(e){ console.warn('portfolio push:', e.message); }
+    const { error } = await sb.from('portfolio').upsert(rows, { onConflict: 'user_id,ticker' });
+    if(error){ console.warn('portfolio upsert:', error.message); return { ok: false, error: error.message }; }
+    // Ta bort innehav som inte längre finns kvar (utan att röra det vi just sparat).
+    const existing = await sb.from('portfolio').select('ticker').eq('user_id', currentUser.id);
+    if(existing.data){
+      const keep = new Set(list.map(h => h.ticker));
+      const stale = existing.data.map(r => r.ticker).filter(t => !keep.has(t));
+      if(stale.length) await sb.from('portfolio').delete().eq('user_id', currentUser.id).in('ticker', stale);
+    }
+    return { ok: true };
+  } catch(e){ console.warn('portfolio push:', e.message); return { ok: false, error: e.message }; }
 }
 async function pullPortfolioCloud(){
   if(!sb || !currentUser) return null;
@@ -2522,7 +2545,7 @@ async function removeHolding(tk){
 async function renderPortfolio(){
   const view = document.getElementById('pf-view');
   if(!view) return;
-  if(sb && currentUser){ const cloud = await pullPortfolioCloud(); if(cloud){ portfolio = cloud; savePortfolioLocal(); } }
+  if(sb && currentUser){ const cloud = await pullPortfolioCloud(); if(cloud && cloud.length){ portfolio = cloud; savePortfolioLocal(); } }
   if(!portfolio.length){ view.innerHTML = '<div class="info-msg">Ingen portfölj sparad än. Klistra in dina innehav från Avanza ovan och tryck Tolka → Spara.</div>'; return; }
   view.innerHTML = '<div class="info-msg">Hämtar kurser…</div>';
   const tickers = [...new Set(portfolio.map(h => h.ticker))];
