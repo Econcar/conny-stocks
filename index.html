@@ -2531,13 +2531,56 @@ function renderPortfolioMap(){
     </div>`;
 }
 
+// ISIN-landskod → Yahoo-suffix för hemmabörsen ('' = USA, inget suffix).
+const ISIN_CC_SUFFIX = { US:'', GB:'.L', FR:'.PA', DE:'.DE', SE:'.ST', DK:'.CO', NO:'.OL',
+  FI:'.HE', NL:'.AS', CH:'.SW', IT:'.MI', ES:'.MC', CA:'.TO', BE:'.BR', PT:'.LS',
+  AT:'.VI', IE:'.IR', JP:'.T', HK:'.HK', AU:'.AX' };
+
+// Välj bästa Yahoo-symbol bland sökträffar: undvik sifferprefix (1GOOGL.MI),
+// föredra hemmabörsen för ISIN-landet, och aktie/ETF framför annat.
+function pickBestQuote(quotes, row){
+  const cc = (row.isin || '').slice(0,2).toUpperCase();
+  const want = ISIN_CC_SUFFIX[cc]; // kan vara '' (USA) eller undefined (okänt land)
+  const scored = quotes.map(q => {
+    const sym = q.symbol || ''; let s = 0;
+    if(/^[0-9]/.test(sym)) s -= 5;                       // undvik t.ex. 1GOOGL.MI
+    const dot = sym.indexOf('.'); const suf = dot >= 0 ? sym.slice(dot) : '';
+    if(want != null && suf === want) s += 4;             // rätt hemmabörs
+    if(!suf) s += 1;                                     // USA-notering allt annat lika
+    if(q.quoteType === 'EQUITY') s += 1;
+    return { sym, s };
+  }).sort((a,b) => b.s - a.s);
+  return scored[0] && scored[0].sym;
+}
+
+async function resolveBestTicker(row){
+  for(const q of [row.isin, row.namn].filter(Boolean)){
+    let quotes = [];
+    try {
+      const j = await fetchYahoo(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`);
+      quotes = (j.quotes || []).filter(x => x.symbol && ['EQUITY','ETF','MUTUALFUND'].includes(x.quoteType));
+    } catch(e){}
+    if(quotes.length){ const best = pickBestQuote(quotes, row); if(best) return best; }
+  }
+  return '';
+}
+
+// Behåll tickers som redan ger kursdata (t.ex. rätt hemmabörs från Kortnamn+Marknad);
+// slå bara upp de som saknar data. Så klobbras inte GOOGL till 1GOOGL.MI m.m.
 async function verifyPortfolioTickers(btn){
   const old = btn.textContent; btn.disabled = true;
+  btn.textContent = 'Kontrollerar kurser…';
+  const inputs = pfParsed.map((_,i) => document.getElementById('pf-tk-'+i));
+  const cur = [...new Set(inputs.map(inp => inp && inp.value.trim()).filter(Boolean))];
+  const have = await fetchQuotesChunked(cur);
+  let n = 0;
   for(let i = 0; i < pfParsed.length; i++){
-    btn.textContent = `Verifierar ${i+1}/${pfParsed.length}…`;
-    const q = pfParsed[i].isin || pfParsed[i].namn;
-    if(!q) continue;
-    try { const r = await resolveSymbol(q); if(r && r.sym){ const inp = document.getElementById('pf-tk-'+i); if(inp) inp.value = r.sym; } } catch(e){}
+    const inp = inputs[i]; if(!inp) continue;
+    const tk = inp.value.trim();
+    if(tk && have[tk] && have[tk].price != null) continue; // fungerar redan – rör inte
+    n++; btn.textContent = `Slår upp saknade (${n})…`;
+    const cand = await resolveBestTicker(pfParsed[i]);
+    if(cand) inp.value = cand;
   }
   btn.textContent = old; btn.disabled = false;
 }
