@@ -318,6 +318,7 @@
     <div class="nav-item" onclick="showSection('risk')"><span class="nav-icon">◔</span> Riskbarometer</div>
     <div class="nav-item" onclick="showSection('trends')"><span class="nav-icon">◇</span> Megatrender</div>
     <div class="nav-item" onclick="showSection('portfolio')"><span class="nav-icon">▤</span> Min portfölj</div>
+    <div class="nav-item" onclick="showSection('analyses')"><span class="nav-icon">✎</span> Sparade analyser</div>
   </div>
 
   <div class="watchlist-section">
@@ -640,6 +641,12 @@
       <div id="pf-view"></div>
     </div>
 
+    <div class="section" id="section-analyses">
+      <div class="page-title">Sparade analyser <span>· Dina AI-analyser</span></div>
+      <div class="info-msg" style="margin-bottom:14px">Alla AI-analyser sparas automatiskt här (lokalt, och i molnet om du är inloggad). Klicka på en för att läsa hela.</div>
+      <div id="analyses-list"></div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 
@@ -949,6 +956,7 @@ function showSection(s) {
   if(s === 'trends') renderTrends();
   if(s === 'compare') renderCompare();
   if(s === 'portfolio') renderPortfolio();
+  if(s === 'analyses') renderAnalyses();
 }
 
 // ══════════ DASHBOARD ══════════
@@ -1294,7 +1302,7 @@ function analyzeSelected() {
   const prompt = names.length === 1
     ? `Analysera ${names[0]} (${tickers[0]}) – ge mig nyckeltal, styrkor, risker och en sammanfattande bedömning.`
     : `Jämför och analysera dessa aktier: ${names.join(', ')}. Visa styrkor, risker och vilken som ser mest attraktiv ut.`;
-  stageAnalysis(prompt);
+  stageAnalysis(prompt, names.length === 1 ? 'Analys: ' + names[0] : 'Jämförelse: ' + names.join(', '));
 }
 
 // ══════════ AVANZA FUND DETAIL ══════════
@@ -1470,7 +1478,7 @@ function analyzeCompareList() {
   const prompt = names.length === 1
     ? `Analysera ${names[0]} – ge mig nyckeltal, styrkor, risker och en sammanfattande bedömning.`
     : `Jämför och analysera dessa aktier: ${names.join(', ')}. Visa styrkor, risker och vilken som ser mest attraktiv ut.`;
-  stageAnalysis(prompt);
+  stageAnalysis(prompt, names.length === 1 ? 'Analys: ' + names[0] : 'Jämförelse: ' + names.join(', '));
 }
 
 // ══════════ STOCK DETAIL ══════════
@@ -1982,7 +1990,7 @@ async function aiAnalyzeStock() {
   if(currentIsFund) {
     const m = currentStockMeta;
     const ctx = `Det är en svensk fond. Avgift: ${m.fee!=null?m.fee+'%':'okänd'}, risknivå: ${m.risk!=null?m.risk+'/7':'okänd'}, utveckling i år: ${m.ytd!=null?m.ytd.toFixed(1)+'%':'okänd'}, 1 år: ${m.dev1y!=null?m.dev1y.toFixed(1)+'%':'okänd'}.`;
-    stageAnalysis(`Analysera fonden ${currentStockName}. ${ctx} Beskriv fondens inriktning, risk, avgift, historisk utveckling och vilken typ av sparare den passar. Avsluta med en sammanfattande bedömning.`);
+    stageAnalysis(`Analysera fonden ${currentStockName}. ${ctx} Beskriv fondens inriktning, risk, avgift, historisk utveckling och vilken typ av sparare den passar. Avsluta med en sammanfattande bedömning.`, 'Fondanalys: ' + currentStockName);
     return;
   }
   const m = currentStockMeta || {};
@@ -1990,7 +1998,7 @@ async function aiAnalyzeStock() {
   const ctx = ft ? `Aktuella nyckeltal (live från Yahoo): ${ft}.` : '';
   const desc = m.desc ? ` Bolagsbeskrivning: ${m.desc}` : '';
   const [perf, news] = await Promise.all([buildPerfContext(currentTicker), buildNewsContext(currentTicker)]);
-  stageAnalysis(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx}${desc}${perf}${news} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation. Om frågan gäller en specifik kursrörelse, använd kursutvecklingen och nyheterna ovan för att förklara den. Om du fortfarande saknar tillförlitlig information, säg det tydligt istället för att gissa.`);
+  stageAnalysis(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx}${desc}${perf}${news} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation. Om frågan gäller en specifik kursrörelse, använd kursutvecklingen och nyheterna ovan för att förklara den. Om du fortfarande saknar tillförlitlig information, säg det tydligt istället för att gissa.`, 'Aktieanalys: ' + currentStockName);
 }
 
 // ══════════ MACRO CHART ══════════
@@ -2153,7 +2161,7 @@ function aiAnalyzeRisk() {
     `risk-på eller risk-av just nu, och hur starkt? Vilka indikatorer drar åt vilket håll, ` +
     `och finns det motstridiga signaler? Vad betyder helheten för mig som långsiktig svensk ` +
     `investerare? Avsluta med en kort, tydlig slutsats i en mening.`;
-  stageAnalysis(prompt);
+  stageAnalysis(prompt, 'Riskbarometer');
 }
 
 // Visar den senaste dagliga AI-sammanvägningen (skriven av motorn till Supabase).
@@ -2780,7 +2788,7 @@ async function analyzePortfolioAI(){
     return `- ${r.h.name||r.h.ticker} (${r.h.ticker}): ${r.h.qty != null ? r.h.qty : '?'} st, värde ${r.valSek != null ? fmtSekNum(r.valSek,0)+' kr' : 'okänt'} (${w} av portföljen), GAV ${r.h.gav != null ? r.h.gav : '?'} ${r.h.currency||''}, sedan köp ${r.gain}`;
   }).join('\n');
   const cashLine = portfolioCash ? `\nLikvida medel (kontanter): ${fmtSekNum(portfolioCash,0)} kr.` : '';
-  stageAnalysis(`Här är min aktieportfölj (importerad från Avanza). Alla värden är redan omräknade till SEK av appen – använd dem rakt av, räkna INTE om valutor själv:\n${lines}${cashLine}\n\nTotalt portföljvärde: ${fmtSekNum(total,0)} kr (varav värdepapper ${fmtSekNum(totalSek,0)} kr).\n\nGör en genomlysning: fördelning och koncentration (sektorer, regioner, valutaexponering), de största riskerna, hur väl diversifierad den är, samt konkreta förslag på förbättringar. Lyft fram vilka innehav som ser starka respektive svaga ut just nu.${webSearchOn ? ' Sök gärna på nätet om du behöver aktuell information om enskilda bolag.' : ''}`);
+  stageAnalysis(`Här är min aktieportfölj (importerad från Avanza). Alla värden är redan omräknade till SEK av appen – använd dem rakt av, räkna INTE om valutor själv:\n${lines}${cashLine}\n\nTotalt portföljvärde: ${fmtSekNum(total,0)} kr (varav värdepapper ${fmtSekNum(totalSek,0)} kr).\n\nGör en genomlysning: fördelning och koncentration (sektorer, regioner, valutaexponering), de största riskerna, hur väl diversifierad den är, samt konkreta förslag på förbättringar. Lyft fram vilka innehav som ser starka respektive svaga ut just nu.${webSearchOn ? ' Sök gärna på nätet om du behöver aktuell information om enskilda bolag.' : ''}`, 'Portföljanalys');
 }
 
 async function avanzaGet(path) {
@@ -2895,22 +2903,22 @@ function sendAIMessage() {
   sendAIWithText(text);
 }
 
-function sendAIWithText(text) {
+function sendAIWithText(text, title) {
   openAI();
   appendMsg('user', text);
   aiHistory.push({role:'user', content: text});
   const typingId = appendTyping();
   document.getElementById('send-btn').disabled = true;
   document.getElementById('ai-suggestions').style.display = 'none';
-  callClaudeAPI(text, typingId);
+  callClaudeAPI(text, typingId, title);
 }
 
 // "Analysera"-knapparna förbereder analysen och väntar på "Kör", så användaren
 // hinner välja modell/webbsök innan det (kostsamma) anropet går.
 let pendingAnalysis = null;
-function stageAnalysis(prompt) {
+function stageAnalysis(prompt, title) {
   openAI();
-  pendingAnalysis = prompt;
+  pendingAnalysis = { prompt, title };
   const existing = document.getElementById('stage-analysis'); if(existing) existing.remove();
   document.getElementById('ai-suggestions').style.display = 'none';
   const msgs = document.getElementById('ai-messages');
@@ -2924,7 +2932,7 @@ function runPendingAnalysis() {
   if(!pendingAnalysis) return;
   const p = pendingAnalysis; pendingAnalysis = null;
   const stage = document.getElementById('stage-analysis'); if(stage) stage.remove();
-  sendAIWithText(p);
+  sendAIWithText(p.prompt, p.title);
 }
 
 function appendMsg(role, text, meta) {
@@ -2966,6 +2974,51 @@ function estimateCostText(model, usage){
   return parts.join('  ·  ');
 }
 
+// ══════════ SPARADE ANALYSER ══════════
+let aiAnalyses = (function(){ try { const s = localStorage.getItem('ai_analyses'); if(s) return JSON.parse(s); } catch(e){} return []; })();
+function saveAnalysesLocal(){ try { localStorage.setItem('ai_analyses', JSON.stringify(aiAnalyses.slice(0,100))); } catch(e){} }
+
+async function saveAnalysis(entry){
+  aiAnalyses.unshift(entry);
+  if(aiAnalyses.length > 100) aiAnalyses = aiAnalyses.slice(0,100);
+  saveAnalysesLocal();
+  if(sb && currentUser){
+    try { await sb.from('analyses').insert({ user_id: currentUser.id, created_at: new Date(entry.ts).toISOString(), title: entry.title, model: entry.model, answer: entry.answer }); }
+    catch(e){ console.warn('analys molnspar:', e.message); }
+  }
+  if(currentSection === 'analyses') renderAnalyses();
+}
+
+async function renderAnalyses(){
+  const el = document.getElementById('analyses-list');
+  if(!el) return;
+  let list = aiAnalyses;
+  if(sb && currentUser){
+    try {
+      const { data } = await sb.from('analyses').select('id,created_at,title,model,answer').order('created_at', { ascending: false }).limit(100);
+      if(data) list = data.map(r => ({ id: r.id, ts: new Date(r.created_at).getTime(), title: r.title, model: r.model, answer: r.answer, cloud: true }));
+    } catch(e){}
+  }
+  if(!list.length){ el.innerHTML = '<div class="info-msg">Inga sparade analyser än. Kör en AI-analys så dyker den upp här.</div>'; return; }
+  el.innerHTML = list.map(a => {
+    const d = new Date(a.ts).toLocaleString('sv-SE', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    const key = a.cloud ? ('c' + a.id) : ('l' + a.ts);
+    return `<div class="pf-card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;cursor:pointer" onclick="toggleAnalysis('${key}')">
+        <div><div style="font-weight:600">${escHtml(a.title||'Analys')}</div><div style="font-size:11px;color:var(--text3)">${d} · ${escHtml((a.model||'').replace('claude-',''))}</div></div>
+        <button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();deleteAnalysis('${key}')" style="opacity:.6">×</button>
+      </div>
+      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13px;line-height:1.55">${formatAIText(a.answer||'')}</div>
+    </div>`;
+  }).join('');
+}
+function toggleAnalysis(key){ const el = document.getElementById('an-' + key); if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
+async function deleteAnalysis(key){
+  if(key[0] === 'c'){ const id = key.slice(1); if(sb && currentUser){ try { await sb.from('analyses').delete().eq('id', id); } catch(e){} } }
+  else { const ts = Number(key.slice(1)); aiAnalyses = aiAnalyses.filter(a => a.ts !== ts); saveAnalysesLocal(); }
+  renderAnalyses();
+}
+
 function appendTyping() {
   const msgs = document.getElementById('ai-messages');
   const id = 'typing-' + Date.now();
@@ -2989,7 +3042,7 @@ function formatAIText(text) {
 let webSearchOn = localStorage.getItem('ai_websearch') === '1';
 function setWebSearch(v){ webSearchOn = !!v; try { localStorage.setItem('ai_websearch', v ? '1' : '0'); } catch(e){} }
 
-async function callClaudeAPI(userMsg, typingId) {
+async function callClaudeAPI(userMsg, typingId, title) {
   const today = new Date().toLocaleDateString('sv-SE', { year:'numeric', month:'long', day:'numeric' });
 
   // Bifoga appens aktiedata så AI:n kan svara utifrån verklig data, inte minnet
@@ -3054,6 +3107,11 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
     if(typingEl) typingEl.remove();
     const costMeta = (data && !data.error) ? estimateCostText(selectedModel, data.usage) : '';
     appendMsg('ai', reply, costMeta);
+    // Spara analysen (hoppa över felsvar). Titel från knappen eller frågans början.
+    if(data && !data.error && reply){
+      const t = title || (userMsg.split('\n')[0].slice(0,70) + (userMsg.length > 70 ? '…' : ''));
+      saveAnalysis({ ts: Date.now(), title: t, model: selectedModel, answer: reply, cost: costMeta });
+    }
   } catch(e) {
     const typingEl = document.getElementById(typingId);
     if(typingEl) typingEl.remove();
@@ -3186,7 +3244,7 @@ function initAuth() {
   sb.auth.onAuthStateChange((event, session) => {
     currentUser = (session && session.user) ? session.user : null;
     renderAccountBar();
-    if(currentUser) { syncWatchlistFromCloud(); if(currentSection === 'portfolio') renderPortfolio(); }
+    if(currentUser) { syncWatchlistFromCloud(); if(currentSection === 'portfolio') renderPortfolio(); if(currentSection === 'analyses') renderAnalyses(); }
   });
 }
 
