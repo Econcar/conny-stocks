@@ -3021,7 +3021,7 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
 
   try {
     const selectedModel = document.getElementById('model-select')?.value || 'claude-haiku-4-5';
-    const body = { model: selectedModel, max_tokens: 4000, system: systemPrompt, messages };
+    const body = { model: selectedModel, max_tokens: 8000, system: systemPrompt, messages };
     // Bifoga webbsök-verktyget bara när användaren slagit på det (kostar extra).
     // Dynamisk filtrering (_20260209) stöds av Fable 5 / Opus 4.8 / Sonnet 4.6; Haiku
     // 4.5 använder grundvarianten.
@@ -3046,6 +3046,8 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
       reply = (Array.isArray(data.content)
         ? data.content.filter(b => b.type === 'text').map(b => b.text).join('').trim()
         : '') || 'Kunde inte hämta svar (tomt svar från API:t).';
+      // Markera tydligt om svaret kapades av längdgränsen.
+      if(data.stop_reason === 'max_tokens') reply += '\n\n_…(svaret nådde längdgränsen och kapades. Ställ en följdfråga för resten, eller be om en kortare sammanfattning.)_';
     }
     aiHistory.push({role:'assistant', content: reply});
     const typingEl = document.getElementById(typingId);
