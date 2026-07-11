@@ -630,7 +630,11 @@
         <div style="font-weight:600;margin-bottom:6px">Importera från Avanza</div>
         <div class="info-msg" style="margin-bottom:10px">Gå till <b>Innehav</b> i Avanza, byt undertabben till <b>Inköpsinfo</b> (visar antal och GAV), markera hela tabellen inklusive rubrikraden och kopiera (Ctrl+C). Klistra sedan in här och tryck <b>Tolka</b>. Inget skickas någonstans förrän du sparar.</div>
         <textarea id="pf-paste" placeholder="Klistra in tabellen från Avanza här…  (Namn⇥Kortnamn⇥Volym⇥…⇥ISIN⇥Marknad)"></textarea>
-        <div style="margin-top:10px"><button class="action-btn" onclick="parsePortfolioPaste()">Tolka</button></div>
+        <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="action-btn" onclick="parsePortfolioPaste()">Tolka inklistrat</button>
+          <span style="color:var(--text3);font-size:12px">eller</span>
+          <label class="action-btn" style="cursor:pointer">Läs in CSV-fil<input type="file" accept=".csv,.tsv,.txt" onchange="importPortfolioFile(this)" style="display:none"></label>
+        </div>
       </div>
       <div id="pf-map"></div>
       <div id="pf-view"></div>
@@ -2405,28 +2409,59 @@ function avanzaToYahoo(kortnamn, marknad){
   return base + (suf != null ? suf : '');
 }
 
-function parsePortfolioPaste(){
-  const raw = (document.getElementById('pf-paste').value || '').trim();
+// Dela en rad i celler med citattecken-hantering.
+function splitDelimLine(line, delim){
+  const out = []; let cur = '', q = false;
+  for(let i = 0; i < line.length; i++){
+    const ch = line[i];
+    if(q){ if(ch === '"'){ if(line[i+1] === '"'){ cur += '"'; i++; } else q = false; } else cur += ch; }
+    else { if(ch === '"') q = true; else if(ch === delim){ out.push(cur); cur = ''; } else cur += ch; }
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+
+// Text (CSV-fil eller inklistrad tabell) → rader av celler. Väljer avgränsare
+// automatiskt: tab, semikolon eller komma; annars 2+ mellanslag (visuell tabell).
+function parseCellRows(text){
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if(!lines.length) return [];
+  const headerLine = lines.find(l => /namn/i.test(l)) || lines[0];
+  let delim = null;
+  if(headerLine.includes('\t')) delim = '\t';
+  else if((headerLine.match(/;/g) || []).length >= 2) delim = ';';
+  else if((headerLine.match(/,/g) || []).length >= 2) delim = ',';
+  if(delim) return lines.map(l => splitDelimLine(l, delim));
+  return lines.map(l => l.split(/ {2,}/).map(s => s.trim())); // sista utväg
+}
+
+const ISIN_RE = /\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/;
+
+function ingestPortfolioCells(cellRows){
   const mapEl = document.getElementById('pf-map');
-  if(!raw){ mapEl.innerHTML = '<div class="info-msg">Klistra in tabellen först.</div>'; return; }
-  const lines = raw.split(/\r?\n/).filter(l => l.trim());
-  const splitCells = l => l.includes('\t') ? l.split('\t') : l.split(/ {2,}/);
-  let hi = lines.findIndex(l => /namn/i.test(l) && /(kortnamn|isin|volym|marknad)/i.test(l));
+  if(!cellRows.length){ mapEl.innerHTML = '<div class="info-msg">Tom fil eller inklistring.</div>'; return; }
+  let hi = cellRows.findIndex(c => c.some(x => /^\s*namn\s*$/i.test(x)) && c.some(x => /(kortnamn|isin|volym|antal|marknad)/i.test(x)));
   if(hi < 0) hi = 0;
-  const header = splitCells(lines[hi]).map(c => c.trim().toLowerCase());
-  const col = name => header.indexOf(name);
-  const idx = { namn:col('namn'), kort:col('kortnamn'), vol:col('volym'), gav:col('gav'),
-    val:col('valuta'), land:col('land'), isin:col('isin'), mark:col('marknad') };
+  const header = cellRows[hi].map(c => c.trim().toLowerCase());
+  const find = (...names) => {
+    for(const n of names){ const i = header.indexOf(n); if(i >= 0) return i; }
+    for(const n of names){ const i = header.findIndex(h => h.includes(n)); if(i >= 0) return i; }
+    return -1;
+  };
+  const idx = { namn:find('namn'), kort:find('kortnamn'), vol:find('volym','antal'),
+    gav:find('gav'), val:find('valuta'), isin:find('isin'), mark:find('marknad') };
   const rows = [];
-  for(let i = hi+1; i < lines.length; i++){
-    const c = splitCells(lines[i]).map(x => x.trim());
+  for(let i = hi+1; i < cellRows.length; i++){
+    const c = cellRows[i].map(x => x.trim());
     if(c.length < 2) continue;
     const namn = idx.namn >= 0 ? c[idx.namn] : c[0];
-    if(!namn) continue;
+    if(!namn || /^(summa|totalt|total)/i.test(namn)) continue;
+    let isin = idx.isin >= 0 ? c[idx.isin] : '';
+    if(!ISIN_RE.test(isin)){ const hit = c.map(x => (x.match(ISIN_RE) || [])[0]).find(Boolean); if(hit) isin = hit; }
     const kort = idx.kort >= 0 ? c[idx.kort] : '';
     const marknad = idx.mark >= 0 ? c[idx.mark] : '';
     rows.push({
-      namn, kort, isin: idx.isin >= 0 ? c[idx.isin] : '', marknad,
+      namn, kort, isin, marknad,
       qty: pfNum(idx.vol >= 0 ? c[idx.vol] : null),
       gav: pfNum(idx.gav >= 0 ? c[idx.gav] : null),
       currency: (idx.val >= 0 ? c[idx.val] : '') || '',
@@ -2435,6 +2470,31 @@ function parsePortfolioPaste(){
   }
   pfParsed = rows;
   renderPortfolioMap();
+}
+
+function parsePortfolioPaste(){
+  const raw = (document.getElementById('pf-paste').value || '').trim();
+  if(!raw){ document.getElementById('pf-map').innerHTML = '<div class="info-msg">Klistra in tabellen eller välj en CSV-fil först.</div>'; return; }
+  ingestPortfolioCells(parseCellRows(raw));
+}
+
+function importPortfolioFile(input){
+  const f = input.files && input.files[0];
+  if(!f) return;
+  const rd = new FileReader();
+  rd.onload = () => { try { ingestPortfolioCells(parseCellRows(String(rd.result || ''))); } catch(e){ alert('Kunde inte läsa filen: ' + e.message); } };
+  rd.onerror = () => alert('Kunde inte läsa filen.');
+  rd.readAsText(f);
+  input.value = '';
+}
+
+// Yahoo spark klarar inte hur många symboler som helst i ett anrop – dela upp.
+async function fetchQuotesChunked(tickers){
+  const out = {};
+  for(let i = 0; i < tickers.length; i += 15){
+    try { Object.assign(out, await fetchSparkData(tickers.slice(i, i+15))); } catch(e){}
+  }
+  return out;
 }
 
 function renderPortfolioMap(){
@@ -2549,7 +2609,7 @@ async function renderPortfolio(){
   if(!portfolio.length){ view.innerHTML = '<div class="info-msg">Ingen portfölj sparad än. Klistra in dina innehav från Avanza ovan och tryck Tolka → Spara.</div>'; return; }
   view.innerHTML = '<div class="info-msg">Hämtar kurser…</div>';
   const tickers = [...new Set(portfolio.map(h => h.ticker))];
-  let quotes = {}; try { quotes = await fetchSparkData(tickers); } catch(e){}
+  let quotes = await fetchQuotesChunked(tickers);
   const currencies = [...new Set(portfolio.map(h => (h.currency||'SEK').toUpperCase()).filter(c => c && c !== 'SEK'))];
   const fxSyms = [...new Set(currencies.map(c => FX_SYMBOL[c]).filter(Boolean))];
   let fx = {};
@@ -2598,7 +2658,7 @@ async function analyzePortfolioAI(){
   if(!portfolio.length) return;
   openAI();
   const tickers = [...new Set(portfolio.map(h => h.ticker))];
-  let quotes = {}; try { quotes = await fetchSparkData(tickers); } catch(e){}
+  let quotes = await fetchQuotesChunked(tickers);
   const lines = portfolio.map(h => {
     const q = quotes[h.ticker], price = q ? q.price : null;
     const gain = (price != null && h.gav) ? (((price - h.gav)/h.gav)*100).toFixed(1)+'%' : '?';
