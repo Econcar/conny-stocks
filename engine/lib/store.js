@@ -142,7 +142,37 @@ async function insertThemes(rows) {
   return rows.length;
 }
 
+// Läser alla AI-fonder (service-nyckel kringgår RLS) för schemalagd omvärdering.
+async function getAIFunds() {
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
+  }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/ai_funds?select=id,data`, {
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` }
+  });
+  if (!res.ok) throw new Error(`Supabase-läsning (ai_funds) misslyckades (${res.status}): ${await res.text()}`);
+  return res.json();
+}
+
+// Uppdaterar en AI-fonds data-blob efter omvärdering.
+async function updateAIFundData(id, data) {
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
+  }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/ai_funds?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal'
+    },
+    body: JSON.stringify({ data })
+  });
+  if (!res.ok) throw new Error(`Supabase-skrivning (ai_funds) misslyckades (${res.status}): ${await res.text()}`);
+}
+
 module.exports = {
   upsertSignals, recentExternalIds, upsertRiskAnalysis, recentSignals, upsertMegatrend,
-  getThemes, insertThemes
+  getThemes, insertThemes, getAIFunds, updateAIFundData
 };

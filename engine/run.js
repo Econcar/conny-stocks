@@ -23,13 +23,14 @@ const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.6);
 const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 10);
 
 function parseArgs(argv) {
-  const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false, discover: false };
+  const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false, discover: false, fundsOnly: false };
   for (const a of argv.slice(2)) {
     if (a === '--demo') args.demo = true;
     else if (a === '--dry') args.dry = true;
     else if (a === '--risk-only') args.riskOnly = true;
     else if (a === '--trends-only') args.trendsOnly = true;
     else if (a === '--discover') args.discover = true;
+    else if (a === '--funds-only') args.fundsOnly = true;
     else if (a.startsWith('--source=')) args.source = a.slice('--source='.length);
   }
   return args;
@@ -54,6 +55,17 @@ async function runDailyRisk() {
     console.log(`Riskbarometer-analys sparad för ${info.date} (${info.model}, ${info.indicators} indikatorer).`);
   } catch (err) {
     console.error(`Riskbarometer-analys misslyckades: ${err.message}`);
+  }
+}
+
+// Schemalagd omvärdering av AI-fonder (körs på servern enligt varje fonds intervall).
+async function runDailyAIFunds() {
+  try {
+    const { runAIFunds } = require('./lib/aifunds');
+    const info = await runAIFunds();
+    console.log(`AI-fonder: ${info.total} totalt, ${info.due} dags att omvärdera, ${info.done} omvärderade${info.errs ? `, ${info.errs} fel` : ''}.`);
+  } catch (err) {
+    console.error(`AI-fond-omvärdering misslyckades: ${err.message}`);
   }
 }
 
@@ -86,6 +98,11 @@ async function main() {
   if (args.discover) {
     console.log('Kör endast trendspaningen.');
     await runDiscovery();
+    return;
+  }
+  if (args.fundsOnly) {
+    console.log('Kör endast AI-fond-omvärderingen.');
+    await runDailyAIFunds();
     return;
   }
 
@@ -189,6 +206,7 @@ async function main() {
   if (!args.dry) {
     await runDailyRisk();
     await runDailyTrends();
+    await runDailyAIFunds();
     // Trendspaning körs veckovis (måndagar UTC) för att hålla nere brus/kostnad.
     if (new Date().getUTCDay() === 1) await runDiscovery();
   }

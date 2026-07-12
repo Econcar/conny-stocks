@@ -3226,7 +3226,7 @@ function renderFundList(view){
         <label style="font-size:12px;color:var(--text2)">Modell<select id="aif-model" style="width:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 9px">${modelOptionsHtml('claude-sonnet-4-6')}</select></label>
         <label style="font-size:12px;color:var(--text2)">Omvärdering<select id="aif-interval" style="width:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 9px">${intervalOptionsHtml(7)}</select></label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;align-self:end;padding-bottom:8px"><input type="checkbox" id="aif-web"> Låt AI söka på nätet (dyrare)</label>
-        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;align-self:end;padding-bottom:8px"><input type="checkbox" id="aif-auto"> Auto-kör omvärdering (medan appen är öppen)</label>
+        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;align-self:end;padding-bottom:8px" title="Motorn omvärderar fonden automatiskt enligt intervallet – även när appen är stängd (körs dagligen på servern)."><input type="checkbox" id="aif-auto"> Auto-omvärdera enligt intervallet (körs på servern)</label>
       </div>
       <label style="font-size:12px;color:var(--text2)">Instruktioner (strategi, risknivå, hur ofta omvärdering, begränsningar…)</label>
       <textarea id="aif-instr" placeholder="t.ex. Offensiv global tillväxt med fokus på AI och grön energi. Max 10 innehav. Omvärdera varje vecka. Undvik tobak och fossilt." style="width:100%;min-height:80px;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:9px;font-size:13px;resize:vertical"></textarea>
@@ -3309,8 +3309,8 @@ async function renderFundDetail(f, view){
       <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Omvärdering:
         <select onchange="setFundInterval('${escQuote(f.id)}', this.value)" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:5px 8px">${intervalOptionsHtml(f.reevalIntervalDays||0)}</select>
       </label>
-      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer" title="Kör omvärdering automatiskt när intervallet passerat och du har fonden öppen.">
-        <input type="checkbox" ${f.autoReeval?'checked':''} onchange="setFundAuto('${escQuote(f.id)}', this.checked)"> Auto-kör när det är dags
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer" title="Motorn omvärderar automatiskt enligt intervallet – även när appen är stängd (dagligt serverjobb).">
+        <input type="checkbox" ${f.autoReeval?'checked':''} onchange="setFundAuto('${escQuote(f.id)}', this.checked)"> Auto-omvärdera (körs på servern)
       </label>
       ${due ? `<span style="font-size:12px;color:var(--amber,#f59e0b)">⏰ Dags att omvärdera (${intervalLabel(f.reevalIntervalDays||0).toLowerCase()})</span>` : (f.reevalIntervalDays ? `<span style="font-size:12px;color:var(--text3)">Nästa: ${new Date((f.lastReevalAt?new Date(f.lastReevalAt).getTime():new Date(f.createdAt).getTime()) + (f.reevalIntervalDays||0)*86400000).toLocaleDateString('sv-SE')}</span>` : '')}
     </div>
