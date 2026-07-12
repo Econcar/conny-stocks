@@ -318,6 +318,7 @@
     <div class="nav-item" onclick="showSection('risk')"><span class="nav-icon">◔</span> Riskbarometer</div>
     <div class="nav-item" onclick="showSection('trends')"><span class="nav-icon">◇</span> Megatrender</div>
     <div class="nav-item" onclick="showSection('portfolio')"><span class="nav-icon">▤</span> Min portfölj</div>
+    <div class="nav-item" onclick="showSection('aifund')"><span class="nav-icon">❈</span> AI-fond</div>
     <div class="nav-item" onclick="showSection('analyses')"><span class="nav-icon">✎</span> Sparade analyser</div>
   </div>
 
@@ -641,6 +642,12 @@
       <div id="pf-view"></div>
     </div>
 
+    <div class="section" id="section-aifund">
+      <div class="page-title">AI-fond <span>· Låt AI förvalta en fiktiv portfölj</span></div>
+      <div class="info-msg" style="margin-bottom:14px">Ge instruktioner (startbelopp, strategi, hur ofta omvärdering ska ske), välj modell och om AI:n får söka på nätet – så bygger AI:n en fiktiv portfölj som mäts mot index över tid. Du kan ha flera fonder parallellt och jämföra.</div>
+      <div id="aifund-view"></div>
+    </div>
+
     <div class="section" id="section-analyses">
       <div class="page-title">Sparade analyser <span>· Dina AI-analyser</span></div>
       <div class="info-msg" style="margin-bottom:14px">Alla AI-analyser sparas automatiskt här (lokalt, och i molnet om du är inloggad). Klicka på en för att läsa hela.</div>
@@ -957,6 +964,7 @@ function showSection(s) {
   if(s === 'compare') renderCompare();
   if(s === 'portfolio') renderPortfolio();
   if(s === 'analyses') renderAnalyses();
+  if(s === 'aifund') renderAIFund();
 }
 
 // ══════════ DASHBOARD ══════════
@@ -3055,6 +3063,310 @@ async function deleteAnalysis(key){
   renderAnalyses();
 }
 
+// ══════════ AI-FOND (AI-förvaltad fiktiv portfölj) ══════════
+let aiFunds = (function(){ try { const s = localStorage.getItem('ai_funds'); if(s) return JSON.parse(s); } catch(e){} return []; })();
+let currentFundView = null;
+let aifChartInstance = null;
+const AIF_INDICES = [
+  { label: 'S&P 500', sym: '^GSPC' },
+  { label: 'OMXS30', sym: '^OMX' },
+  { label: 'Nasdaq', sym: '^IXIC' },
+  { label: 'MSCI World', sym: 'URTH' }
+];
+const AIF_CREATE_TOOL = {
+  name: 'create_portfolio',
+  description: 'Skapa en fiktiv aktieportfölj.',
+  input_schema: { type: 'object', properties: {
+    fund_name: { type: 'string', description: 'kort namn på fonden' },
+    strategy: { type: 'string', description: 'kort strategi/tes på svenska (1–3 meningar)' },
+    holdings: { type: 'array', description: '5–15 innehav som summerar till ~100% vikt', items: { type: 'object', properties: {
+      name: { type: 'string', description: 'bolagets/fondens namn' },
+      ticker: { type: 'string', description: 'Yahoo Finance-symbol om känd (AAPL, VOLV-B.ST, ASML.AS), annars tom' },
+      weight: { type: 'number', description: 'vikt i procent (0–100)' },
+      rationale: { type: 'string', description: 'kort motivering (max ~12 ord)' }
+    }, required: ['name', 'weight'] } }
+  }, required: ['strategy', 'holdings'] }
+};
+const AIF_REBALANCE_TOOL = {
+  name: 'rebalance_portfolio',
+  description: 'Returnera den nya (omviktade) portföljen efter omvärdering.',
+  input_schema: { type: 'object', properties: {
+    commentary: { type: 'string', description: 'kort kommentar på svenska om vad som ändras och varför' },
+    strategy: { type: 'string', description: 'uppdaterad kort strategi (valfri)' },
+    holdings: { type: 'array', description: 'hela den nya portföljen, vikter summerar ~100%', items: { type: 'object', properties: {
+      name: { type: 'string' }, ticker: { type: 'string' }, weight: { type: 'number' }, rationale: { type: 'string' }
+    }, required: ['name', 'weight'] } }
+  }, required: ['commentary', 'holdings'] }
+};
+
+function saveAIFundsLocal(){ try { localStorage.setItem('ai_funds', JSON.stringify(aiFunds)); } catch(e){} }
+async function pushAIFundCloud(f){ if(!sb || !currentUser) return; try { await sb.from('ai_funds').upsert({ id: f.id, user_id: currentUser.id, data: f, created_at: f.createdAt }, { onConflict: 'id' }); } catch(e){ console.warn('ai_funds push:', e.message); } }
+async function pullAIFundsCloud(){ if(!sb || !currentUser) return null; try { const { data } = await sb.from('ai_funds').select('data').order('created_at', { ascending: false }); if(data) return data.map(r => r.data); } catch(e){} return null; }
+
+function costUsdOf(model, usage){
+  if(!usage) return 0;
+  const p = AI_PRICES[model] || { in: 3, out: 15 };
+  const inT = usage.input_tokens||0, outT = usage.output_tokens||0, cr = usage.cache_read_input_tokens||0, cc = usage.cache_creation_input_tokens||0;
+  const sr = (usage.server_tool_use && usage.server_tool_use.web_search_requests) || 0;
+  return (inT*p.in + cc*p.in*1.25 + cr*p.in*0.1 + outT*p.out)/1e6 + sr*0.01;
+}
+
+async function aiToolCall(model, system, userText, tool, web){
+  if(!getApiKey()) throw new Error('Ingen API-nyckel angiven.');
+  const body = { model, max_tokens: 3000, system, messages: [{ role: 'user', content: userText }], tools: [tool] };
+  if(web){
+    const st = /haiku/.test(model) ? 'web_search_20250305' : 'web_search_20260209';
+    body.tools.push({ type: st, name: 'web_search', max_uses: 5 });
+    body.tool_choice = { type: 'auto' };
+  } else body.tool_choice = { type: 'tool', name: tool.name };
+  const r = await fetch('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() }, body: JSON.stringify(body) });
+  const data = await r.json();
+  if(data && data.error) throw new Error(data.error.message || data.error.type || 'API-fel');
+  const tu = (data.content||[]).find(b => b.type === 'tool_use' && b.name === tool.name);
+  if(!tu) throw new Error('AI:n returnerade ingen portfölj – prova igen eller en annan modell.');
+  aiSessionCostUsd += costUsdOf(model, data.usage);
+  return { input: tu.input, usage: data.usage };
+}
+
+async function getFxRates(ccys){
+  const norm = ccys.map(c => (c||'SEK').toUpperCase());
+  const syms = [...new Set(norm.map(c => FX_SYMBOL[c]).filter(Boolean))];
+  const fx = { SEK: 1 };
+  if(syms.length){ try { const fd = await fetchSparkData(syms); norm.forEach(c => { if(c === 'SEK') fx[c] = 1; else { const s = FX_SYMBOL[c]; if(s && fd[s]) fx[c] = fd[s].price; } }); } catch(e){} }
+  return fx;
+}
+
+// AI-innehav → prissatta innehav (löser tickers, hämtar kurser, fördelar budgeten).
+async function buildFundHoldings(rawHoldings, budget){
+  const items = (rawHoldings||[]).map(h => ({ name: (h.name||'').trim() || (h.ticker||'').trim(), ticker: (h.ticker||'').trim(), weight: Number(h.weight)||0, rationale: (h.rationale||'').trim() }));
+  // Lös ticker via namn för de som saknar/är ogiltiga.
+  let q = {}; const provided = items.map(i => i.ticker).filter(Boolean);
+  if(provided.length){ try { q = await fetchQuotesChunked([...new Set(provided)]); } catch(e){} }
+  for(const it of items){
+    if(!it.ticker || !q[it.ticker] || q[it.ticker].price == null){
+      try { const cand = await resolveBestTicker({ isin: '', namn: it.name }); if(cand) it.ticker = cand; } catch(e){}
+    }
+  }
+  const all = [...new Set(items.map(i => i.ticker).filter(Boolean))];
+  q = all.length ? await fetchQuotesChunked(all) : {};
+  const ccys = all.map(t => { const d = q[t]; return d && d.currency ? normPriceCurrency(d.currency).ccy : 'SEK'; });
+  const fx = await getFxRates(ccys.length ? ccys : ['SEK']);
+  const tot = items.reduce((s, i) => s + i.weight, 0) || 1;
+  const holdings = [];
+  for(const it of items){
+    const d = q[it.ticker]; if(!d || d.price == null) continue;
+    const pc = normPriceCurrency(d.currency); const price = d.price / pc.div; const ccy = pc.ccy;
+    const rate = fx[(ccy||'SEK').toUpperCase()]; if(rate == null) continue;
+    const amount = budget * (it.weight / tot);
+    const shares = amount / (price * rate);
+    if(!isFinite(shares) || shares <= 0) continue;
+    holdings.push({ ticker: it.ticker, name: it.name, weight: +((it.weight/tot)*100).toFixed(1), shares: +shares.toFixed(6), buyPrice: +price.toFixed(4), currency: ccy, rationale: it.rationale });
+  }
+  return holdings;
+}
+
+function fundValue(f, quotes, fx){
+  let total = 0, partial = false;
+  for(const h of f.holdings){
+    const q = quotes[h.ticker];
+    const pc = q && q.currency ? normPriceCurrency(q.currency) : null;
+    const price = q && q.price != null ? (pc ? q.price/pc.div : q.price) : null;
+    const ccy = pc ? pc.ccy : h.currency;
+    const rate = fx[(ccy||'SEK').toUpperCase()];
+    const v = (price != null && rate != null) ? price*h.shares*rate : null;
+    if(v != null) total += v; else partial = true;
+  }
+  return { total, partial };
+}
+
+async function indexReturnSince(sym, sinceMs){
+  const days = (Date.now() - sinceMs) / 86400000;
+  const range = days <= 25 ? '1mo' : days <= 80 ? '3mo' : days <= 180 ? '6mo' : days <= 350 ? '1y' : '2y';
+  let s; try { s = await fetchChartSeries(sym, range, '1d'); } catch(e){ return null; }
+  if(!s || !s.closes.length) return null;
+  let base = null;
+  for(let i = 0; i < s.ts.length; i++){ if(s.ts[i]*1000 >= sinceMs && s.closes[i] != null){ base = s.closes[i]; break; } }
+  if(base == null) base = s.closes.find(c => c != null);
+  const last = [...s.closes].reverse().find(c => c != null);
+  if(base == null || last == null) return null;
+  return ((last - base) / base) * 100;
+}
+
+function modelOptionsHtml(sel){
+  let vals = []; const el = document.getElementById('model-select');
+  if(el && el.options.length) vals = [...el.options].map(o => o.value);
+  if(!vals.length) vals = ['claude-haiku-4-5','claude-sonnet-4-6','claude-opus-4-8','claude-fable-5'];
+  return vals.map(v => `<option value="${v}"${v===sel?' selected':''}>${v.replace('claude-','')}</option>`).join('');
+}
+
+function openFund(id){ currentFundView = id; renderAIFund(); }
+function backToFundList(){ currentFundView = null; renderAIFund(); }
+
+async function renderAIFund(){
+  const view = document.getElementById('aifund-view'); if(!view) return;
+  if(sb && currentUser){ const cloud = await pullAIFundsCloud(); if(cloud){ aiFunds = cloud; saveAIFundsLocal(); } }
+  if(currentFundView){ const f = aiFunds.find(x => x.id === currentFundView); if(f) return renderFundDetail(f, view); currentFundView = null; }
+  renderFundList(view);
+}
+
+function renderFundList(view){
+  const cards = aiFunds.map(f => `
+    <div class="pf-card" style="cursor:pointer;margin-bottom:10px" onclick="openFund('${escQuote(f.id)}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div><div style="font-weight:600">${escHtml(f.name)}</div><div style="font-size:11px;color:var(--text3)">${escHtml(f.model.replace('claude-',''))} · ${f.holdings.length} innehav · start ${fmtSekNum(f.startValueSek,0)} kr · ${new Date(f.createdAt).toLocaleDateString('sv-SE')}</div></div>
+        <div style="color:var(--text3);font-size:18px">›</div>
+      </div>
+    </div>`).join('');
+  view.innerHTML = `
+    <div class="pf-card">
+      <div style="font-weight:600;margin-bottom:10px">Skapa ny AI-fond</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:10px">
+        <label style="font-size:12px;color:var(--text2)">Namn (valfritt)<input id="aif-name" placeholder="t.ex. Global Tillväxt" style="width:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 9px"></label>
+        <label style="font-size:12px;color:var(--text2)">Startbelopp (SEK)<input id="aif-budget" value="100000" style="width:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 9px;font-family:var(--mono)"></label>
+        <label style="font-size:12px;color:var(--text2)">Modell<select id="aif-model" style="width:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 9px">${modelOptionsHtml('claude-sonnet-4-6')}</select></label>
+        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;align-self:end;padding-bottom:8px"><input type="checkbox" id="aif-web"> Låt AI söka på nätet (dyrare)</label>
+      </div>
+      <label style="font-size:12px;color:var(--text2)">Instruktioner (strategi, risknivå, hur ofta omvärdering, begränsningar…)</label>
+      <textarea id="aif-instr" placeholder="t.ex. Offensiv global tillväxt med fokus på AI och grön energi. Max 10 innehav. Omvärdera varje vecka. Undvik tobak och fossilt." style="width:100%;min-height:80px;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:9px;font-size:13px;resize:vertical"></textarea>
+      <div style="margin-top:10px"><button class="action-btn" id="aif-create-btn" onclick="createAIFund()">✦ Skapa AI-fond</button></div>
+    </div>
+    ${aiFunds.length ? `<div style="margin-top:16px;margin-bottom:8px;font-weight:600">Dina AI-fonder</div>${cards}` : '<div class="info-msg" style="margin-top:14px">Inga AI-fonder än. Fyll i instruktioner ovan och skapa din första.</div>'}`;
+}
+
+async function createAIFund(){
+  if(!getApiKey()){ alert('Ingen API-nyckel. Klistra in din nyckel i AI-panelen först.'); return; }
+  const name = (document.getElementById('aif-name').value||'').trim();
+  const model = document.getElementById('aif-model').value;
+  const web = document.getElementById('aif-web').checked;
+  const budget = pfNum(document.getElementById('aif-budget').value) || 0;
+  const instr = (document.getElementById('aif-instr').value||'').trim();
+  if(budget <= 0){ alert('Ange ett startbelopp i SEK.'); return; }
+  const btn = document.getElementById('aif-create-btn'); const old = btn.textContent; btn.disabled = true; btn.textContent = 'AI bygger portföljen…';
+  try {
+    const today = new Date().toLocaleDateString('sv-SE');
+    const sys = `Du är en erfaren portföljförvaltare. Skapa en fiktiv aktieportfölj enligt användarens instruktioner och budget. Använd riktiga börstickers i Yahoo Finance-format (t.ex. AAPL, MSFT, VOLV-B.ST, ASML.AS, EQNR.OL). Vikterna (weight, procent) ska summera till ungefär 100. Diversifiera rimligt om inget annat anges. Returnera ALLTID via verktyget create_portfolio.${web ? ' Du kan söka på nätet för aktuell information.' : ''}`;
+    const user = `Dagens datum: ${today}. Startbelopp: ${fmtSekNum(budget,0)} SEK.\n\nInstruktioner från användaren:\n${instr || '(inga särskilda – bygg en väldiversifierad global aktieportfölj med 8–12 innehav)'}\n\nSkapa portföljen nu.`;
+    const { input } = await aiToolCall(model, sys, user, AIF_CREATE_TOOL, web);
+    const holdings = await buildFundHoldings(input.holdings || [], budget);
+    if(!holdings.length) throw new Error('Kunde inte prissätta några innehav. Prova igen eller en annan modell.');
+    const q = await fetchQuotesChunked(holdings.map(h => h.ticker));
+    const fx = await getFxRates([...new Set(holdings.map(h => h.currency))]);
+    const startValueSek = fundValue({ holdings }, q, fx).total || budget;
+    const f = {
+      id: 'aif_' + Date.now().toString(36), name: name || input.fund_name || 'AI-fond',
+      model, web, budget, instructions: instr, strategy: input.strategy || '',
+      holdings, createdAt: new Date().toISOString(), lastReevalAt: null,
+      startValueSek: +startValueSek.toFixed(0), reevalLog: []
+    };
+    aiFunds.unshift(f); saveAIFundsLocal(); await pushAIFundCloud(f);
+    currentFundView = f.id; renderAIFund();
+  } catch(e){ alert('Kunde inte skapa fonden: ' + e.message); btn.disabled = false; btn.textContent = old; }
+}
+
+async function deleteAIFund(id){
+  if(!confirm('Ta bort denna AI-fond?')) return;
+  aiFunds = aiFunds.filter(f => f.id !== id); saveAIFundsLocal();
+  if(sb && currentUser){ try { await sb.from('ai_funds').delete().eq('id', id); } catch(e){} }
+  currentFundView = null; renderAIFund();
+}
+
+async function renderFundDetail(f, view){
+  view.innerHTML = '<div class="info-msg">Hämtar kurser…</div>';
+  const q = await fetchQuotesChunked(f.holdings.map(h => h.ticker));
+  const fx = await getFxRates([...new Set(f.holdings.map(h => h.currency))]);
+  const { total, partial } = fundValue(f, q, fx);
+  const ret = f.startValueSek ? ((total - f.startValueSek) / f.startValueSek) * 100 : null;
+  const sinceMs = new Date(f.createdAt).getTime();
+  const created = new Date(f.createdAt).toLocaleDateString('sv-SE');
+  const idxRet = [];
+  for(const ix of AIF_INDICES){ idxRet.push({ label: ix.label, r: await indexReturnSince(ix.sym, sinceMs) }); }
+  const rows = f.holdings.map(h => {
+    const d = q[h.ticker]; const pc = d && d.currency ? normPriceCurrency(d.currency) : null;
+    const price = d && d.price != null ? (pc ? d.price/pc.div : d.price) : null;
+    const rate = fx[(h.currency||'SEK').toUpperCase()];
+    const val = (price != null && rate != null) ? price*h.shares*rate : null;
+    const g = (price != null) ? ((price - h.buyPrice)/h.buyPrice)*100 : null;
+    const w = (val != null && total) ? (val/total*100) : null;
+    return `<tr onclick="loadStock('${escQuote(h.ticker)}','${escQuote(h.name||h.ticker)}')" style="cursor:pointer">
+      <td>${escHtml(h.name||h.ticker)}<div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(h.ticker)}</div>${h.rationale ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">${escHtml(h.rationale)}</div>` : ''}</td>
+      <td style="text-align:right">${w != null ? w.toFixed(1)+'%' : '–'}</td>
+      <td style="text-align:right">${fmtSekNum(h.buyPrice,2)} ${escHtml(h.currency)}</td>
+      <td style="text-align:right">${price != null ? fmtSekNum(price,2) : '–'}</td>
+      <td style="text-align:right;color:${g==null?'var(--text3)':(g>=0?'var(--green)':'var(--red)')}">${g != null ? fmtSekPct(g) : '–'}</td>
+      <td style="text-align:right">${val != null ? fmtSekNum(val,0)+' kr' : '–'}</td>
+    </tr>`;
+  }).join('');
+  const freqNote = f.instructions ? '' : '';
+  view.innerHTML = `
+    <div style="margin-bottom:12px"><button class="ghost-btn" onclick="backToFundList()">← Alla AI-fonder</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div><div style="font-size:18px;font-weight:600">${escHtml(f.name)}</div><div style="font-size:12px;color:var(--text3)">${escHtml(f.model.replace('claude-',''))} · ${f.web?'webbsök på':'utan webbsök'} · skapad ${created}${f.lastReevalAt ? ' · omvärderad ' + new Date(f.lastReevalAt).toLocaleDateString('sv-SE') : ''}</div></div>
+      <div style="display:flex;gap:8px"><button class="action-btn" id="aif-reeval-btn" onclick="reevalAIFund('${escQuote(f.id)}')">↻ Låt AI omvärdera</button><button class="ghost-btn" onclick="deleteAIFund('${escQuote(f.id)}')">Ta bort</button></div>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+      <div class="kpi-card"><div class="kpi-label">Värde nu${partial?' (delvis)':''}</div><div class="kpi-value">${fmtSekNum(total,0)} kr</div></div>
+      <div class="kpi-card"><div class="kpi-label">Avkastning sedan start</div><div class="kpi-value" style="color:${ret==null?'var(--text)':(ret>=0?'var(--green)':'var(--red)')}">${ret != null ? fmtSekPct(ret) : '–'}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Startbelopp</div><div class="kpi-value">${fmtSekNum(f.startValueSek,0)} kr</div></div>
+    </div>
+    ${f.strategy ? `<div class="info-msg" style="margin-bottom:14px"><b>Strategi:</b> ${escHtml(f.strategy)}</div>` : ''}
+    <div class="pf-card"><div style="font-weight:600;margin-bottom:8px">Avkastning vs index (sedan ${created})</div><div style="height:220px"><canvas id="aifundChart"></canvas></div></div>
+    <div style="overflow-x:auto;margin-top:14px"><table class="pf-table">
+      <thead><tr><th style="text-align:left">Innehav</th><th style="text-align:right">Vikt</th><th style="text-align:right">Inköp</th><th style="text-align:right">Kurs</th><th style="text-align:right">Sedan köp</th><th style="text-align:right">Värde</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    ${(f.reevalLog && f.reevalLog.length) ? `<div class="pf-card" style="margin-top:14px"><div style="font-weight:600;margin-bottom:6px">Omvärderingar</div>${f.reevalLog.map(l => `<div style="font-size:12px;margin-bottom:8px"><span style="color:var(--text3)">${new Date(l.date).toLocaleString('sv-SE')}:</span> ${escHtml(l.commentary||'')}</div>`).join('')}</div>` : ''}`;
+  const labels = ['AI-fond', ...idxRet.map(i => i.label)];
+  const vals = [ret, ...idxRet.map(i => i.r)].map(v => v == null ? null : +v.toFixed(2));
+  drawFundBar(labels, vals);
+}
+
+function drawFundBar(labels, values){
+  const ctx = document.getElementById('aifundChart'); if(!ctx) return;
+  if(aifChartInstance) aifChartInstance.destroy();
+  aifChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: values,
+      backgroundColor: values.map((v,i) => i===0 ? 'rgba(79,142,247,0.6)' : ((v||0)>=0 ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)')),
+      borderColor: values.map((v,i) => i===0 ? '#4f8ef7' : ((v||0)>=0 ? '#22c55e' : '#ef4444')),
+      borderWidth: 1.5, borderRadius: 4 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y>=0?'+':''}${c.parsed.y}%` } } },
+      scales: { x: { ticks: { color: '#8b91a8', font: { size: 11 } }, grid: { display: false } },
+        y: { ticks: { color: '#8b91a8', font: { size: 10 }, callback: v => (v>=0?'+':'')+v+'%' }, grid: { color: 'rgba(255,255,255,0.04)' } } } }
+  });
+}
+
+async function reevalAIFund(id){
+  const f = aiFunds.find(x => x.id === id); if(!f) return;
+  if(!getApiKey()){ alert('Ingen API-nyckel.'); return; }
+  if(!confirm('Låt AI omvärdera och eventuellt ombalansera fonden? Nuvarande innehav ersätts av AI:ns nya förslag (till aktuellt värde).')) return;
+  const btn = document.getElementById('aif-reeval-btn'); if(btn){ btn.disabled = true; btn.textContent = 'AI omvärderar…'; }
+  try {
+    const q = await fetchQuotesChunked(f.holdings.map(h => h.ticker));
+    const fx = await getFxRates([...new Set(f.holdings.map(h => h.currency))]);
+    const { total } = fundValue(f, q, fx);
+    const lines = f.holdings.map(h => {
+      const d = q[h.ticker]; const pc = d && d.currency ? normPriceCurrency(d.currency) : null;
+      const price = d && d.price != null ? (pc ? d.price/pc.div : d.price) : null;
+      const g = (price != null) ? (((price - h.buyPrice)/h.buyPrice)*100).toFixed(1)+'%' : '?';
+      return `- ${h.name} (${h.ticker}): vikt ${h.weight}%, sedan köp ${g}`;
+    }).join('\n');
+    const today = new Date().toLocaleDateString('sv-SE');
+    const sys = `Du är portföljförvaltare och omvärderar en befintlig fiktiv fond. Behåll det som fungerar, ombalansera vid behov enligt strategin. Returnera HELA den nya portföljen via verktyget rebalance_portfolio (vikter summerar ~100, Yahoo-tickers) samt en kort kommentar om vad du ändrar och varför.${f.web ? ' Du kan söka på nätet.' : ''}`;
+    const user = `Dagens datum: ${today}. Fondens strategi/instruktioner:\n${f.instructions || f.strategy || '(ingen)'}\n\nNuvarande värde: ${fmtSekNum(total,0)} SEK. Nuvarande innehav:\n${lines}\n\nOmvärdera nu.`;
+    const { input } = await aiToolCall(f.model, sys, user, AIF_REBALANCE_TOOL, f.web);
+    const built = await buildFundHoldings(input.holdings || [], total || f.startValueSek);
+    if(!built.length) throw new Error('Kunde inte prissätta de nya innehaven.');
+    f.holdings = built;
+    if(input.strategy) f.strategy = input.strategy;
+    f.lastReevalAt = new Date().toISOString();
+    f.reevalLog = f.reevalLog || [];
+    f.reevalLog.unshift({ date: f.lastReevalAt, commentary: input.commentary || '' });
+    saveAIFundsLocal(); await pushAIFundCloud(f);
+    renderAIFund();
+  } catch(e){ alert('Omvärdering misslyckades: ' + e.message); if(btn){ btn.disabled = false; btn.textContent = '↻ Låt AI omvärdera'; } }
+}
+
 function appendTyping() {
   const msgs = document.getElementById('ai-messages');
   const id = 'typing-' + Date.now();
@@ -3280,7 +3592,7 @@ function initAuth() {
   sb.auth.onAuthStateChange((event, session) => {
     currentUser = (session && session.user) ? session.user : null;
     renderAccountBar();
-    if(currentUser) { syncWatchlistFromCloud(); if(currentSection === 'portfolio') renderPortfolio(); if(currentSection === 'analyses') renderAnalyses(); }
+    if(currentUser) { syncWatchlistFromCloud(); if(currentSection === 'portfolio') renderPortfolio(); if(currentSection === 'analyses') renderAnalyses(); if(currentSection === 'aifund') renderAIFund(); }
   });
 }
 
