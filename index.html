@@ -3300,6 +3300,8 @@ async function renderFundDetail(f, view){
   const ret = f.startValueSek ? ((total - f.startValueSek) / f.startValueSek) * 100 : null;
   const created = new Date(f.createdAt).toLocaleDateString('sv-SE');
   const due = fundDueSince(f);
+  const totalCost = (f.reevalLog || []).reduce((s, l) => s + (l.costUsd || 0), 0);
+  const nReeval = (f.reevalLog || []).length;
   const rows = f.holdings.map(h => {
     const d = q[h.ticker]; const pc = d && d.currency ? normPriceCurrency(d.currency) : null;
     const price = d && d.price != null ? (pc ? d.price/pc.div : d.price) : null;
@@ -3335,6 +3337,7 @@ async function renderFundDetail(f, view){
       <div class="kpi-card"><div class="kpi-label">Värde nu${partial?' (delvis)':''}</div><div class="kpi-value">${fmtSekNum(total,0)} kr</div></div>
       <div class="kpi-card"><div class="kpi-label">Avkastning sedan start</div><div class="kpi-value" style="color:${ret==null?'var(--text)':(ret>=0?'var(--green)':'var(--red)')}">${ret != null ? fmtSekPct(ret) : '–'}</div></div>
       <div class="kpi-card"><div class="kpi-label">Startbelopp</div><div class="kpi-value">${fmtSekNum(f.startValueSek,0)} kr</div></div>
+      ${totalCost ? `<div class="kpi-card"><div class="kpi-label">AI-kostnad hittills</div><div class="kpi-value">$${totalCost.toFixed(3)}</div><div class="kpi-sub muted">≈ ${fmtSekNum(totalCost*10.5,0)} kr · ${nReeval} körning${nReeval===1?'':'ar'}</div></div>` : ''}
     </div>
     ${f.strategy ? `<div class="info-msg" style="margin-bottom:14px"><b>Strategi:</b> ${escHtml(f.strategy)}</div>` : ''}
     <div class="pf-card"><div style="font-weight:600;margin-bottom:8px">Utveckling vs index (sedan ${created})</div><div style="height:260px"><canvas id="aifundChart"></canvas></div></div>
