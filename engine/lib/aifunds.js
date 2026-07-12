@@ -111,12 +111,14 @@ async function buildHoldings(rawHoldings, budget) {
   q = all.length ? await fetchSpark(all) : {};
   const ccys = all.map(t => { const d = q[t]; return d && d.currency ? normPriceCurrency(d.currency).ccy : 'SEK'; });
   const fx = await getFxRates(ccys.length ? ccys : ['SEK']);
-  const tot = items.reduce((s, i) => s + i.weight, 0) || 1;
+  // Normalisera vikterna över de innehav vi faktiskt kan prissätta (kurs + valuta),
+  // så hela budgeten investeras även om någon ticker inte gick att prissätta.
+  const ok = items.filter(it => { const d = q[it.ticker]; if (!d || d.price == null) return false; const pc = normPriceCurrency(d.currency); return fx[(pc.ccy || 'SEK').toUpperCase()] != null; });
+  const tot = ok.reduce((s, i) => s + i.weight, 0) || 1;
   const holdings = [];
-  for (const it of items) {
-    const d = q[it.ticker]; if (!d || d.price == null) continue;
-    const pc = normPriceCurrency(d.currency); const price = d.price / pc.div; const ccy = pc.ccy;
-    const rate = fx[(ccy || 'SEK').toUpperCase()]; if (rate == null) continue;
+  for (const it of ok) {
+    const d = q[it.ticker]; const pc = normPriceCurrency(d.currency); const price = d.price / pc.div; const ccy = pc.ccy;
+    const rate = fx[(ccy || 'SEK').toUpperCase()];
     const amount = budget * (it.weight / tot);
     const shares = amount / (price * rate);
     if (!isFinite(shares) || shares <= 0) continue;
