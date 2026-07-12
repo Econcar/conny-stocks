@@ -13,6 +13,20 @@ const FX_SYMBOL = { USD:'SEK=X', EUR:'EURSEK=X', GBP:'GBPSEK=X', DKK:'DKKSEK=X',
   NOK:'NOKSEK=X', CAD:'CADSEK=X', CHF:'CHFSEK=X', JPY:'JPYSEK=X', PLN:'PLNSEK=X',
   ZAR:'ZARSEK=X', ILS:'ILSSEK=X', HKD:'HKDSEK=X', AUD:'AUDSEK=X' };
 
+// Priser (USD per 1M tokens, in/ut) för kostnadsberäkning per omvärdering.
+const AI_PRICES = {
+  'claude-haiku-4-5': { in: 1, out: 5 }, 'claude-sonnet-4-6': { in: 3, out: 15 },
+  'claude-opus-4-8': { in: 5, out: 25 }, 'claude-fable-5': { in: 10, out: 50 }
+};
+function costUsdOf(model, usage) {
+  if (!usage) return 0;
+  const p = AI_PRICES[model] || { in: 3, out: 15 };
+  const inT = usage.input_tokens || 0, outT = usage.output_tokens || 0;
+  const cr = usage.cache_read_input_tokens || 0, cc = usage.cache_creation_input_tokens || 0;
+  const sr = (usage.server_tool_use && usage.server_tool_use.web_search_requests) || 0;
+  return (inT * p.in + cc * p.in * 1.25 + cr * p.in * 0.1 + outT * p.out) / 1e6 + sr * 0.01;
+}
+
 function normPriceCurrency(cur) {
   const c = (cur || '').trim();
   const minor = { GBp:['GBP',100], GBX:['GBP',100], ZAc:['ZAR',100], ILA:['ILS',100] };
@@ -153,7 +167,7 @@ async function aiTool(model, system, userText, tool, web) {
   const data = await res.json();
   const tu = (data.content || []).find(b => b.type === 'tool_use' && b.name === tool.name);
   if (!tu) throw new Error('inget tool_use-svar');
-  return tu.input;
+  return { input: tu.input, usage: data.usage };
 }
 
 async function reevalFund(f) {
@@ -169,7 +183,7 @@ async function reevalFund(f) {
   const today = new Date().toLocaleDateString('sv-SE');
   const sys = `Du är portföljförvaltare och omvärderar en befintlig fiktiv fond. Behåll det som fungerar, ombalansera vid behov enligt strategin. Returnera HELA den nya portföljen via verktyget rebalance_portfolio (vikter summerar ~100, Yahoo-tickers) samt en kort kommentar om vad du ändrar och varför.${f.web ? ' Du kan söka på nätet.' : ''}`;
   const user = `Dagens datum: ${today}. Fondens strategi/instruktioner:\n${f.instructions || f.strategy || '(ingen)'}\n\nNuvarande värde: ${Math.round(total)} SEK. Nuvarande innehav:\n${lines}\n\nOmvärdera nu.`;
-  const input = await aiTool(f.model || 'claude-sonnet-4-6', sys, user, REBALANCE_TOOL, !!f.web);
+  const { input, usage } = await aiTool(f.model || 'claude-sonnet-4-6', sys, user, REBALANCE_TOOL, !!f.web);
   const built = await buildHoldings(input.holdings || [], total);
   if (!built.length) throw new Error('kunde inte prissätta de nya innehaven');
   const changes = diffHoldings(f.holdings, built);
@@ -177,7 +191,7 @@ async function reevalFund(f) {
   if (input.strategy) f.strategy = input.strategy;
   f.lastReevalAt = new Date().toISOString();
   f.reevalLog = f.reevalLog || [];
-  f.reevalLog.unshift({ date: f.lastReevalAt, commentary: (input.commentary || '') + ' (auto · server)', valueSek: Math.round(total), changes });
+  f.reevalLog.unshift({ date: f.lastReevalAt, commentary: (input.commentary || '') + ' (auto · server)', valueSek: Math.round(total), costUsd: costUsdOf(f.model || 'claude-sonnet-4-6', usage), changes });
   if (f.reevalLog.length > 50) f.reevalLog = f.reevalLog.slice(0, 50);
   return f;
 }

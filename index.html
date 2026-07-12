@@ -3266,7 +3266,7 @@ async function createAIFund(){
     const today = new Date().toLocaleDateString('sv-SE');
     const sys = `Du är en erfaren portföljförvaltare. Skapa en fiktiv aktieportfölj enligt användarens instruktioner och budget. Använd riktiga börstickers i Yahoo Finance-format (t.ex. AAPL, MSFT, VOLV-B.ST, ASML.AS, EQNR.OL). Vikterna (weight, procent) ska summera till ungefär 100. Diversifiera rimligt om inget annat anges. Returnera ALLTID via verktyget create_portfolio.${web ? ' Du kan söka på nätet för aktuell information.' : ''}`;
     const user = `Dagens datum: ${today}. Startbelopp: ${fmtSekNum(budget,0)} SEK.\n\nInstruktioner från användaren:\n${instr || '(inga särskilda – bygg en väldiversifierad global aktieportfölj med 8–12 innehav)'}\n\nSkapa portföljen nu.`;
-    const { input } = await aiToolCall(model, sys, user, AIF_CREATE_TOOL, web);
+    const { input, usage } = await aiToolCall(model, sys, user, AIF_CREATE_TOOL, web);
     const holdings = await buildFundHoldings(input.holdings || [], budget);
     if(!holdings.length) throw new Error('Kunde inte prissätta några innehav. Prova igen eller en annan modell.');
     const q = await fetchQuotesChunked(holdings.map(h => h.ticker));
@@ -3277,7 +3277,7 @@ async function createAIFund(){
       model, web, budget, instructions: instr, strategy: input.strategy || '',
       holdings, createdAt: new Date().toISOString(), lastReevalAt: null,
       startValueSek: +startValueSek.toFixed(0),
-      reevalLog: [{ date: new Date().toISOString(), commentary: 'Fond skapad. ' + (input.strategy || ''), valueSek: +startValueSek.toFixed(0), changes: holdings.map(h => ({ type: 'köpt', ticker: h.ticker, name: h.name, to: h.weight })) }],
+      reevalLog: [{ date: new Date().toISOString(), commentary: 'Fond skapad. ' + (input.strategy || ''), valueSek: +startValueSek.toFixed(0), costUsd: costUsdOf(model, usage), changes: holdings.map(h => ({ type: 'köpt', ticker: h.ticker, name: h.name, to: h.weight })) }],
       reevalIntervalDays, autoReeval
     };
     aiFunds.unshift(f); saveAIFundsLocal(); await pushAIFundCloud(f);
@@ -3344,7 +3344,7 @@ async function renderFundDetail(f, view){
     </table></div>
     ${(f.reevalLog && f.reevalLog.length) ? `<div class="pf-card" style="margin-top:14px"><div style="font-weight:600;margin-bottom:6px">Historik – ändringar och motiveringar</div>${f.reevalLog.map(l => `
       <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px">
-        <div style="font-size:11px;color:var(--text3)">${new Date(l.date).toLocaleString('sv-SE')}${l.valueSek ? ' · värde ' + fmtSekNum(l.valueSek,0) + ' kr' : ''}</div>
+        <div style="font-size:11px;color:var(--text3)">${new Date(l.date).toLocaleString('sv-SE')}${l.valueSek ? ' · värde ' + fmtSekNum(l.valueSek,0) + ' kr' : ''}${l.costUsd ? ' · kostnad $' + l.costUsd.toFixed(4) : ''}</div>
         ${l.commentary ? `<div style="font-size:13px;margin:4px 0">${escHtml(l.commentary)}</div>` : ''}
         ${(l.changes && l.changes.length) ? `<div style="font-size:12px;color:var(--text2);line-height:1.7">${l.changes.map(changeLabel).join('<br>')}</div>` : ''}
       </div>`).join('')}</div>` : ''}`;
@@ -3454,7 +3454,7 @@ async function reevalAIFund(id, auto){
     const today = new Date().toLocaleDateString('sv-SE');
     const sys = `Du är portföljförvaltare och omvärderar en befintlig fiktiv fond. Behåll det som fungerar, ombalansera vid behov enligt strategin. Returnera HELA den nya portföljen via verktyget rebalance_portfolio (vikter summerar ~100, Yahoo-tickers) samt en kort kommentar om vad du ändrar och varför.${f.web ? ' Du kan söka på nätet.' : ''}`;
     const user = `Dagens datum: ${today}. Fondens strategi/instruktioner:\n${f.instructions || f.strategy || '(ingen)'}\n\nNuvarande värde: ${fmtSekNum(total,0)} SEK. Nuvarande innehav:\n${lines}\n\nOmvärdera nu.`;
-    const { input } = await aiToolCall(f.model, sys, user, AIF_REBALANCE_TOOL, f.web);
+    const { input, usage } = await aiToolCall(f.model, sys, user, AIF_REBALANCE_TOOL, f.web);
     const built = await buildFundHoldings(input.holdings || [], total || f.startValueSek);
     if(!built.length) throw new Error('Kunde inte prissätta de nya innehaven.');
     const changes = diffHoldings(f.holdings, built);
@@ -3462,7 +3462,7 @@ async function reevalAIFund(id, auto){
     if(input.strategy) f.strategy = input.strategy;
     f.lastReevalAt = new Date().toISOString();
     f.reevalLog = f.reevalLog || [];
-    f.reevalLog.unshift({ date: f.lastReevalAt, commentary: input.commentary || '', valueSek: Math.round(total), changes });
+    f.reevalLog.unshift({ date: f.lastReevalAt, commentary: input.commentary || '', valueSek: Math.round(total), costUsd: costUsdOf(f.model, usage), changes });
     saveAIFundsLocal(); await pushAIFundCloud(f);
     renderAIFund();
   } catch(e){ alert('Omvärdering misslyckades: ' + e.message); if(btn){ btn.disabled = false; btn.textContent = '↻ Låt AI omvärdera'; } }
