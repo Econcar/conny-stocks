@@ -1779,7 +1779,7 @@ async function fetchChartSeries(sym, range, interval) {
   try {
     const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`);
     const r = data.chart.result[0];
-    return { ts: r.timestamp || [], closes: (r.indicators.quote[0].close || []), off: (r.meta && r.meta.gmtoffset) || 0 };
+    return { ts: r.timestamp || [], closes: (r.indicators.quote[0].close || []), off: (r.meta && r.meta.gmtoffset) || 0, cur: (r.meta && r.meta.currency) || '' };
   } catch(e) { return null; }
 }
 
@@ -3224,7 +3224,9 @@ function renderFundList(view){
         <label style="font-size:12px;color:var(--text2)">Namn (valfritt)<input id="aif-name" placeholder="t.ex. Global Tillväxt" style="width:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 9px"></label>
         <label style="font-size:12px;color:var(--text2)">Startbelopp (SEK)<input id="aif-budget" value="100000" style="width:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 9px;font-family:var(--mono)"></label>
         <label style="font-size:12px;color:var(--text2)">Modell<select id="aif-model" style="width:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 9px">${modelOptionsHtml('claude-sonnet-4-6')}</select></label>
+        <label style="font-size:12px;color:var(--text2)">Omvärdering<select id="aif-interval" style="width:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 9px">${intervalOptionsHtml(7)}</select></label>
         <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;align-self:end;padding-bottom:8px"><input type="checkbox" id="aif-web"> Låt AI söka på nätet (dyrare)</label>
+        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;align-self:end;padding-bottom:8px"><input type="checkbox" id="aif-auto"> Auto-kör omvärdering (medan appen är öppen)</label>
       </div>
       <label style="font-size:12px;color:var(--text2)">Instruktioner (strategi, risknivå, hur ofta omvärdering, begränsningar…)</label>
       <textarea id="aif-instr" placeholder="t.ex. Offensiv global tillväxt med fokus på AI och grön energi. Max 10 innehav. Omvärdera varje vecka. Undvik tobak och fossilt." style="width:100%;min-height:80px;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:9px;font-size:13px;resize:vertical"></textarea>
@@ -3240,6 +3242,8 @@ async function createAIFund(){
   const web = document.getElementById('aif-web').checked;
   const budget = pfNum(document.getElementById('aif-budget').value) || 0;
   const instr = (document.getElementById('aif-instr').value||'').trim();
+  const reevalIntervalDays = Number(document.getElementById('aif-interval').value) || 0;
+  const autoReeval = document.getElementById('aif-auto').checked;
   if(budget <= 0){ alert('Ange ett startbelopp i SEK.'); return; }
   const btn = document.getElementById('aif-create-btn'); const old = btn.textContent; btn.disabled = true; btn.textContent = 'AI bygger portföljen…';
   try {
@@ -3256,7 +3260,8 @@ async function createAIFund(){
       id: 'aif_' + Date.now().toString(36), name: name || input.fund_name || 'AI-fond',
       model, web, budget, instructions: instr, strategy: input.strategy || '',
       holdings, createdAt: new Date().toISOString(), lastReevalAt: null,
-      startValueSek: +startValueSek.toFixed(0), reevalLog: []
+      startValueSek: +startValueSek.toFixed(0), reevalLog: [],
+      reevalIntervalDays, autoReeval
     };
     aiFunds.unshift(f); saveAIFundsLocal(); await pushAIFundCloud(f);
     currentFundView = f.id; renderAIFund();
@@ -3276,10 +3281,8 @@ async function renderFundDetail(f, view){
   const fx = await getFxRates([...new Set(f.holdings.map(h => h.currency))]);
   const { total, partial } = fundValue(f, q, fx);
   const ret = f.startValueSek ? ((total - f.startValueSek) / f.startValueSek) * 100 : null;
-  const sinceMs = new Date(f.createdAt).getTime();
   const created = new Date(f.createdAt).toLocaleDateString('sv-SE');
-  const idxRet = [];
-  for(const ix of AIF_INDICES){ idxRet.push({ label: ix.label, r: await indexReturnSince(ix.sym, sinceMs) }); }
+  const due = fundDueSince(f);
   const rows = f.holdings.map(h => {
     const d = q[h.ticker]; const pc = d && d.currency ? normPriceCurrency(d.currency) : null;
     const price = d && d.price != null ? (pc ? d.price/pc.div : d.price) : null;
@@ -3296,12 +3299,20 @@ async function renderFundDetail(f, view){
       <td style="text-align:right">${val != null ? fmtSekNum(val,0)+' kr' : '–'}</td>
     </tr>`;
   }).join('');
-  const freqNote = f.instructions ? '' : '';
   view.innerHTML = `
     <div style="margin-bottom:12px"><button class="ghost-btn" onclick="backToFundList()">← Alla AI-fonder</button></div>
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
       <div><div style="font-size:18px;font-weight:600">${escHtml(f.name)}</div><div style="font-size:12px;color:var(--text3)">${escHtml(f.model.replace('claude-',''))} · ${f.web?'webbsök på':'utan webbsök'} · skapad ${created}${f.lastReevalAt ? ' · omvärderad ' + new Date(f.lastReevalAt).toLocaleDateString('sv-SE') : ''}</div></div>
       <div style="display:flex;gap:8px"><button class="action-btn" id="aif-reeval-btn" onclick="reevalAIFund('${escQuote(f.id)}')">↻ Låt AI omvärdera</button><button class="ghost-btn" onclick="deleteAIFund('${escQuote(f.id)}')">Ta bort</button></div>
+    </div>
+    <div class="pf-card" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Omvärdering:
+        <select onchange="setFundInterval('${escQuote(f.id)}', this.value)" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:5px 8px">${intervalOptionsHtml(f.reevalIntervalDays||0)}</select>
+      </label>
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer" title="Kör omvärdering automatiskt när intervallet passerat och du har fonden öppen.">
+        <input type="checkbox" ${f.autoReeval?'checked':''} onchange="setFundAuto('${escQuote(f.id)}', this.checked)"> Auto-kör när det är dags
+      </label>
+      ${due ? `<span style="font-size:12px;color:var(--amber,#f59e0b)">⏰ Dags att omvärdera (${intervalLabel(f.reevalIntervalDays||0).toLowerCase()})</span>` : (f.reevalIntervalDays ? `<span style="font-size:12px;color:var(--text3)">Nästa: ${new Date((f.lastReevalAt?new Date(f.lastReevalAt).getTime():new Date(f.createdAt).getTime()) + (f.reevalIntervalDays||0)*86400000).toLocaleDateString('sv-SE')}</span>` : '')}
     </div>
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
       <div class="kpi-card"><div class="kpi-label">Värde nu${partial?' (delvis)':''}</div><div class="kpi-value">${fmtSekNum(total,0)} kr</div></div>
@@ -3309,37 +3320,103 @@ async function renderFundDetail(f, view){
       <div class="kpi-card"><div class="kpi-label">Startbelopp</div><div class="kpi-value">${fmtSekNum(f.startValueSek,0)} kr</div></div>
     </div>
     ${f.strategy ? `<div class="info-msg" style="margin-bottom:14px"><b>Strategi:</b> ${escHtml(f.strategy)}</div>` : ''}
-    <div class="pf-card"><div style="font-weight:600;margin-bottom:8px">Avkastning vs index (sedan ${created})</div><div style="height:220px"><canvas id="aifundChart"></canvas></div></div>
+    <div class="pf-card"><div style="font-weight:600;margin-bottom:8px">Utveckling vs index (sedan ${created})</div><div style="height:260px"><canvas id="aifundChart"></canvas></div></div>
     <div style="overflow-x:auto;margin-top:14px"><table class="pf-table">
       <thead><tr><th style="text-align:left">Innehav</th><th style="text-align:right">Vikt</th><th style="text-align:right">Inköp</th><th style="text-align:right">Kurs</th><th style="text-align:right">Sedan köp</th><th style="text-align:right">Värde</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     ${(f.reevalLog && f.reevalLog.length) ? `<div class="pf-card" style="margin-top:14px"><div style="font-weight:600;margin-bottom:6px">Omvärderingar</div>${f.reevalLog.map(l => `<div style="font-size:12px;margin-bottom:8px"><span style="color:var(--text3)">${new Date(l.date).toLocaleString('sv-SE')}:</span> ${escHtml(l.commentary||'')}</div>`).join('')}</div>` : ''}`;
-  const labels = ['AI-fond', ...idxRet.map(i => i.label)];
-  const vals = [ret, ...idxRet.map(i => i.r)].map(v => v == null ? null : +v.toFixed(2));
-  drawFundBar(labels, vals);
+  drawFundLine(await buildFundSeries(f));
+  // Auto-omvärdering när intervallet passerat och användaren aktiverat det (endast medan appen är öppen).
+  if(f.reevalIntervalDays && f.autoReeval && due && !aifAutoTriggered.has(f.id)){
+    aifAutoTriggered.add(f.id);
+    reevalAIFund(f.id, true);
+  }
 }
 
-function drawFundBar(labels, values){
+// Bär framåt sista kända värdet till varje måldatum (fyller helger/luckor).
+function carryForwardValues(dateKeys, entries){
+  const out = []; let j = 0, last = null;
+  for(const dk of dateKeys){
+    while(j < entries.length && entries[j][0] <= dk){ last = entries[j][1]; j++; }
+    out.push(last);
+  }
+  return out;
+}
+function toPct(vals){
+  const base = vals.find(v => v != null);
+  return vals.map(v => (v != null && base) ? +(((v - base) / base) * 100).toFixed(2) : null);
+}
+
+// Rekonstruera fondens dagliga värde (i SEK, %-rebaserat) från nuvarande innehav
+// samt indexens utveckling – allt inriktat på samma datumaxel sedan fondens start.
+async function buildFundSeries(f){
+  const created = new Date(f.createdAt).getTime();
+  const days = (Date.now() - created) / 86400000;
+  const range = days <= 25 ? '1mo' : days <= 80 ? '3mo' : days <= 180 ? '6mo' : days <= 350 ? '1y' : '2y';
+  const createdKey = new Date(created).toISOString().slice(0,10);
+  const fx = await getFxRates([...new Set(f.holdings.map(h => h.currency))]);
+  const holdSeries = [];
+  for(const h of f.holdings){
+    let s; try { s = await fetchChartSeries(h.ticker, range, '1d'); } catch(e){ s = null; }
+    if(!s || !s.ts.length) continue;
+    const pc = normPriceCurrency(s.cur || h.currency);
+    const rate = fx[(pc.ccy||'SEK').toUpperCase()] != null ? fx[(pc.ccy||'SEK').toUpperCase()] : (fx[(h.currency||'SEK').toUpperCase()] != null ? fx[(h.currency||'SEK').toUpperCase()] : 1);
+    const entries = [];
+    s.ts.forEach((t,i) => { const c = s.closes[i]; if(c != null){ const key = new Date((t + (s.off||0))*1000).toISOString().slice(0,10); entries.push([key, (c/pc.div)*h.shares*rate]); } });
+    entries.sort((a,b) => a[0] < b[0] ? -1 : 1);
+    if(entries.length) holdSeries.push(entries);
+  }
+  if(!holdSeries.length) return null;
+  const set = new Set();
+  holdSeries.forEach(e => e.forEach(([k]) => { if(k >= createdKey) set.add(k); }));
+  const dates = [...set].sort();
+  if(dates.length < 2) return null;
+  const perHold = holdSeries.map(e => carryForwardValues(dates, e));
+  const fundVals = dates.map((_, i) => { let sum = 0, any = false; for(const arr of perHold){ if(arr[i] != null){ sum += arr[i]; any = true; } } return any ? sum : null; });
+  const fundPct = toPct(fundVals);
+  const indices = [];
+  for(const ix of AIF_INDICES){
+    let s; try { s = await fetchChartSeries(ix.sym, range, '1d'); } catch(e){ s = null; }
+    if(!s || !s.ts.length){ indices.push({ label: ix.label, pct: dates.map(() => null) }); continue; }
+    const entries = [];
+    s.ts.forEach((t,i) => { const c = s.closes[i]; if(c != null){ const key = new Date((t + (s.off||0))*1000).toISOString().slice(0,10); entries.push([key, c]); } });
+    entries.sort((a,b) => a[0] < b[0] ? -1 : 1);
+    indices.push({ label: ix.label, pct: toPct(carryForwardValues(dates, entries)) });
+  }
+  return { dates, fundPct, indices };
+}
+
+function drawFundLine(series){
   const ctx = document.getElementById('aifundChart'); if(!ctx) return;
   if(aifChartInstance) aifChartInstance.destroy();
+  if(!series){ const c = ctx.getContext('2d'); c.clearRect(0,0,ctx.width,ctx.height); c.fillStyle = '#8b91a8'; c.font = '13px sans-serif'; c.fillText('För lite historik ännu – grafen fylls på efter hand.', 10, 24); return; }
+  const idxColors = ['#4f8ef7', '#a78bfa', '#f59e0b', '#22d3ee', '#f472b6'];
+  const datasets = [{ label: 'AI-fond', data: series.fundPct, borderColor: '#22c55e', backgroundColor: 'transparent', borderWidth: 2.4, tension: 0.25, pointRadius: 0, pointHoverRadius: 4, spanGaps: true }];
+  series.indices.forEach((ix,i) => datasets.push({ label: ix.label, data: ix.pct, borderColor: idxColors[i % idxColors.length], backgroundColor: 'transparent', borderWidth: 1.4, tension: 0.25, pointRadius: 0, pointHoverRadius: 4, spanGaps: true }));
+  const labels = series.dates.map(d => new Date(d).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }));
   aifChartInstance = new Chart(ctx.getContext('2d'), {
-    type: 'bar',
-    data: { labels, datasets: [{ data: values,
-      backgroundColor: values.map((v,i) => i===0 ? 'rgba(79,142,247,0.6)' : ((v||0)>=0 ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)')),
-      borderColor: values.map((v,i) => i===0 ? '#4f8ef7' : ((v||0)>=0 ? '#22c55e' : '#ef4444')),
-      borderWidth: 1.5, borderRadius: 4 }] },
+    type: 'line', data: { labels, datasets },
     options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y>=0?'+':''}${c.parsed.y}%` } } },
-      scales: { x: { ticks: { color: '#8b91a8', font: { size: 11 } }, grid: { display: false } },
+      plugins: { legend: { display: true, labels: { color: '#8b91a8', font: { size: 11 }, boxWidth: 12 } },
+        tooltip: { mode: 'index', intersect: false, callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y>=0?'+':''}${c.parsed.y}%` } } },
+      scales: { x: { ticks: { color: '#8b91a8', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: 'rgba(255,255,255,0.04)' } },
         y: { ticks: { color: '#8b91a8', font: { size: 10 }, callback: v => (v>=0?'+':'')+v+'%' }, grid: { color: 'rgba(255,255,255,0.04)' } } } }
   });
 }
 
-async function reevalAIFund(id){
+// Omvärderingsintervall
+const aifAutoTriggered = new Set();
+function intervalLabel(days){ return days == 0 ? 'Manuell' : days == 1 ? 'Varje dag' : days == 7 ? 'Varje vecka' : days == 30 ? 'Varje månad' : days + ' dagar'; }
+function intervalOptionsHtml(sel){ return [0,1,7,30].map(d => `<option value="${d}"${d===sel?' selected':''}>${intervalLabel(d)}</option>`).join(''); }
+function fundDueSince(f){ const days = f.reevalIntervalDays||0; if(!days) return false; const base = f.lastReevalAt ? new Date(f.lastReevalAt).getTime() : new Date(f.createdAt).getTime(); return Date.now() >= base + days*86400000; }
+async function setFundInterval(id, v){ const f = aiFunds.find(x => x.id === id); if(!f) return; f.reevalIntervalDays = Number(v)||0; saveAIFundsLocal(); await pushAIFundCloud(f); renderAIFund(); }
+async function setFundAuto(id, on){ const f = aiFunds.find(x => x.id === id); if(!f) return; f.autoReeval = !!on; saveAIFundsLocal(); await pushAIFundCloud(f); if(on && fundDueSince(f) && !aifAutoTriggered.has(id)){ aifAutoTriggered.add(id); reevalAIFund(id, true); } else renderAIFund(); }
+
+async function reevalAIFund(id, auto){
   const f = aiFunds.find(x => x.id === id); if(!f) return;
-  if(!getApiKey()){ alert('Ingen API-nyckel.'); return; }
-  if(!confirm('Låt AI omvärdera och eventuellt ombalansera fonden? Nuvarande innehav ersätts av AI:ns nya förslag (till aktuellt värde).')) return;
+  if(!getApiKey()){ if(!auto) alert('Ingen API-nyckel.'); return; }
+  if(!auto && !confirm('Låt AI omvärdera och eventuellt ombalansera fonden? Nuvarande innehav ersätts av AI:ns nya förslag (till aktuellt värde).')) return;
   const btn = document.getElementById('aif-reeval-btn'); if(btn){ btn.disabled = true; btn.textContent = 'AI omvärderar…'; }
   try {
     const q = await fetchQuotesChunked(f.holdings.map(h => h.ticker));
