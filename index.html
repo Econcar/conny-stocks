@@ -3116,11 +3116,14 @@ async function aiToolCall(model, system, userText, tool, web){
   const body = { model, max_tokens: 3000, system, messages: [{ role: 'user', content: userText }], tools: [tool] };
   if(web){
     const st = /haiku/.test(model) ? 'web_search_20250305' : 'web_search_20260209';
-    body.tools.push({ type: st, name: 'web_search', max_uses: 5 });
+    body.tools.push({ type: st, name: 'web_search', max_uses: 3 });
     body.tool_choice = { type: 'auto' };
   } else body.tool_choice = { type: 'tool', name: tool.name };
   const r = await fetch('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() }, body: JSON.stringify(body) });
-  const data = await r.json();
+  const rawText = await r.text();
+  let data;
+  try { data = JSON.parse(rawText); }
+  catch(_){ throw new Error((r.status === 524 || /error code: 5\d\d/i.test(rawText)) ? 'Servern hann inte svara i tid (timeout, ~100 s). Detta händer oftast med webbsök på. Prova igen, stäng av webbsök för fonden, eller låt serverns dagliga jobb sköta omvärderingen (Auto-omvärdera).' : ('Ogiltigt svar från servern (' + r.status + ').')); }
   if(data && data.error) throw new Error(data.error.message || data.error.type || 'API-fel');
   const tu = (data.content||[]).find(b => b.type === 'tool_use' && b.name === tool.name);
   if(!tu) throw new Error('AI:n returnerade ingen portfölj – prova igen eller en annan modell.');
@@ -3550,7 +3553,10 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
       headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
       body: JSON.stringify(body)
     });
-    const data = await response.json();
+    const rawText = await response.text();
+    let data;
+    try { data = JSON.parse(rawText); }
+    catch(_){ data = { error: { message: (response.status === 524 || /error code: 5\d\d/i.test(rawText)) ? 'Servern hann inte svara i tid (timeout, ~100 s). Prova igen, eller stäng av Webbsök för ett snabbare svar.' : ('Ogiltigt svar från servern (' + response.status + ').') } }; }
     // Visa API:ets riktiga felmeddelande (t.ex. slut på credits, ogiltig nyckel)
     // istället för en missvisande gissning.
     let reply;
