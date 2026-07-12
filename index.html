@@ -3165,6 +3165,22 @@ async function buildFundHoldings(rawHoldings, budget){
   return holdings;
 }
 
+// Vad ändrades mellan gammal och ny portfölj (köpt/sålt/ökat/minskat per ticker).
+function diffHoldings(oldH, newH){
+  const om = new Map((oldH||[]).map(h => [h.ticker, h]));
+  const nm = new Map((newH||[]).map(h => [h.ticker, h]));
+  const changes = [];
+  for(const [t, h] of nm){ if(!om.has(t)) changes.push({ type: 'köpt', ticker: t, name: h.name, to: h.weight }); }
+  for(const [t, h] of om){ if(!nm.has(t)) changes.push({ type: 'sålt', ticker: t, name: h.name, from: h.weight }); }
+  for(const [t, h] of nm){ const o = om.get(t); if(o){ const d = (h.weight||0) - (o.weight||0); if(Math.abs(d) >= 1) changes.push({ type: d > 0 ? 'ökat' : 'minskat', ticker: t, name: h.name, from: o.weight, to: h.weight }); } }
+  return changes;
+}
+function changeLabel(c){
+  if(c.type === 'köpt') return `🟢 Köpt <b>${escHtml(c.name||c.ticker)}</b> (${c.to}%)`;
+  if(c.type === 'sålt') return `🔴 Sålt <b>${escHtml(c.name||c.ticker)}</b>`;
+  return `${c.type === 'ökat' ? '▲' : '▼'} <b>${escHtml(c.name||c.ticker)}</b> ${c.from}%→${c.to}%`;
+}
+
 function fundValue(f, quotes, fx){
   let total = 0, partial = false;
   for(const h of f.holdings){
@@ -3260,7 +3276,8 @@ async function createAIFund(){
       id: 'aif_' + Date.now().toString(36), name: name || input.fund_name || 'AI-fond',
       model, web, budget, instructions: instr, strategy: input.strategy || '',
       holdings, createdAt: new Date().toISOString(), lastReevalAt: null,
-      startValueSek: +startValueSek.toFixed(0), reevalLog: [],
+      startValueSek: +startValueSek.toFixed(0),
+      reevalLog: [{ date: new Date().toISOString(), commentary: 'Fond skapad. ' + (input.strategy || ''), valueSek: +startValueSek.toFixed(0), changes: holdings.map(h => ({ type: 'köpt', ticker: h.ticker, name: h.name, to: h.weight })) }],
       reevalIntervalDays, autoReeval
     };
     aiFunds.unshift(f); saveAIFundsLocal(); await pushAIFundCloud(f);
@@ -3325,7 +3342,12 @@ async function renderFundDetail(f, view){
       <thead><tr><th style="text-align:left">Innehav</th><th style="text-align:right">Vikt</th><th style="text-align:right">Inköp</th><th style="text-align:right">Kurs</th><th style="text-align:right">Sedan köp</th><th style="text-align:right">Värde</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    ${(f.reevalLog && f.reevalLog.length) ? `<div class="pf-card" style="margin-top:14px"><div style="font-weight:600;margin-bottom:6px">Omvärderingar</div>${f.reevalLog.map(l => `<div style="font-size:12px;margin-bottom:8px"><span style="color:var(--text3)">${new Date(l.date).toLocaleString('sv-SE')}:</span> ${escHtml(l.commentary||'')}</div>`).join('')}</div>` : ''}`;
+    ${(f.reevalLog && f.reevalLog.length) ? `<div class="pf-card" style="margin-top:14px"><div style="font-weight:600;margin-bottom:6px">Historik – ändringar och motiveringar</div>${f.reevalLog.map(l => `
+      <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px">
+        <div style="font-size:11px;color:var(--text3)">${new Date(l.date).toLocaleString('sv-SE')}${l.valueSek ? ' · värde ' + fmtSekNum(l.valueSek,0) + ' kr' : ''}</div>
+        ${l.commentary ? `<div style="font-size:13px;margin:4px 0">${escHtml(l.commentary)}</div>` : ''}
+        ${(l.changes && l.changes.length) ? `<div style="font-size:12px;color:var(--text2);line-height:1.7">${l.changes.map(changeLabel).join('<br>')}</div>` : ''}
+      </div>`).join('')}</div>` : ''}`;
   drawFundLine(await buildFundSeries(f));
   // Auto-omvärdering när intervallet passerat och användaren aktiverat det (endast medan appen är öppen).
   if(f.reevalIntervalDays && f.autoReeval && due && !aifAutoTriggered.has(f.id)){
@@ -3435,11 +3457,12 @@ async function reevalAIFund(id, auto){
     const { input } = await aiToolCall(f.model, sys, user, AIF_REBALANCE_TOOL, f.web);
     const built = await buildFundHoldings(input.holdings || [], total || f.startValueSek);
     if(!built.length) throw new Error('Kunde inte prissätta de nya innehaven.');
+    const changes = diffHoldings(f.holdings, built);
     f.holdings = built;
     if(input.strategy) f.strategy = input.strategy;
     f.lastReevalAt = new Date().toISOString();
     f.reevalLog = f.reevalLog || [];
-    f.reevalLog.unshift({ date: f.lastReevalAt, commentary: input.commentary || '' });
+    f.reevalLog.unshift({ date: f.lastReevalAt, commentary: input.commentary || '', valueSek: Math.round(total), changes });
     saveAIFundsLocal(); await pushAIFundCloud(f);
     renderAIFund();
   } catch(e){ alert('Omvärdering misslyckades: ' + e.message); if(btn){ btn.disabled = false; btn.textContent = '↻ Låt AI omvärdera'; } }

@@ -111,6 +111,17 @@ async function buildHoldings(rawHoldings, budget) {
   return holdings;
 }
 
+// Vad ändrades mellan gammal och ny portfölj (för historik-loggen).
+function diffHoldings(oldH, newH) {
+  const om = new Map((oldH || []).map(h => [h.ticker, h]));
+  const nm = new Map((newH || []).map(h => [h.ticker, h]));
+  const changes = [];
+  for (const [t, h] of nm) if (!om.has(t)) changes.push({ type: 'köpt', ticker: t, name: h.name, to: h.weight });
+  for (const [t, h] of om) if (!nm.has(t)) changes.push({ type: 'sålt', ticker: t, name: h.name, from: h.weight });
+  for (const [t, h] of nm) { const o = om.get(t); if (o) { const d = (h.weight || 0) - (o.weight || 0); if (Math.abs(d) >= 1) changes.push({ type: d > 0 ? 'ökat' : 'minskat', ticker: t, name: h.name, from: o.weight, to: h.weight }); } }
+  return changes;
+}
+
 function fundValue(f, q, fx) {
   let total = 0;
   for (const h of f.holdings) {
@@ -161,11 +172,12 @@ async function reevalFund(f) {
   const input = await aiTool(f.model || 'claude-sonnet-4-6', sys, user, REBALANCE_TOOL, !!f.web);
   const built = await buildHoldings(input.holdings || [], total);
   if (!built.length) throw new Error('kunde inte prissätta de nya innehaven');
+  const changes = diffHoldings(f.holdings, built);
   f.holdings = built;
   if (input.strategy) f.strategy = input.strategy;
   f.lastReevalAt = new Date().toISOString();
   f.reevalLog = f.reevalLog || [];
-  f.reevalLog.unshift({ date: f.lastReevalAt, commentary: (input.commentary || '') + ' (auto · server)' });
+  f.reevalLog.unshift({ date: f.lastReevalAt, commentary: (input.commentary || '') + ' (auto · server)', valueSek: Math.round(total), changes });
   if (f.reevalLog.length > 50) f.reevalLog = f.reevalLog.slice(0, 50);
   return f;
 }
