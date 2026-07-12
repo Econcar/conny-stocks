@@ -3342,6 +3342,7 @@ async function renderFundDetail(f, view){
       <div class="kpi-card"><div class="kpi-label">Startbelopp</div><div class="kpi-value">${fmtSekNum(f.startValueSek,0)} kr</div></div>
       ${totalCost ? `<div class="kpi-card"><div class="kpi-label">AI-kostnad hittills</div><div class="kpi-value">$${totalCost.toFixed(3)}</div><div class="kpi-sub muted">≈ ${fmtSekNum(totalCost*10.5,0)} kr · ${nReeval} körning${nReeval===1?'':'ar'}</div></div>` : ''}
     </div>
+    ${f.lastReevalError ? `<div class="info-msg" style="margin-bottom:14px;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">⚠ Senaste omvärdering misslyckades (${new Date(f.lastReevalError.date).toLocaleString('sv-SE')}): ${escHtml(f.lastReevalError.message)}</div>` : ''}
     ${f.strategy ? `<div class="info-msg" style="margin-bottom:14px"><b>Strategi:</b> ${escHtml(f.strategy)}</div>` : ''}
     <div class="pf-card"><div style="font-weight:600;margin-bottom:8px">Utveckling vs index (sedan ${created})</div><div style="height:260px"><canvas id="aifundChart"></canvas></div></div>
     <div style="overflow-x:auto;margin-top:14px"><table class="pf-table">
@@ -3469,9 +3470,16 @@ async function reevalAIFund(id, auto){
     f.lastReevalAt = new Date().toISOString();
     f.reevalLog = f.reevalLog || [];
     f.reevalLog.unshift({ date: f.lastReevalAt, commentary: input.commentary || '', valueSek: Math.round(total), costUsd: costUsdOf(f.model, usage), changes });
+    f.lastReevalError = null;
     saveAIFundsLocal(); await pushAIFundCloud(f);
     renderAIFund();
-  } catch(e){ alert('Omvärdering misslyckades: ' + e.message); if(btn){ btn.disabled = false; btn.textContent = '↻ Låt AI omvärdera'; } }
+  } catch(e){
+    // Gör felet synligt och kvarstående i fonden (inte bara en flyktig alert).
+    f.lastReevalError = { date: new Date().toISOString(), message: e.message };
+    saveAIFundsLocal(); try { await pushAIFundCloud(f); } catch(_){}
+    alert('Omvärdering misslyckades: ' + e.message);
+    renderAIFund();
+  }
 }
 
 function appendTyping() {
