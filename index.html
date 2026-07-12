@@ -3407,8 +3407,9 @@ function drawFundLine(series){
 
 // Omvärderingsintervall
 const aifAutoTriggered = new Set();
-function intervalLabel(days){ return days == 0 ? 'Manuell' : days == 1 ? 'Varje dag' : days == 7 ? 'Varje vecka' : days == 30 ? 'Varje månad' : days + ' dagar'; }
-function intervalOptionsHtml(sel){ return [0,1,7,30].map(d => `<option value="${d}"${d===sel?' selected':''}>${intervalLabel(d)}</option>`).join(''); }
+const INTERVAL_LABELS = { 0:'Manuell', 1:'Varje dag', 7:'Varje vecka', 14:'Varannan vecka', 21:'Var tredje vecka', 30:'Varje månad', 60:'Varannan månad', 90:'Varje kvartal' };
+function intervalLabel(days){ return INTERVAL_LABELS[days] || (days + ' dagar'); }
+function intervalOptionsHtml(sel){ return [0,1,7,14,21,30,60,90].map(d => `<option value="${d}"${d===sel?' selected':''}>${intervalLabel(d)}</option>`).join(''); }
 function fundDueSince(f){ const days = f.reevalIntervalDays||0; if(!days) return false; const base = f.lastReevalAt ? new Date(f.lastReevalAt).getTime() : new Date(f.createdAt).getTime(); return Date.now() >= base + days*86400000; }
 async function setFundInterval(id, v){ const f = aiFunds.find(x => x.id === id); if(!f) return; f.reevalIntervalDays = Number(v)||0; saveAIFundsLocal(); await pushAIFundCloud(f); renderAIFund(); }
 async function setFundAuto(id, on){ const f = aiFunds.find(x => x.id === id); if(!f) return; f.autoReeval = !!on; saveAIFundsLocal(); await pushAIFundCloud(f); if(on && fundDueSince(f) && !aifAutoTriggered.has(id)){ aifAutoTriggered.add(id); reevalAIFund(id, true); } else renderAIFund(); }
