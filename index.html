@@ -529,7 +529,7 @@
         </div>
         <div class="card" style="margin-bottom:14px">
           <div class="card-title">Bolagsbeskrivning <span id="d-desc-translate" style="float:right;font-weight:400;text-transform:none;letter-spacing:0"></span></div>
-          <div id="d-description" style="font-size:13px;color:var(--text2);line-height:1.8"></div>
+          <div id="d-description" style="font-size:13px;color:var(--text2);line-height:1.6"></div>
         </div>
       </div>
       <div id="detail-error" style="display:none" class="error-msg"></div>
@@ -1400,7 +1400,7 @@ async function loadFund(orderBookId, name) {
       `Risknivå: <span style="color:var(--text)">${f.risk!=null?f.risk+'/7 '+(f.riskText||''):'–'}</span>`,
       f.rating ? `Morningstar: <span style="color:var(--text)">${f.rating}/5</span>` : ''
     ].filter(Boolean).map(l=>`<div>${l}</div>`).join('');
-    document.getElementById('d-description').textContent = f.description || '';
+    document.getElementById('d-description').innerHTML = formatDescription(f.description);
     currentStockMeta = {
       kurs: (f.nav!=null?f.nav.toFixed(2):'–')+' '+cur,
       ytd: (f.developmentThisYear!=null?f.developmentThisYear:null),
@@ -1617,6 +1617,23 @@ function fmtMcap(v, cur) {
 const REC_LABELS = { strong_buy:'Stark köp', buy:'Köp', hold:'Behåll', underperform:'Underprestera', sell:'Sälj', none:'–' };
 let currentDescRaw = '';
 
+// Bryter en lång löptext i stycken (befintliga radbrytningar om de finns, annars grupper om ~3 meningar).
+function formatDescription(raw) {
+  if(!raw) return '';
+  let paras = String(raw).split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  if(paras.length <= 1) {
+    const sentences = String(raw).match(/[^.!?]+[.!?]+(?:\s+|$)/g) || [raw];
+    paras = [];
+    let buf = '', count = 0;
+    for(const s of sentences) {
+      buf += s;
+      if(++count >= 3) { paras.push(buf.trim()); buf = ''; count = 0; }
+    }
+    if(buf.trim()) paras.push(buf.trim());
+  }
+  return paras.map(p => `<p style="margin:0 0 10px">${escHtml(p)}</p>`).join('');
+}
+
 // Visar bolagsbeskrivningen; erbjuder svensk översättning (cachas per bolag).
 function renderDescription(ticker, desc) {
   const el = document.getElementById('d-description');
@@ -1625,9 +1642,9 @@ function renderDescription(ticker, desc) {
   currentDescRaw = desc || '';
   if(tr) tr.innerHTML = '';
   const cached = ticker ? localStorage.getItem('descsv_' + ticker) : null;
-  if(cached) { el.innerHTML = escHtml(cached); return; }        // redan svensk (cachad)
+  if(cached) { el.innerHTML = formatDescription(cached); return; }   // redan svensk (cachad)
   if(!desc) { el.innerHTML = ''; return; }
-  el.innerHTML = escHtml(desc);                                 // visa engelska medan vi översätter
+  el.innerHTML = formatDescription(desc);                            // visa engelska medan vi översätter
   if(getApiKey()) {
     translateDesc(ticker);                                      // alltid svenska: auto-översätt
   } else if(tr) {
@@ -1654,10 +1671,10 @@ async function translateDesc(ticker) {
     const sv = j.content && j.content[0] && j.content[0].text && j.content[0].text.trim();
     if(!sv) throw new Error('tomt svar');
     try { localStorage.setItem('descsv_' + ticker, sv); } catch(e){}
-    el.innerHTML = escHtml(sv);
+    el.innerHTML = formatDescription(sv);
     const tr = document.getElementById('d-desc-translate'); if(tr) tr.innerHTML = '';
   } catch(e) {
-    el.innerHTML = `${escHtml(raw)}<div style="margin-top:8px;color:#fca5a5;font-size:12px">Kunde inte översätta (kontrollera API-nyckeln).</div>`;
+    el.innerHTML = `${formatDescription(raw)}<div style="margin-top:8px;color:#fca5a5;font-size:12px">Kunde inte översätta (kontrollera API-nyckeln).</div>`;
   }
 }
 
