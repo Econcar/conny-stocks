@@ -63,7 +63,7 @@ async function runDailyAIFunds() {
   try {
     const { runAIFunds } = require('./lib/aifunds');
     const info = await runAIFunds();
-    console.log(`AI-fonder: ${info.total} totalt, ${info.due} dags att omvärdera, ${info.done} omvärderade${info.errs ? `, ${info.errs} fel` : ''}.`);
+    console.log(`AI-fonder: ${info.total} totalt, ${info.due} dags att omvärdera, ${info.done} omvärderade, ${info.navLogged} NAV-punkter loggade${info.errs ? `, ${info.errs} fel` : ''}.`);
   } catch (err) {
     console.error(`AI-fond-omvärdering misslyckades: ${err.message}`);
   }

@@ -138,6 +138,17 @@ function diffHoldings(oldH, newH) {
   return changes;
 }
 
+// Sparar/uppdaterar dagens NAV-punkt (verkligt uppmätt värde). Speglar recordFundNav i index.html.
+function recordNav(f, valueSek) {
+  if (valueSek == null || !isFinite(valueSek)) return;
+  const day = new Date().toISOString().slice(0, 10);
+  f.navHistory = f.navHistory || [];
+  const i = f.navHistory.findIndex((p) => p.date === day);
+  if (i >= 0) f.navHistory[i].valueSek = Math.round(valueSek);
+  else f.navHistory.push({ date: day, valueSek: Math.round(valueSek) });
+  if (f.navHistory.length > 3650) f.navHistory = f.navHistory.slice(-3650);
+}
+
 function fundValue(f, q, fx) {
   let total = 0;
   for (const h of f.holdings) {
@@ -193,8 +204,9 @@ async function reevalFund(f) {
   if (input.strategy) f.strategy = input.strategy;
   f.lastReevalAt = new Date().toISOString();
   f.reevalLog = f.reevalLog || [];
-  f.reevalLog.unshift({ date: f.lastReevalAt, commentary: (input.commentary || '') + ' (auto · server)', valueSek: Math.round(total), costUsd: costUsdOf(f.model || 'claude-sonnet-4-6', usage), changes });
+  f.reevalLog.unshift({ date: f.lastReevalAt, commentary: (input.commentary || '') + ' (auto · server)', valueSek: Math.round(total), costUsd: costUsdOf(f.model || 'claude-sonnet-4-6', usage), changes, holdings: built.map((h) => ({ ...h })) });
   if (f.reevalLog.length > 50) f.reevalLog = f.reevalLog.slice(0, 50);
+  recordNav(f, total);
   return f;
 }
 
@@ -206,22 +218,37 @@ function isDue(f) {
 
 async function runAIFunds() {
   const rows = await getAIFunds();
-  let checked = 0, done = 0, errs = 0;
+  let checked = 0, done = 0, errs = 0, navLogged = 0;
   for (const row of rows) {
     const f = row.data;
-    if (!isDue(f)) continue;
-    checked++;
+    if (isDue(f)) {
+      checked++;
+      try {
+        const updated = await reevalFund(f); // loggar även dagens NAV internt
+        await updateAIFundData(row.id, updated);
+        console.log(`  ✓ AI-fond omvärderad: ${f.name} (${f.model || '?'}, ${f.holdings.length} innehav)`);
+        done++;
+      } catch (e) {
+        console.error(`  ✗ AI-fond ${f && f.name}: ${e.message}`);
+        errs++;
+      }
+      continue;
+    }
+    // Inte dags för ombalansering – logga ändå dagens NAV så fondens graf får en exakt punkt.
     try {
-      const updated = await reevalFund(f);
-      await updateAIFundData(row.id, updated);
-      console.log(`  ✓ AI-fond omvärderad: ${f.name} (${f.model || '?'}, ${f.holdings.length} innehav)`);
-      done++;
+      const q = await fetchSpark(f.holdings.map((h) => h.ticker));
+      const fx = await getFxRates([...new Set(f.holdings.map((h) => h.currency))]);
+      const total = fundValue(f, q, fx);
+      if (total > 0) {
+        recordNav(f, total);
+        await updateAIFundData(row.id, f);
+        navLogged++;
+      }
     } catch (e) {
-      console.error(`  ✗ AI-fond ${f && f.name}: ${e.message}`);
-      errs++;
+      console.error(`  ✗ AI-fond NAV (${f && f.name}): ${e.message}`);
     }
   }
-  return { total: rows.length, due: checked, done, errs };
+  return { total: rows.length, due: checked, done, errs, navLogged };
 }
 
 module.exports = { runAIFunds };
