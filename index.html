@@ -3343,6 +3343,19 @@ function changeLabel(c){
   return `${c.type === 'ökat' ? '▲' : '▼'} <b>${escHtml(c.name||c.ticker)}</b> ${c.from}%→${c.to}%`;
 }
 
+// Sparar/uppdaterar dagens NAV-punkt (verkligt uppmätt värde) i fondens historik.
+// Skrivs både av klienten (vid visning) och av bakgrundsmotorn (dagligen) – vem som
+// helst som redan har räknat ut ett verkligt `total` för idag kan logga det.
+function recordFundNav(f, valueSek){
+  if(valueSek == null || !isFinite(valueSek)) return;
+  const day = new Date().toISOString().slice(0,10);
+  f.navHistory = f.navHistory || [];
+  const i = f.navHistory.findIndex(p => p.date === day);
+  if(i >= 0) f.navHistory[i].valueSek = Math.round(valueSek);
+  else f.navHistory.push({ date: day, valueSek: Math.round(valueSek) });
+  if(f.navHistory.length > 3650) f.navHistory = f.navHistory.slice(-3650);
+}
+
 function fundValue(f, quotes, fx){
   let total = 0, partial = false;
   for(const h of f.holdings){
@@ -3439,7 +3452,7 @@ async function createAIFund(){
       model, web, budget, instructions: instr, strategy: input.strategy || '',
       holdings, createdAt: new Date().toISOString(), lastReevalAt: null,
       startValueSek: +startValueSek.toFixed(0),
-      reevalLog: [{ date: new Date().toISOString(), commentary: 'Fond skapad. ' + (input.strategy || ''), valueSek: +startValueSek.toFixed(0), costUsd: costUsdOf(model, usage), changes: holdings.map(h => ({ type: 'köpt', ticker: h.ticker, name: h.name, to: h.weight })) }],
+      reevalLog: [{ date: new Date().toISOString(), commentary: 'Fond skapad. ' + (input.strategy || ''), valueSek: +startValueSek.toFixed(0), costUsd: costUsdOf(model, usage), changes: holdings.map(h => ({ type: 'köpt', ticker: h.ticker, name: h.name, to: h.weight })), holdings: holdings.map(h => ({ ...h })) }],
       reevalIntervalDays, autoReeval
     };
     aiFunds.unshift(f); saveAIFundsLocal(); await pushAIFundCloud(f);
@@ -3460,6 +3473,7 @@ async function renderFundDetail(f, view){
   const fx = await getFxRates([...new Set(f.holdings.map(h => h.currency))]);
   const { total, partial } = fundValue(f, q, fx);
   const ret = f.startValueSek ? ((total - f.startValueSek) / f.startValueSek) * 100 : null;
+  if(!partial){ recordFundNav(f, total); saveAIFundsLocal(); pushAIFundCloud(f).catch(()=>{}); }
   const created = new Date(f.createdAt).toLocaleDateString('sv-SE');
   const due = fundDueSince(f);
   const totalCost = (f.reevalLog || []).reduce((s, l) => s + (l.costUsd || 0), 0);
@@ -3514,7 +3528,7 @@ async function renderFundDetail(f, view){
         ${l.commentary ? `<div style="font-size:13px;margin:4px 0">${escHtml(l.commentary)}</div>` : ''}
         ${(l.changes && l.changes.length) ? `<div style="font-size:12px;color:var(--text2);line-height:1.7">${l.changes.map(changeLabel).join('<br>')}</div>` : ''}
       </div>`).join('')}</div>` : ''}`;
-  drawFundLine(await buildFundSeries(f));
+  drawFundLine(await buildFundSeries(f, total));
   // Auto-omvärdering när intervallet passerat och användaren aktiverat det (endast medan appen är öppen).
   if(f.reevalIntervalDays && f.autoReeval && due && !aifAutoTriggered.has(f.id)){
     aifAutoTriggered.add(f.id);
@@ -3536,33 +3550,58 @@ function toPct(vals){
   return vals.map(v => (v != null && base) ? +(((v - base) / base) * 100).toFixed(2) : null);
 }
 
-// Rekonstruera fondens dagliga värde (i SEK, %-rebaserat) från nuvarande innehav
-// samt indexens utveckling – allt inriktat på samma datumaxel sedan fondens start.
-async function buildFundSeries(f){
+// Rekonstruerar fondens dagliga värde (i SEK, %-rebaserat mot startbeloppet – samma
+// bas som KPI:t "Avkastning sedan start") samt indexens utveckling, sedan fondens start.
+//
+// Tre källor, från minst till mest exakt (senare skriver över tidigare för samma dag):
+//  1) Segmentvis rekonstruktion: varje period använder de innehav som FAKTISKT gällde
+//     då (sparade i f.reevalLog[].holdings vid varje ombalansering), inte dagens.
+//     Fonder/loggar från innan detta fanns saknar snapshot och faller tillbaka på
+//     dagens innehav för den perioden (samma approximation som tidigare).
+//  2) f.navHistory: verkliga, uppmätta NAV-punkter loggade dagligen (server + klient).
+//  3) liveTotal: dagens verkliga värde – exakt samma tal som visas i KPI:t ovanför.
+async function buildFundSeries(f, liveTotal){
   const created = new Date(f.createdAt).getTime();
   const days = (Date.now() - created) / 86400000;
   const range = days <= 25 ? '1mo' : days <= 80 ? '3mo' : days <= 180 ? '6mo' : days <= 350 ? '1y' : '2y';
   const createdKey = new Date(created).toISOString().slice(0,10);
-  const fx = await getFxRates([...new Set(f.holdings.map(h => h.currency))]);
-  const holdSeries = [];
-  for(const h of f.holdings){
-    let s; try { s = await fetchChartSeries(h.ticker, range, '1d'); } catch(e){ s = null; }
-    if(!s || !s.ts.length) continue;
-    const pc = normPriceCurrency(s.cur || h.currency);
-    const rate = fx[(pc.ccy||'SEK').toUpperCase()] != null ? fx[(pc.ccy||'SEK').toUpperCase()] : (fx[(h.currency||'SEK').toUpperCase()] != null ? fx[(h.currency||'SEK').toUpperCase()] : 1);
-    const entries = [];
-    s.ts.forEach((t,i) => { const c = s.closes[i]; if(c != null){ const key = new Date((t + (s.off||0))*1000).toISOString().slice(0,10); entries.push([key, (c/pc.div)*h.shares*rate]); } });
-    entries.sort((a,b) => a[0] < b[0] ? -1 : 1);
-    if(entries.length) holdSeries.push(entries);
+
+  const log = [...(f.reevalLog||[])].sort((a,b) => a.date < b.date ? -1 : (a.date > b.date ? 1 : 0));
+  const segments = [];
+  for(let i = 0; i < log.length; i++){
+    const from = new Date(log[i].date).toISOString().slice(0,10);
+    const to = (i+1 < log.length) ? new Date(log[i+1].date).toISOString().slice(0,10) : null;
+    segments.push({ from, to, holdings: log[i].holdings || f.holdings });
   }
-  if(!holdSeries.length) return null;
-  const set = new Set();
-  holdSeries.forEach(e => e.forEach(([k]) => { if(k >= createdKey) set.add(k); }));
-  const dates = [...set].sort();
+  if(!segments.length) segments.push({ from: createdKey, to: null, holdings: f.holdings });
+
+  const allCcys = [...new Set(segments.flatMap(s => s.holdings.map(h => h.currency)))];
+  const fx = await getFxRates(allCcys.length ? allCcys : ['SEK']);
+  const valueByDate = new Map();
+  const priceCache = new Map();
+  for(const seg of segments){
+    for(const h of seg.holdings){
+      let s = priceCache.get(h.ticker);
+      if(s === undefined){ try { s = await fetchChartSeries(h.ticker, range, '1d'); } catch(e){ s = null; } priceCache.set(h.ticker, s); }
+      if(!s || !s.ts.length) continue;
+      const pc = normPriceCurrency(s.cur || h.currency);
+      const rate = fx[(pc.ccy||'SEK').toUpperCase()] != null ? fx[(pc.ccy||'SEK').toUpperCase()] : (fx[(h.currency||'SEK').toUpperCase()] != null ? fx[(h.currency||'SEK').toUpperCase()] : 1);
+      s.ts.forEach((t,i) => {
+        const c = s.closes[i]; if(c == null) return;
+        const key = new Date((t + (s.off||0))*1000).toISOString().slice(0,10);
+        if(key < createdKey || key < seg.from || (seg.to && key >= seg.to)) return;
+        valueByDate.set(key, (valueByDate.get(key)||0) + (c/pc.div)*h.shares*rate);
+      });
+    }
+  }
+  for(const p of (f.navHistory||[])){ if(p.date >= createdKey && p.valueSek != null) valueByDate.set(p.date, p.valueSek); }
+  const todayKey = new Date().toISOString().slice(0,10);
+  if(liveTotal != null && isFinite(liveTotal)) valueByDate.set(todayKey, liveTotal);
+
+  const dates = [...valueByDate.keys()].sort();
   if(dates.length < 2) return null;
-  const perHold = holdSeries.map(e => carryForwardValues(dates, e));
-  const fundVals = dates.map((_, i) => { let sum = 0, any = false; for(const arr of perHold){ if(arr[i] != null){ sum += arr[i]; any = true; } } return any ? sum : null; });
-  const fundPct = toPct(fundVals);
+  const base = f.startValueSek || valueByDate.get(dates[0]);
+  const fundPct = dates.map(d => base ? +(((valueByDate.get(d) - base) / base) * 100).toFixed(2) : null);
   const indices = [];
   for(const ix of AIF_INDICES){
     let s; try { s = await fetchChartSeries(ix.sym, range, '1d'); } catch(e){ s = null; }
@@ -3628,8 +3667,9 @@ async function reevalAIFund(id, auto){
     if(input.strategy) f.strategy = input.strategy;
     f.lastReevalAt = new Date().toISOString();
     f.reevalLog = f.reevalLog || [];
-    f.reevalLog.unshift({ date: f.lastReevalAt, commentary: input.commentary || '', valueSek: Math.round(total), costUsd: costUsdOf(f.model, usage), changes });
+    f.reevalLog.unshift({ date: f.lastReevalAt, commentary: input.commentary || '', valueSek: Math.round(total), costUsd: costUsdOf(f.model, usage), changes, holdings: built.map(h => ({ ...h })) });
     f.lastReevalError = null;
+    recordFundNav(f, total);
     saveAIFundsLocal(); await pushAIFundCloud(f);
     renderAIFund();
   } catch(e){
