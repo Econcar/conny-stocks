@@ -9,6 +9,21 @@ Nyast först. Poster som ångrats stryks inte — de får en rad om vad som ersa
 
 ---
 
+### 2026-07-23 · Rapportkalendern hämtas från två källor
+
+Yahoos kalender-API (`visualization`) ger listan över alla bolag i en period. Egna innehav
+(bevakning + portfölj) hämtas dessutom var för sig via `v7/quote`, som returnerar nästa
+rapportdatum per ticker, och vävs in i samma lista.
+
+**Varför:** kalender-API:t har i praktiken ingen nordisk täckning — `region=se` ger 0 träffar,
+och Ericsson saknades helt trots att bolaget rapporterar. `v7/quote` känner till samma datum
+för `ERIC-B.ST`. En källa räcker alltså inte om nordiska innehav ska synas.
+**Kostnad:** ett extra anrop per 50 egna tickers, och bolag man *inte* följer kan fortfarande
+saknas om de ligger utanför kalenderns täckning. Det står i klartext under listan i stället
+för att låtsas att listan är komplett.
+
+---
+
 ### 2026-07-23 · Beslutslogg införd, specen uppdateras bara vid arkitekturändringar
 
 Specdokumenten i `docs/` uppdateras automatiskt när en ändring rör arkitektur, hosting,

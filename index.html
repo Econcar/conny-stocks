@@ -652,6 +652,9 @@
           <div class="filter-chip" data-period="7" onclick="setEarnPeriod(7,this)">Denna vecka</div>
           <div class="filter-chip" data-period="14" onclick="setEarnPeriod(14,this)">2 veckor</div>
           <div class="filter-chip" data-period="31" onclick="setEarnPeriod(31,this)">Denna månad</div>
+          <div class="filter-chip" data-period="92" onclick="setEarnPeriod(92,this)">Kvartal</div>
+          <div class="filter-chip" data-period="183" onclick="setEarnPeriod(183,this)">Halvår</div>
+          <div class="filter-chip" data-period="365" onclick="setEarnPeriod(365,this)">1 år</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <input id="earn-search" placeholder="Sök bolag/ticker…" oninput="renderEarningsList()" style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:7px 10px;font-size:13px;min-width:180px">
@@ -3110,6 +3113,7 @@ async function deleteAnalysis(key){
 // ══════════ RAPPORTKALENDER ══════════
 let earnPeriodDays = 7;
 let earnRows = [];
+let earnNote = '';   // varning när kalendern kapades eller egna bolag inte kunde hämtas
 
 function marketFromTicker(t){
   const s = (t || '').toUpperCase();
@@ -3133,15 +3137,59 @@ function earnTickerScore(t){
   sc -= s.length * 0.01;                          // föredra kortare ticker
   return sc;
 }
+// Tickerstam utan börssuffix och aktieslag: ERIC-B.ST och ERIC (ADR) → ERIC.
+function earnTickerBase(t){ return (t || '').toUpperCase().split(/[-.]/)[0]; }
+
 // Slår ihop dubletter (samma bolag + datum) och behåller primärnoteringen.
+// Två rader räknas som samma bolag om tickerstammen ELLER namnet matchar, eftersom
+// korsnoteringar ibland skiljer sig i det ena men inte det andra (ERIC vs ERIC-B.ST).
+// Egna innehav vinner alltid, annars högst tickerpoäng — så "Endast mina" hittar rätt rad.
 function dedupeEarnings(rows){
-  const best = new Map();
-  for(const r of rows){
-    const key = (r.name || r.ticker).toLowerCase().trim() + '|' + r.date.toISOString().slice(0, 10);
-    const ex = best.get(key);
-    if(!ex || earnTickerScore(r.ticker) > earnTickerScore(ex.ticker)) best.set(key, r);
+  const sorted = [...rows].sort((a, b) =>
+    (b.mine === true) - (a.mine === true) || earnTickerScore(b.ticker) - earnTickerScore(a.ticker));
+  const seen = new Map(), out = [];
+  for(const r of sorted){
+    const day = r.date.toISOString().slice(0, 10);
+    const kT = 'T|' + earnTickerBase(r.ticker) + '|' + day;
+    const kN = 'N|' + (r.name || r.ticker).toLowerCase().trim() + '|' + day;
+    const kept = seen.get(kT) || seen.get(kN);
+    if(kept){
+      // Egna rader saknar EPS-data (kommer från kursanropet) – ärv den från kalenderraden.
+      for(const f of ['eps', 'epsActual', 'surprise', 'when']){
+        if((kept[f] == null || kept[f] === '') && r[f] != null && r[f] !== '') kept[f] = r[f];
+      }
+      continue;
+    }
+    seen.set(kT, r); seen.set(kN, r);
+    out.push(r);
   }
-  return [...best.values()];
+  return out;
+}
+
+// Tickers jag faktiskt bryr mig om (bevakningslista + portfölj).
+function ownEarnTickers(){
+  const all = [...getWatchlist().map(w => w.id), ...portfolio.map(h => h.ticker)];
+  return [...new Set(all.map(t => (t || '').trim()).filter(Boolean))];
+}
+
+// Yahoos kalender-API saknar i praktiken nordiska bolag (region=se ger 0 träffar), så
+// egna innehav hämtas separat per ticker och vävs in i listan.
+async function fetchOwnEarnings(fromMs, toMs){
+  const syms = ownEarnTickers();
+  const out = [];
+  for(let i = 0; i < syms.length; i += 50){
+    const chunk = syms.slice(i, i + 50);
+    const r = await fetch('/api/earnings?symbols=' + encodeURIComponent(chunk.join(',')));
+    const j = await r.json();
+    if(!j || !j.rows) continue;
+    for(const row of j.rows){
+      const dt = new Date(row.date);
+      if(isNaN(dt) || dt < fromMs || dt >= toMs) continue;
+      out.push({ ticker: row.ticker, name: row.name, date: dt, when: '', eps: null, epsActual: null,
+                 surprise: null, market: marketFromTicker(row.ticker), mine: true, estimate: row.estimate === true });
+    }
+  }
+  return out;
 }
 
 async function renderEarnings(){
@@ -3152,10 +3200,19 @@ async function renderEarnings(){
   });
   const el = document.getElementById('earnings-list');
   el.innerHTML = '<div class="info-msg">Hämtar rapportkalender…</div>';
-  const from = new Date().toISOString().slice(0, 10);
-  const to = new Date(Date.now() + earnPeriodDays * 86400000).toISOString().slice(0, 10);
+  const fromMs = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime();
+  const toMs = fromMs + earnPeriodDays * 86400000;
+  const from = new Date(fromMs).toISOString().slice(0, 10);
+  const to = new Date(toMs).toISOString().slice(0, 10);
   try {
-    earnRows = await fetchEarnings(from, to);
+    earnNote = '';
+    // Egna innehav får inte falla bort om kalendern strular – hämta båda oberoende.
+    const [cal, own] = await Promise.all([
+      fetchEarnings(from, to),
+      fetchOwnEarnings(fromMs, toMs).catch(e => { earnNote = 'Kunde inte hämta rapportdatum för dina egna innehav: ' + e.message; return []; })
+    ]);
+    earnRows = dedupeEarnings([...own, ...cal.rows]).sort((a, b) => a.date - b.date);
+    if(cal.truncated) earnNote = 'Kalendern kapades vid ' + cal.rows.length + ' rader – välj en kortare period för att se allt.';
     setUpdatedStamp('stamp-earnings');
     renderEarningsList();
   } catch(e){
@@ -3163,9 +3220,13 @@ async function renderEarnings(){
   }
 }
 
+// Hämtar hela kalenderintervallet sidvis. Yahoo ger ~250 rader per anrop; taket finns
+// bara som skydd mot rundgång och rapporteras uppåt så att kapningen syns i UI:t.
 async function fetchEarnings(from, to){
+  const MAX_PAGES = 20;
   const out = [];
-  for(let page = 0; page < 3; page++){
+  let truncated = false;
+  for(let page = 0; page < MAX_PAGES; page++){
     const r = await fetch(`/api/earnings?from=${from}&to=${to}&size=250&offset=${page*250}`);
     const j = await r.json();
     const doc = j && j.finance && j.finance.result && j.finance.result[0] && j.finance.result[0].documents && j.finance.result[0].documents[0];
@@ -3179,8 +3240,9 @@ async function fetchEarnings(from, to){
       out.push({ ticker: o.ticker, name: o.companyshortname || o.ticker, date: dt, when: earnWhen(o.startdatetimetype), eps: o.epsestimate, epsActual: o.epsactual, surprise: o.epssurprisepct, market: marketFromTicker(o.ticker) });
     }
     if(doc.rows.length < 250) break;
+    if(page === MAX_PAGES - 1) truncated = true;  // full sida kvar när taket nåddes
   }
-  return dedupeEarnings(out).sort((a, b) => a.date - b.date);
+  return { rows: out, truncated };
 }
 
 function renderEarningsList(){
@@ -3195,8 +3257,9 @@ function renderEarningsList(){
     if(mine && !mine.has(r.ticker.toUpperCase())) return false;
     return true;
   });
-  if(!rows.length){ el.innerHTML = '<div class="info-msg">Inga rapporter matchar filtren i vald period.</div>'; return; }
-  let html = '', lastKey = '';
+  const note = earnNote ? `<div class="info-msg" style="background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.25);margin-bottom:10px">${escHtml(earnNote)}</div>` : '';
+  if(!rows.length){ el.innerHTML = note + '<div class="info-msg">Inga rapporter matchar filtren i vald period.</div>'; return; }
+  let html = note, lastKey = '';
   for(const r of rows){
     const key = r.date.toISOString().slice(0, 10);
     if(key !== lastKey){
@@ -3206,14 +3269,16 @@ function renderEarningsList(){
     }
     const surprise = (r.surprise != null && isFinite(r.surprise)) ? `<span style="color:${r.surprise>=0?'var(--green)':'var(--red)'}">${r.surprise>=0?'+':''}${(+r.surprise).toFixed(1)}%</span>` : '';
     html += `<div onclick="loadStock('${escQuote(r.ticker)}','${escQuote(r.name)}')" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--border);cursor:pointer" onmouseenter="this.style.background='rgba(255,255,255,0.02)'" onmouseleave="this.style.background=''">
-      <div><div style="font-weight:500">${escHtml(r.name)}</div><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(r.ticker)} · ${r.market}${r.when ? ' · ' + r.when : ''}</div></div>
+      <div><div style="font-weight:500">${r.mine ? '<span title="Finns i din bevakning eller portfölj" style="color:var(--accent)">★ </span>' : ''}${escHtml(r.name)}</div><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(r.ticker)} · ${r.market}${r.when ? ' · ' + r.when : ''}${r.estimate ? ' · preliminärt datum' : ''}</div></div>
       <div style="text-align:right;font-size:12px">
         ${r.eps != null && isFinite(r.eps) ? `<div style="color:var(--text2)">Est. EPS ${(+r.eps).toFixed(2)}</div>` : ''}
         ${r.epsActual != null && isFinite(r.epsActual) ? `<div>Utfall ${(+r.epsActual).toFixed(2)} ${surprise}</div>` : (surprise ? `<div>${surprise}</div>` : '')}
       </div>
     </div>`;
   }
-  html += `<div style="font-size:11px;color:var(--text3);margin-top:12px">${rows.length} rapporter · källa: Yahoo Finance</div>`;
+  const mineCount = rows.filter(r => r.mine).length;
+  html += `<div style="font-size:11px;color:var(--text3);margin-top:12px">${rows.length} rapporter${mineCount ? ` · varav ${mineCount} ★ i din bevakning/portfölj` : ''} · källa: Yahoo Finance<br>
+    Yahoos kalender täcker främst USA och större Europabörser. Nordiska bolag saknas där, så dina egna innehav hämtas separat och vävs in — bolag du inte följer kan därför saknas i listan.</div>`;
   el.innerHTML = html;
 }
 
