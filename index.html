@@ -644,10 +644,11 @@
     </div>
 
     <div class="section" id="section-earnings">
-      <div class="page-title">Rapportkalender <span>· Kommande kvartalsrapporter</span><span class="update-stamp" id="stamp-earnings"></span></div>
+      <div class="page-title">Rapportkalender <span>· Kvartalsrapporter och kursreaktioner</span><span class="update-stamp" id="stamp-earnings"></span></div>
       <div class="pf-card" style="margin-bottom:14px">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <span style="font-size:12px;color:var(--text3)">Period:</span>
+          <div class="filter-chip" data-period="-7" onclick="setEarnPeriod(-7,this)">Senaste veckan</div>
           <div class="filter-chip" data-period="1" onclick="setEarnPeriod(1,this)">Idag</div>
           <div class="filter-chip" data-period="7" onclick="setEarnPeriod(7,this)">Denna vecka</div>
           <div class="filter-chip" data-period="14" onclick="setEarnPeriod(14,this)">2 veckor</div>
@@ -3114,6 +3115,8 @@ async function deleteAnalysis(key){
 let earnPeriodDays = 7;
 let earnRows = [];
 let earnNote = '';   // varning när kalendern kapades eller egna bolag inte kunde hämtas
+let earnPast = false; // vald period ligger bakåt i tiden (Senaste veckan)
+const EARN_REACTION_MAX = 150; // tak för hur många bolag vi hämtar kursreaktion för
 
 function marketFromTicker(t){
   const s = (t || '').toUpperCase();
@@ -3166,16 +3169,27 @@ function dedupeEarnings(rows){
   return out;
 }
 
-// Tickers jag faktiskt bryr mig om (bevakningslista + portfölj).
+// Tickers jag faktiskt bryr mig om (bevakningslista + portfölj), med källa per ticker
+// så att ★ går att härleda – annars är det omöjligt att se varför ett bolag markerats.
 function ownEarnTickers(){
-  const all = [...getWatchlist().map(w => w.id), ...portfolio.map(h => h.ticker)];
-  return [...new Set(all.map(t => (t || '').trim()).filter(Boolean))];
+  const src = new Map();
+  const add = (t, from) => {
+    const k = (t || '').trim();
+    if(!k) return;
+    const key = k.toUpperCase();
+    src.set(key, src.has(key) && src.get(key).from !== from ? { ticker: k, from: 'bevakning + portfölj' } : { ticker: k, from });
+  };
+  getWatchlist().forEach(w => add(w.id, 'bevakning'));
+  portfolio.forEach(h => add(h.ticker, 'portfölj'));
+  return [...src.values()];
 }
 
 // Yahoos kalender-API saknar i praktiken nordiska bolag (region=se ger 0 träffar), så
 // egna innehav hämtas separat per ticker och vävs in i listan.
 async function fetchOwnEarnings(fromMs, toMs){
-  const syms = ownEarnTickers();
+  const own = ownEarnTickers();
+  const srcByTicker = new Map(own.map(o => [o.ticker.toUpperCase(), o.from]));
+  const syms = own.map(o => o.ticker);
   const out = [];
   for(let i = 0; i < syms.length; i += 50){
     const chunk = syms.slice(i, i + 50);
@@ -3185,11 +3199,52 @@ async function fetchOwnEarnings(fromMs, toMs){
     for(const row of j.rows){
       const dt = new Date(row.date);
       if(isNaN(dt) || dt < fromMs || dt >= toMs) continue;
+      // Yahoo kan svara med en annan symbol än den vi frågade om (t.ex. omdirigerade
+      // eller avnoterade tickers). Utan träff i mina egna listor får raden ingen ★.
+      const from = srcByTicker.get((row.ticker || '').toUpperCase());
+      if(!from) continue;
       out.push({ ticker: row.ticker, name: row.name, date: dt, when: '', eps: null, epsActual: null,
-                 surprise: null, market: marketFromTicker(row.ticker), mine: true, estimate: row.estimate === true });
+                 surprise: null, market: marketFromTicker(row.ticker), mine: true, mineSrc: from,
+                 estimate: row.estimate === true });
     }
   }
   return out;
+}
+
+// Kursreaktionen på en rapport: stängning efter rapporten mot stängningen före.
+// Rapporttiden avgör vilka dagar som jämförs – före öppning slår på samma dag,
+// efter stängning på nästa. Är tiden okänd spänner vi över hela rapportdagen.
+function earnReaction(series, r){
+  if(!series || series.length < 2) return null;
+  const day = r.date.toISOString().slice(0, 10);
+  let iOn = -1, iPrev = -1, iNext = -1;
+  for(let i = 0; i < series.length; i++){
+    if(series[i][0] === day) iOn = i;
+    else if(series[i][0] < day) iPrev = i;
+    else if(iNext < 0) iNext = i;
+  }
+  let a = null, b = null, span = '';
+  if(r.when === 'Före öppning' && iOn >= 0 && iPrev >= 0){ a = series[iPrev][1]; b = series[iOn][1]; span = 'rapportdagen'; }
+  else if(r.when === 'Efter stängning' && iOn >= 0 && iNext >= 0){ a = series[iOn][1]; b = series[iNext][1]; span = 'dagen efter'; }
+  else if(iPrev >= 0 && iNext >= 0){ a = series[iPrev][1]; b = series[iNext][1]; span = 'runt rapporten'; }
+  if(!a || !b) return null;
+  return { pct: (b / a - 1) * 100, span };
+}
+
+// Hämtar dagskurser för raderna och fyller på med reaktionen. Egna innehav först,
+// så att taket träffar bolag du inte följer om listan är lång.
+async function addEarnReactions(rows){
+  const order = [...rows].sort((x, y) => (y.mine === true) - (x.mine === true));
+  const syms = [...new Set(order.map(r => r.ticker))].slice(0, EARN_REACTION_MAX);
+  const series = {};
+  for(let i = 0; i < syms.length; i += 50){
+    try {
+      const r = await fetch('/api/earnings?prices=' + encodeURIComponent(syms.slice(i, i + 50).join(',')));
+      const j = await r.json();
+      Object.assign(series, (j && j.series) || {});
+    } catch(e){ /* delvis data är bättre än ingen */ }
+  }
+  for(const row of rows) row.reaction = earnReaction(series[row.ticker], row);
 }
 
 async function renderEarnings(){
@@ -3200,8 +3255,11 @@ async function renderEarnings(){
   });
   const el = document.getElementById('earnings-list');
   el.innerHTML = '<div class="info-msg">Hämtar rapportkalender…</div>';
-  const fromMs = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime();
-  const toMs = fromMs + earnPeriodDays * 86400000;
+  // Negativ period = bakåt i tiden (Senaste veckan). Dagens datum ingår i båda fallen.
+  const todayMs = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime();
+  earnPast = earnPeriodDays < 0;
+  const fromMs = earnPast ? todayMs + earnPeriodDays * 86400000 : todayMs;
+  const toMs = earnPast ? todayMs + 86400000 : todayMs + earnPeriodDays * 86400000;
   const from = new Date(fromMs).toISOString().slice(0, 10);
   const to = new Date(toMs).toISOString().slice(0, 10);
   try {
@@ -3211,10 +3269,11 @@ async function renderEarnings(){
       fetchEarnings(from, to),
       fetchOwnEarnings(fromMs, toMs).catch(e => { earnNote = 'Kunde inte hämta rapportdatum för dina egna innehav: ' + e.message; return []; })
     ]);
-    earnRows = dedupeEarnings([...own, ...cal.rows]).sort((a, b) => a.date - b.date);
+    earnRows = dedupeEarnings([...own, ...cal.rows]).sort((a, b) => earnPast ? b.date - a.date : a.date - b.date);
     if(cal.truncated) earnNote = 'Kalendern kapades vid ' + cal.rows.length + ' rader – välj en kortare period för att se allt.';
     setUpdatedStamp('stamp-earnings');
     renderEarningsList();
+    if(earnPast){ await addEarnReactions(earnRows); renderEarningsList(); }
   } catch(e){
     el.innerHTML = '<div class="info-msg" style="background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">Kunde inte hämta rapportkalendern: ' + escHtml(e.message) + '</div>';
   }
@@ -3268,17 +3327,22 @@ function renderEarningsList(){
       html += `<div style="font-weight:600;margin:16px 0 6px;text-transform:capitalize">${dstr}</div>`;
     }
     const surprise = (r.surprise != null && isFinite(r.surprise)) ? `<span style="color:${r.surprise>=0?'var(--green)':'var(--red)'}">${r.surprise>=0?'+':''}${(+r.surprise).toFixed(1)}%</span>` : '';
+    const reaction = r.reaction
+      ? `<div title="Stängning efter rapporten mot stängningen före (${r.reaction.span})" style="font-weight:600;color:${r.reaction.pct>=0?'var(--green)':'var(--red)'}">${r.reaction.pct>=0?'+':''}${r.reaction.pct.toFixed(1)}% <span style="font-weight:400;color:var(--text3);font-size:10px">${r.reaction.span}</span></div>`
+      : (earnPast ? '<div style="font-size:10px;color:var(--text3)">reaktion saknas</div>' : '');
     html += `<div onclick="loadStock('${escQuote(r.ticker)}','${escQuote(r.name)}')" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--border);cursor:pointer" onmouseenter="this.style.background='rgba(255,255,255,0.02)'" onmouseleave="this.style.background=''">
-      <div><div style="font-weight:500">${r.mine ? '<span title="Finns i din bevakning eller portfölj" style="color:var(--accent)">★ </span>' : ''}${escHtml(r.name)}</div><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(r.ticker)} · ${r.market}${r.when ? ' · ' + r.when : ''}${r.estimate ? ' · preliminärt datum' : ''}</div></div>
+      <div><div style="font-weight:500">${r.mine ? `<span title="Stjärnmärkt för att ${escHtml(r.ticker)} finns i din ${escHtml(r.mineSrc || 'bevakning/portfölj')}" style="color:var(--accent)">★ </span>` : ''}${escHtml(r.name)}</div><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(r.ticker)} · ${r.market}${r.when ? ' · ' + r.when : ''}${r.estimate ? ' · preliminärt datum' : ''}</div></div>
       <div style="text-align:right;font-size:12px">
+        ${reaction}
         ${r.eps != null && isFinite(r.eps) ? `<div style="color:var(--text2)">Est. EPS ${(+r.eps).toFixed(2)}</div>` : ''}
         ${r.epsActual != null && isFinite(r.epsActual) ? `<div>Utfall ${(+r.epsActual).toFixed(2)} ${surprise}</div>` : (surprise ? `<div>${surprise}</div>` : '')}
       </div>
     </div>`;
   }
   const mineCount = rows.filter(r => r.mine).length;
-  html += `<div style="font-size:11px;color:var(--text3);margin-top:12px">${rows.length} rapporter${mineCount ? ` · varav ${mineCount} ★ i din bevakning/portfölj` : ''} · källa: Yahoo Finance<br>
-    Yahoos kalender täcker främst USA och större Europabörser. Nordiska bolag saknas där, så dina egna innehav hämtas separat och vävs in — bolag du inte följer kan därför saknas i listan.</div>`;
+  html += `<div style="font-size:11px;color:var(--text3);margin-top:12px">${rows.length} rapporter${mineCount ? ` · varav ${mineCount} ★ = i din bevakning/portfölj` : ''} · källa: Yahoo Finance
+    ${earnPast ? '<br>Reaktionen är stängningskursen efter rapporten mot stängningen före — inte hela periodens utveckling.' : ''}<br>
+    Yahoos kalender är gles: den täcker främst amerikanska bolag och innehåller inga nordiska. Dina egna innehav hämtas därför separat, men bara med <b>nästa</b> bekräftade rapportdatum — kommande kvartal längre fram är sällan satta ännu, så långa perioder visar oftast bara en rapport per bolag.</div>`;
   el.innerHTML = html;
 }
 

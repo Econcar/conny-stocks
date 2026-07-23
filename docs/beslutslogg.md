@@ -22,6 +22,19 @@ för `ERIC-B.ST`. En källa räcker alltså inte om nordiska innehav ska synas.
 saknas om de ligger utanför kalenderns täckning. Det står i klartext under listan i stället
 för att låtsas att listan är komplett.
 
+**Mätt samma dag:** kalender-API:t är glesare än väntat. Ett helt år framåt gav 601 rader —
+men bara **22 unika bolag**; resten är korsnoteringar av samma bolag på tyska, brittiska och
+mexikanska börser. Apple saknas helt trots bekräftat datum 2026-07-30, och enskilda dagar
+(24 juli, 22 juli) ger 0 träffar. Kalendern duger alltså inte som "alla bolag"-källa. Ett
+riktigt bygge skulle utgå från ett eget universum (t.ex. screenerns största bolag per region)
+och slå upp datum per ticker via `v7/quote` — inte gjort ännu.
+
+Samma dag tillkom **Senaste veckan** (bakåtblickande period) med **kursreaktion** per rapport:
+stängningen efter mot stängningen före, hämtad via `v7/spark` (dagskurser för många tickers i
+ett anrop). Rapporttiden avgör fönstret — före öppning slår på rapportdagen, efter stängning på
+dagen efter. Är tiden okänd spänner jämförelsen över hela rapportdagen, vilket också står i
+UI:t så att siffran inte övertolkas.
+
 ---
 
 ### 2026-07-23 · Beslutslogg införd, specen uppdateras bara vid arkitekturändringar

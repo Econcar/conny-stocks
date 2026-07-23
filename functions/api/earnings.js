@@ -67,8 +67,43 @@ async function symbolsMode(raw) {
   return json({ rows }, 200, 'public, max-age=900');
 }
 
+// Dagsstängningar (~1 mån bakåt) för en lista tickers – används för att räkna ut
+// kursreaktionen efter en rapport. spark ger många symboler i ett anrop.
+async function pricesMode(raw) {
+  const syms = raw.split(',').map(s => s.trim())
+    .filter(s => /^[A-Za-z0-9.^=-]{1,25}$/.test(s)).slice(0, 50);
+  if (!syms.length) return json({ series: {} });
+
+  const call = async auth => fetch(
+    'https://query1.finance.yahoo.com/v7/finance/spark?symbols=' + encodeURIComponent(syms.join(',')) +
+    '&range=1mo&interval=1d&crumb=' + encodeURIComponent(auth.crumb),
+    { headers: { 'User-Agent': UA, 'Cookie': auth.cookie } }
+  );
+
+  let auth = await getAuth(false);
+  let res = await call(auth);
+  if (res.status === 401 || res.status === 403) { auth = await getAuth(true); res = await call(auth); }
+  const j = await res.json();
+
+  const series = {};
+  for (const r of (j && j.spark && j.spark.result) || []) {
+    const resp = r.response && r.response[0];
+    const ts = (resp && resp.timestamp) || [];
+    const close = (resp && resp.indicators && resp.indicators.quote && resp.indicators.quote[0] &&
+                   resp.indicators.quote[0].close) || [];
+    series[r.symbol] = ts
+      .map((t, i) => [new Date(t * 1000).toISOString().slice(0, 10), close[i]])
+      .filter(x => x[1] != null);
+  }
+  return json({ series }, 200, 'public, max-age=900');
+}
+
 export async function onRequest(context) {
   const p = new URL(context.request.url).searchParams;
+  if (p.get('prices')) {
+    try { return await pricesMode(p.get('prices')); }
+    catch (err) { return json({ error: err.message, series: {} }, 500); }
+  }
   if (p.get('symbols')) {
     try { return await symbolsMode(p.get('symbols')); }
     catch (err) { return json({ error: err.message, rows: [] }, 500); }
