@@ -12,13 +12,14 @@ const demo = require('./_demo');
 const rss = require('./rss');
 const edgar = require('./edgar');
 const insider = require('./insider');
+const reddit = require('./reddit');
 // const gdelt = require('./gdelt'); // avaktiverad: GDELT 429:ar från moln-IP:n
                                       // (GitHub-runners). Filen finns kvar om vi
                                       // vill återuppta den. Bredd täcks via fler RSS-flöden.
 
 // Riktiga adaptrar registreras här. Demokällan är med endast för att kunna
 // testa hela kedjan (analys + lagring) utan en riktig datakälla; kör med --demo.
-const SOURCES = [rss, edgar, insider];
+const SOURCES = [rss, edgar, insider, reddit];
 
 const DEMO_SOURCES = [demo];
 

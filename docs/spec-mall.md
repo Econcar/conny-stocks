@@ -100,7 +100,7 @@ Det är bara jag som ska använda den. Jag är vad vid aktier och teknik. Jag vi
 | Be AI analysera data (t.ex. en aktie) | ✅ | AI-panelen, **Sparade analyser**, samt **AI-fond** som förvaltar en fiktiv portfölj. |
 | Insiderköp | 🟡 | `engine/sources/insider.js` samlar in data till Nyheter — ingen egen vy för insidersyn. |
 | Mata in / hämta Avanza-innehav | 🟡 | **Min portfölj**: klistra in eller ladda upp tabellen från Avanza (Innehav → Inköpsinfo). Automatisk hämtning finns inte — Avanza har inget publikt konto-API. |
-| Skanna aktieforum efter triggers | ⬜ | Inte byggt. Motorns källor är RSS, GDELT, EDGAR och insider — inget forum. |
+| Skanna aktieforum efter triggers | 🟡 | Reddit inläst via subreddit-RSS (r/aktier, r/stocks, r/wallstreetbets). Kvar: mentions-räkning som trigger, och svenska forum (kräver skrapning). Se `signal-pipeline-spec.md` §4.1. |
 | Hur olika sektorer går | ✅ | Screenern filtrerar och sorterar på sektor/industri. |
 | Skräckindex | ✅ | **Riskbarometer** (VIX, VXN m.fl. med tolkningsband). |
 | Följa megatrender med löpande AI-analys | ✅ | **Megatrender** + `engine/lib/megatrends.js`. |

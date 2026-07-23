@@ -9,6 +9,29 @@ Nyast först. Poster som ångrats stryks inte — de får en rad om vad som ersa
 
 ---
 
+### 2026-07-23 · Forum in via Reddits RSS, inte via API
+
+Forumkällan blev `engine/sources/reddit.js` som läser `reddit.com/r/<sub>/new.rss`.
+
+**Varför inte API:erna, som specen förutsatte:** StockTwits — det bästa formatet, med
+bull/bear taggat per inlägg — tar inte emot nya API-registreringar medan de ser över
+villkoren, och deras publika endpoint ligger bakom Cloudflares bot-skydd (svarar 200 med en
+utmaningssida i stället för JSON). Reddits JSON-API ger 403 utan inloggning, och det
+officiella API:t har stängt självregistreringen: nya nycklar kräver manuellt godkännande med
+veckors väntetid. RSS var den enda vägen som faktiskt fungerade utan nyckel.
+
+**Kostnad:** hastighetsbegränsningen är hård och per IP. **20 sekunders paus mellan flödena**
+krävdes — vid 4s och 8s 429:ade två av tre subreddits. Det gör källan långsam (~2 min) och
+sårbar för att moln-IP:n straffas hårdare, exakt det som fällde GDELT. Adaptern loggar och
+går vidare i stället för att fälla körningen.
+
+**Vad vi medvetet skjuter upp:** mentions-räkning per ticker (det är den mätbara
+forumsignalen — *att* ett bolag diskuteras, inte vad som sägs), samt svenska forum som alla
+kräver skrapning av JS-renderade sidor. Kartläggningen av vilka forum som lever och vad de
+kräver ligger i `signal-pipeline-spec.md` §4.1 så att den inte behöver göras om.
+
+---
+
 ### 2026-07-23 · Rapportkalendern byggs av motorn, screenern visar bara Avanza-handlade bolag
 
 Motorn bygger varje natt ett universum av bolag som går att handla via Avanza (Yahoos screener

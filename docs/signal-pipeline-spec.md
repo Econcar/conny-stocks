@@ -62,7 +62,7 @@ Varje adapter hämtar och normaliserar till det gemensamma dokumentformatet. Pri
 
 | Signal | Källa | Kadens | Not |
 |--------|-------|--------|-----|
-| Forum / social | Reddit API, StockTwits | ~30–60 min | Officiellt API, inte scraping |
+| Forum / social | **Reddit via subreddit-RSS** (byggd) | 1×/dygn | JSON-API:t kräver OAuth som inte går att självregistrera — se §4.1 |
 | Nyheter | GDELT (gratis), RSS-flöden, Finnhub/Marketaux | ~15–30 min | GDELT är stort och gratis |
 | Bolagshändelser (8-K) | SEC EDGAR RSS + fulltext | vid release | Materiella händelser = stora rörelser |
 | Insiderköp (Form 4) | SEC EDGAR | dagligen | |
@@ -71,6 +71,43 @@ Varje adapter hämtar och normaliserar till det gemensamma dokumentformatet. Pri
 | Styrräntor | **Befintlig `rates.js`** (Fed/Riksbank/ECB) | timme | Redan byggd — första signalen |
 
 > Ränte-funktionen (`functions/api/rates.js`) är alltså redan en av dessa signaler.
+
+### 4.1 Forumkällor — kartlagt 2026-07-23, med det som väntar
+
+Undersökt live, inte antaget. Sparas här så att vi slipper göra om kartläggningen.
+
+**Byggt:** `engine/sources/reddit.js` läser `reddit.com/r/<sub>/new.rss` (r/aktier, r/stocks,
+r/wallstreetbets). Ingen nyckel behövs. **20 sekunders paus mellan flödena** krävs — med 4s
+och 8s 429:ade två av tre. Ett omförsök per flöde. Adaptern loggar och går vidare vid 429.
+
+**Väntar på att bli möjligt:**
+
+- **Reddits officiella API** — gratis 100 anrop/min för icke-kommersiellt bruk, men
+  självregistreringen är stängd; nya OAuth-nycklar kräver manuellt godkännande med några
+  veckors väntetid. Värt att ansöka om: ger `mentions`-räkning per ticker utan RSS:ens
+  hastighetstak. **Detta är vägen till den signal vi egentligen vill ha** (se nedan).
+- **StockTwits** — det bästa formatet som finns: varje inlägg är taggat med ticker och
+  bull/bear av användaren, alltså strukturerat sentiment utan tolkning. Men de tar inte emot
+  nya API-registreringar medan de ser över API:er och villkor, och det publika endpointet
+  ligger bakom Cloudflares bot-skydd (HTTP 200 med utmaningssida i stället för JSON).
+  **Kolla om registreringen öppnat igen** — då är den förstahandsval.
+- **Svenska forum** kräver skrapning av JS-renderade sidor och är därmed både skörare och mer
+  tveksamma mot villkoren: **Avanza/Placera forum** (aktivt, BankID-verifierat → högre
+  kvalitet än anonyma forum), **Flashback** ekonomidelen, **Nya Börssnack** (tog över när
+  DI stängde Börssnack 2025-06-30), **Nordnet Social** (f.d. Shareville), **Börsdata
+  Community**. Ingen av dem har publikt API eller RSS. Ta först när Reddit-spåret visat värde.
+- **X/Twitter** ("finanstwitter") har högst signaltäthet för nordiska bolag men dyrt API.
+
+**Signalen vi egentligen vill ha:** forum är brus med inbäddad signal, och det mätbara är
+**att** ett bolag plötsligt diskuteras — inte vad som sägs. Rätt bygge är mentions per ticker
+och dygn, larm på avvikelse från normalläget, och *först därefter* AI-läsning av vad som
+skrivs. Samma kaskadprincip som nyhetsflödet. Dagens RSS-adapter är ett förstadium: den ger
+inläggen, inte räkningen.
+
+**Risk att hålla ögonen på:** hastighetsbegränsningen är per IP, och moln-IP:n straffas
+hårdare. Det var precis så GDELT-adaptern föll (429 från GitHub-runners men inte lokalt).
+Om Reddit 429:ar konsekvent från Actions är svaret antingen lägre frekvens, rundgång mellan
+subreddits (en per dygn), eller det officiella API:t.
 
 ---
 
@@ -215,7 +252,13 @@ Detta liknar signalgenerering för investeringsbeslut.
 
 - [x] Hostingval för webbappen — **Cloudflare Pages** (se `cloudflare-migration.md`). Påverkar
       inte jobbet, som körs separat.
-- [ ] Första källa att implementera (forum vs SEC EDGAR).
+- [x] Första källa att implementera — RSS blev först, sedan SEC EDGAR, Form 4 och nu forum
+      (Reddit). Se §4.1 för forumkartläggningen och vad som väntar.
+- [ ] Ansöka om Reddits officiella API-nyckel (manuellt godkännande, veckor) för att kunna
+      räkna mentions i stället för att läsa inlägg.
+- [ ] Bevaka när StockTwits öppnar API-registreringen igen — bäst strukturerade sentimentet.
+- [ ] Mentions-volym som egen signaltyp (spike mot normalläge) — det är den mätbara
+      forumsignalen; dagens adapter ger bara inläggen.
 - [ ] Jobbhost: GitHub Actions vs container-cron.
 - [ ] Kadens per källa.
 - [ ] Standardmodell i djupanalys (Sonnet 4.6 vs Opus 4.8).

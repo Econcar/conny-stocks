@@ -63,6 +63,7 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
 | `sec_edgar` | Amerikanska 8-K (materiella bolagshändelser) via SEC EDGAR, med dokumenttext, 8-K-punkter och CIK→ticker | `ENGINE_EDGAR_MAX` (20), `ENGINE_EDGAR_FRESH_HOURS` (48), `ENGINE_EDGAR_UA` (SEC-User-Agent) |
 | `sec_insider` | Insidertransaktioner via SEC Form 4 – issuer, ticker, insider/roll och öppna marknadsköp/-sälj (koder P/S) | `ENGINE_INSIDER_MAX` (20), `ENGINE_INSIDER_FRESH_HOURS` (48), `ENGINE_EDGAR_UA` |
 | `gdelt` | **Avaktiverad** (filen finns kvar). GDELT DOC 2.0 429:ar från moln-IP:n (GitHub-runners). Bredd täcks i stället av fler RSS-flöden | `ENGINE_GDELT_QUERY`, `ENGINE_GDELT_TIMESPAN`, `ENGINE_GDELT_MAX` |
+| `reddit` | Aktieforum via subreddit-RSS (r/aktier, r/stocks, r/wallstreetbets). JSON-API:t kräver OAuth som inte går att självregistrera; `.rss` är nyckelfritt men hårt hastighetsbegränsat | `ENGINE_REDDIT_SUBS`, `ENGINE_REDDIT_MAX` (10), `ENGINE_REDDIT_FRESH_HOURS` (72), `ENGINE_REDDIT_PAUSE_MS` (20000 – lägre gav 429) |
 | `demo` | Syntetiskt testdokument (endast med `--demo`) | – |
 
 ## Status
