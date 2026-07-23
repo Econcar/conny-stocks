@@ -9,6 +9,34 @@ Nyast först. Poster som ångrats stryks inte — de får en rad om vad som ersa
 
 ---
 
+### 2026-07-23 · Rapportkalendern byggs av motorn, screenern visar bara Avanza-handlade bolag
+
+Motorn bygger varje natt ett universum av bolag som går att handla via Avanza (Yahoos screener
+per marknad, filtrerat på börskod) och slår upp nästa rapportdatum per ticker. Resultatet
+(~1 800 bolag) skrivs till `earnings_calendar` i Supabase; appen läser en färdig tabell.
+Samma börsfilter används i screener-proxyn, som dessutom slår ihop samma bolag noterat på
+flera marknader.
+
+**Varför:** Yahoos kalender-endpoint är oanvändbar som "alla bolag"-källa (se posten nedan),
+och att fråga per ticker är för många anrop för att göra i webbläsaren vid varje sidvisning —
+men helt rimligt en gång per dygn i motorn. Screenern hade samma grundproblem: utan
+börsfilter fylldes toppen av CEDEAR:er och andra korsnoteringar (colombianska, chilenska och
+argentinska listningar av amerikanska jättar), och samma bolag kunde förekomma ett dussin
+gånger.
+
+**Vad som filtreras:** bara primärbörser Avanza handlar på — Stockholm, Oslo, Köpenhamn,
+Helsingfors, NYSE/Nasdaq/NYSE American/Arca, XETRA (inte Frankfurtgolvet), Paris, Amsterdam,
+Bryssel, Milano, Madrid, Lissabon, London (inte IOB/Cboe UK), Zürich, Wien, Dublin, Toronto
+(inte Cboe CA/CDR). A- och B-aktier behålls båda — de är olika papper med olika kurs.
+
+**Kostnad:** ~19 screeneranrop + ~36 kursanrop per nattlig körning, och kalenderdatan är upp
+till ett dygn gammal (rapportdatum sätts veckor i förväg, så det spelar ingen roll).
+Screenerns "totalt antal bolag" blir en uppskattning eftersom filtret bara ser en del av
+universumet — det markeras med `≈` i sidfoten. Marknadslistan bygger på vad Avanza handlade
+när det skrevs; ändras utbudet måste listan uppdateras för hand.
+
+---
+
 ### 2026-07-23 · Rapportkalendern hämtas från två källor
 
 Yahoos kalender-API (`visualization`) ger listan över alla bolag i en period. Egna innehav

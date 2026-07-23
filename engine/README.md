@@ -40,6 +40,7 @@ rörs inte.
 | `--demo` | Inkludera demokällan (test utan riktig datakälla) |
 | `--dry` | Kör allt utom skrivningen – skriv ut raderna i stället |
 | `--source=<id>` | Kör bara en angiven källa |
+| `--earnings-only` | Kör bara rapportkalendern (ingen AI – går bra att köra ofta) |
 
 ## Schemalagt (GitHub Actions)
 
@@ -84,6 +85,13 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
   de senaste dagarnas signaler (matchas på nyckelord). Sparas i `megatrends` (kräver
   `../supabase-megatrends.sql`). Modell via `ENGINE_TREND_MODEL`. Kör enbart den med
   `node engine/run.js --trends-only`.
+- **Daglig rapportkalender:** motorn bygger ett universum av bolag som går att handla via
+  Avanza (Yahoos screener, ~1 800 bolag efter börsfilter) och slår upp nästa rapportdatum per
+  ticker via `v7/quote`. Sparas i `earnings_calendar` (kräver `../supabase-earnings.sql`).
+  Ingen AI inblandad. Rader som inte skrivits om på 7 dygn rensas bort. Kör enbart den med
+  `node engine/run.js --earnings-only` (lägg till `--dry` för att bara se resultatet).
+  Skälet till att detta ligger i motorn: Yahoos egen kalender-endpoint är nästan tom
+  (601 rader ≈ 22 unika bolag på ett år, inga nordiska) – se `../docs/beslutslogg.md`.
 - **Teman i databasen + trendspaning:** temana ligger i `themes` (kräver
   `../supabase-themes.sql`, seedat med 5 st). Motorn spanar **veckovis** (måndagar UTC) efter
   nya framväxande teman (`lib/discovery.js`) och sparar dem som `status='suggested'` – du

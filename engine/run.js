@@ -23,10 +23,11 @@ const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.6);
 const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 10);
 
 function parseArgs(argv) {
-  const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false, discover: false, fundsOnly: false };
+  const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false, discover: false, fundsOnly: false, earningsOnly: false };
   for (const a of argv.slice(2)) {
     if (a === '--demo') args.demo = true;
     else if (a === '--dry') args.dry = true;
+    else if (a === '--earnings-only') args.earningsOnly = true;
     else if (a === '--risk-only') args.riskOnly = true;
     else if (a === '--trends-only') args.trendsOnly = true;
     else if (a === '--discover') args.discover = true;
@@ -44,6 +45,19 @@ async function runDiscovery() {
     console.log(`Trendspaning (${info.model}): ${info.proposed} förslag, ${info.added.length} nya${info.added.length ? ' – ' + info.added.join(', ') : ''}.`);
   } catch (err) {
     console.error(`Trendspaning misslyckades: ${err.message}`);
+  }
+}
+
+// Daglig rapportkalender: universum + nästa rapportdatum → earnings_calendar.
+// Ingen AI inblandad, bara datahämtning – därför körs den även i --dry (utan skrivning).
+async function runEarnings(dry) {
+  try {
+    const { runEarningsCalendar } = require('./lib/earnings');
+    const info = await runEarningsCalendar({ dry });
+    console.log(`Rapportkalender: ${info.universe} bolag i universumet, ${info.written} rader skrivna` +
+      `, ${info.missing} utan rapportdatum${dry ? ' [DRY]' : ''}.`);
+  } catch (err) {
+    console.error(`Rapportkalendern misslyckades: ${err.message}`);
   }
 }
 
@@ -103,6 +117,11 @@ async function main() {
   if (args.fundsOnly) {
     console.log('Kör endast AI-fond-omvärderingen.');
     await runDailyAIFunds();
+    return;
+  }
+  if (args.earningsOnly) {
+    console.log('Kör endast rapportkalendern.');
+    await runEarnings(args.dry);
     return;
   }
 
@@ -204,6 +223,7 @@ async function main() {
 
   // Dagliga AI-analyser (skippas i --dry).
   if (!args.dry) {
+    await runEarnings(false);
     await runDailyRisk();
     await runDailyTrends();
     await runDailyAIFunds();

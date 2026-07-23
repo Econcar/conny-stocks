@@ -172,7 +172,41 @@ async function updateAIFundData(id, data) {
   if (!res.ok) throw new Error(`Supabase-skrivning (ai_funds) misslyckades (${res.status}): ${await res.text()}`);
 }
 
+// Rapportkalendern: en rad per ticker, upsert på primärnyckeln.
+async function upsertEarnings(rows) {
+  if (!rows.length) return 0;
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
+  }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/earnings_calendar?on_conflict=ticker`, {
+    method: 'POST',
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal'
+    },
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok) throw new Error(`Supabase-skrivning (earnings_calendar) misslyckades (${res.status}): ${await res.text()}`);
+  return rows.length;
+}
+
+// Rensar rader som inte skrivits om på ett tag – bolag som fallit ur universumet
+// eller vars ticker bytt namn skulle annars ligga kvar för alltid.
+async function pruneEarnings(beforeIso) {
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
+  }
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/earnings_calendar?updated_at=lt.${encodeURIComponent(beforeIso)}`,
+    { method: 'DELETE', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, Prefer: 'return=minimal' } }
+  );
+  if (!res.ok) throw new Error(`Supabase-rensning (earnings_calendar) misslyckades (${res.status}): ${await res.text()}`);
+  return true;
+}
+
 module.exports = {
   upsertSignals, recentExternalIds, upsertRiskAnalysis, recentSignals, upsertMegatrend,
-  getThemes, insertThemes, getAIFunds, updateAIFundData
+  getThemes, insertThemes, getAIFunds, updateAIFundData, upsertEarnings, pruneEarnings
 };

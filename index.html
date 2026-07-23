@@ -392,17 +392,20 @@
 
     <!-- ── SCREENER ── -->
     <div class="section" id="section-screener">
-      <div class="page-title">Aktie­screener <span>· Hela Yahoos aktieuniversum</span><span class="live-badge"><span class="live-dot"></span>Live</span><span class="update-stamp" id="stamp-screener"></span></div>
+      <div class="page-title">Aktie­screener <span>· Bolag du kan handla via Avanza</span><span class="live-badge"><span class="live-dot"></span>Live</span><span class="update-stamp" id="stamp-screener"></span></div>
       <div class="filter-row" id="region-filters">
-        <div class="filter-chip on" data-r="alla" onclick="setFilter(this,'region')">Alla marknader</div>
+        <div class="filter-chip on" data-r="se" onclick="setFilter(this,'region')">🇸🇪 Sverige</div>
+        <div class="filter-chip" data-r="norden" onclick="setFilter(this,'region')">Norden</div>
         <div class="filter-chip" data-r="us" onclick="setFilter(this,'region')">🇺🇸 USA</div>
-        <div class="filter-chip" data-r="se" onclick="setFilter(this,'region')">🇸🇪 Sverige</div>
-        <div class="filter-chip" data-r="gb" onclick="setFilter(this,'region')">🇬🇧 Storbritannien</div>
-        <div class="filter-chip" data-r="de" onclick="setFilter(this,'region')">🇩🇪 Tyskland</div>
-        <div class="filter-chip" data-r="fr" onclick="setFilter(this,'region')">🇫🇷 Frankrike</div>
         <div class="filter-chip" data-r="no" onclick="setFilter(this,'region')">🇳🇴 Norge</div>
         <div class="filter-chip" data-r="dk" onclick="setFilter(this,'region')">🇩🇰 Danmark</div>
-        <div class="filter-chip" data-r="jp" onclick="setFilter(this,'region')">🇯🇵 Japan</div>
+        <div class="filter-chip" data-r="fi" onclick="setFilter(this,'region')">🇫🇮 Finland</div>
+        <div class="filter-chip" data-r="de" onclick="setFilter(this,'region')">🇩🇪 Tyskland</div>
+        <div class="filter-chip" data-r="fr" onclick="setFilter(this,'region')">🇫🇷 Frankrike</div>
+        <div class="filter-chip" data-r="nl" onclick="setFilter(this,'region')">🇳🇱 Nederländerna</div>
+        <div class="filter-chip" data-r="gb" onclick="setFilter(this,'region')">🇬🇧 Storbritannien</div>
+        <div class="filter-chip" data-r="ch" onclick="setFilter(this,'region')">🇨🇭 Schweiz</div>
+        <div class="filter-chip" data-r="ca" onclick="setFilter(this,'region')">🇨🇦 Kanada</div>
       </div>
       <div class="filter-row" id="sector-filters">
         <div class="filter-chip on" data-s="alla" onclick="setFilter(this,'sector')">Alla sektorer</div>
@@ -744,6 +747,7 @@ let screenerSelMeta = {};          // ticker -> objekt (för jämför/analys, ä
 let screenerResults = [];          // aktuell sidas resultat från Yahoo
 let screenerPage = 0;
 let screenerTotal = 0;
+let screenerFilterInfo = null;     // {scanned, kept, dropped, estimated} från tradable-filtret
 const SCREENER_SIZE = 25;
 let screenerLoading = false;
 let sortCol = 'mcap';              // aktiv sorteringskolumn
@@ -756,7 +760,7 @@ let currentIsFund = false;
 let currentFundId = null;
 let detailRefreshTimer = null;
 let sectorChartInstance = null;
-let activeRegion = 'alla';
+let activeRegion = 'se';
 let activeSector = 'alla';
 let aiOpen = false;
 let aiContext = '';
@@ -1218,6 +1222,7 @@ async function loadScreener() {
     if(map.sector) params.set('sector', map.sector);
     if(map.industry) params.set('industry', map.industry);
     if(activeRegion !== 'alla') params.set('region', activeRegion);
+    params.set('tradable', '1');  // bara börser Avanza handlar på, en rad per bolag
     params.set('sortField', screenerSortField);
     params.set('sortType', screenerSortType);
     params.set('offset', screenerPage * SCREENER_SIZE);
@@ -1227,6 +1232,7 @@ async function loadScreener() {
     const result = data && data.finance && data.finance.result && data.finance.result[0];
     const quotes = (result && result.quotes) || [];
     screenerTotal = (result && result.total) || 0;
+    screenerFilterInfo = (result && result.tradableFilter) || null;
     screenerResults = quotes.map(q => {
       // q.region är opålitlig (= query-regionen, ofta "US"). q.market = "se_market" ger rätt land.
       const market = (q.market || '').split('_')[0] || (activeRegion !== 'alla' ? activeRegion : '');
@@ -1304,8 +1310,11 @@ function paintScreener() {
   const totalPages = Math.max(1, Math.ceil(screenerTotal / SCREENER_SIZE));
   const from = screenerTotal ? screenerPage*SCREENER_SIZE+1 : 0;
   const to = Math.min(screenerTotal, (screenerPage+1)*SCREENER_SIZE);
+  // Totalen är uppskattad när filtret bara sett en del av universumet – markera det.
+  const approx = screenerFilterInfo && screenerFilterInfo.estimated ? '≈' : '';
   document.getElementById('pg-info').textContent = screenerTotal
-    ? `${from}–${to} av ${screenerTotal.toLocaleString('sv-SE')} · Sida ${screenerPage+1}/${totalPages}`
+    ? `${from}–${to} av ${approx}${screenerTotal.toLocaleString('sv-SE')} · Sida ${screenerPage+1}/${totalPages}`
+      + (screenerFilterInfo && screenerFilterInfo.dropped ? ` · ${screenerFilterInfo.dropped} dubbletter/ej Avanza-handlade dolda` : '')
     : '';
   document.getElementById('pg-prev').disabled = screenerPage <= 0;
   document.getElementById('pg-next').disabled = (screenerPage+1) >= totalPages;
@@ -3116,6 +3125,7 @@ let earnPeriodDays = 7;
 let earnRows = [];
 let earnNote = '';   // varning när kalendern kapades eller egna bolag inte kunde hämtas
 let earnPast = false; // vald period ligger bakåt i tiden (Senaste veckan)
+let earnFromDb = 0;   // hur många rader som kom från motorns kalender
 const EARN_REACTION_MAX = 150; // tak för hur många bolag vi hämtar kursreaktion för
 
 function marketFromTicker(t){
@@ -3264,19 +3274,43 @@ async function renderEarnings(){
   const to = new Date(toMs).toISOString().slice(0, 10);
   try {
     earnNote = '';
-    // Egna innehav får inte falla bort om kalendern strular – hämta båda oberoende.
-    const [cal, own] = await Promise.all([
+    // Tre källor, oberoende av varandra: motorns kalender (bred), Yahoos egen
+    // kalender (ger EPS-estimat och rapporttid) och dina innehav (alltid med).
+    const [db, cal, own] = await Promise.all([
+      fetchEarningsFromDb(fromMs, toMs).catch(e => { console.warn('earnings_calendar:', e.message); return null; }),
       fetchEarnings(from, to),
       fetchOwnEarnings(fromMs, toMs).catch(e => { earnNote = 'Kunde inte hämta rapportdatum för dina egna innehav: ' + e.message; return []; })
     ]);
-    earnRows = dedupeEarnings([...own, ...cal.rows]).sort((a, b) => earnPast ? b.date - a.date : a.date - b.date);
+    earnRows = dedupeEarnings([...own, ...(db || []), ...cal.rows]).sort((a, b) => earnPast ? b.date - a.date : a.date - b.date);
+    earnFromDb = db ? db.length : 0;
     if(cal.truncated) earnNote = 'Kalendern kapades vid ' + cal.rows.length + ' rader – välj en kortare period för att se allt.';
+    else if(db === null) earnNote = 'Motorns kalender kunde inte läsas (inte inloggad eller Supabase nere) – visar bara Yahoos glesa kalender och dina egna innehav.';
     setUpdatedStamp('stamp-earnings');
     renderEarningsList();
     if(earnPast){ await addEarnReactions(earnRows); renderEarningsList(); }
   } catch(e){
     el.innerHTML = '<div class="info-msg" style="background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">Kunde inte hämta rapportkalendern: ' + escHtml(e.message) + '</div>';
   }
+}
+
+// Motorns kalender (earnings_calendar i Supabase): ~1 800 bolag som går att handla
+// via Avanza, uppdaterad varje natt. Detta är huvudkällan – Yahoos egen kalender är
+// för gles. Se docs/beslutslogg.md.
+async function fetchEarningsFromDb(fromMs, toMs){
+  if(!cloudEnabled || !sb) return null;
+  const { data, error } = await sb.from('earnings_calendar')
+    .select('ticker,name,market,report_date,report_at,estimate')
+    .gte('report_date', new Date(fromMs).toISOString().slice(0, 10))
+    .lt('report_date', new Date(toMs).toISOString().slice(0, 10))
+    .order('report_date', { ascending: true })
+    .limit(2000);
+  if(error) throw new Error(error.message);
+  return (data || []).map(r => ({
+    ticker: r.ticker, name: r.name || r.ticker,
+    date: new Date(r.report_at || (r.report_date + 'T12:00:00Z')),
+    when: '', eps: null, epsActual: null, surprise: null,
+    market: marketFromTicker(r.ticker), estimate: r.estimate === true
+  }));
 }
 
 // Hämtar hela kalenderintervallet sidvis. Yahoo ger ~250 rader per anrop; taket finns
@@ -3342,7 +3376,8 @@ function renderEarningsList(){
   const mineCount = rows.filter(r => r.mine).length;
   html += `<div style="font-size:11px;color:var(--text3);margin-top:12px">${rows.length} rapporter${mineCount ? ` · varav ${mineCount} ★ = i din bevakning/portfölj` : ''} · källa: Yahoo Finance
     ${earnPast ? '<br>Reaktionen är stängningskursen efter rapporten mot stängningen före — inte hela periodens utveckling.' : ''}<br>
-    Yahoos kalender är gles: den täcker främst amerikanska bolag och innehåller inga nordiska. Dina egna innehav hämtas därför separat, men bara med <b>nästa</b> bekräftade rapportdatum — kommande kvartal längre fram är sällan satta ännu, så långa perioder visar oftast bara en rapport per bolag.</div>`;
+    ${earnFromDb ? `Kalendern byggs av motorn varje natt ur ~1 800 bolag du kan handla via Avanza (${earnFromDb} i den här perioden) och kompletteras med Yahoos egen kalender och dina innehav.` : 'Motorns kalender saknas just nu – visar Yahoos glesa kalender och dina egna innehav.'}
+    Bara <b>nästa</b> bekräftade rapportdatum finns per bolag: kommande kvartal längre fram är sällan satta ännu, så långa perioder visar oftast en rapport per bolag.</div>`;
   el.innerHTML = html;
 }
 
