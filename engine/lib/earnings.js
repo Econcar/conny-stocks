@@ -23,12 +23,36 @@ const UNIVERSE = [
   { region: 'at', want: 60 },  { region: 'ie', want: 40 },  { region: 'ca', want: 120 }
 ];
 
-// Samma börslista som screener-proxyn: bara det Avanza faktiskt handlar på.
-const TRADABLE = new Set([
-  'STO', 'OSL', 'CPH', 'HEL',
-  'NMS', 'NYQ', 'NGM', 'NCM', 'ASE', 'PCX',
-  'GER', 'PAR', 'AMS', 'BRU', 'MIL', 'MCE', 'LIS', 'LSE', 'EBS', 'VIE', 'ISE', 'TOR'
-]);
+// Samma börslista och poängsättning som screener-proxyn: bara det Avanza faktiskt
+// handlar på, och hemmamarknaden vinner när samma bolag finns på flera börser.
+const TRADABLE = {
+  STO: 9, OSL: 8, CPH: 8, HEL: 8,
+  NMS: 7, NYQ: 7, NGM: 6, NCM: 6, ASE: 6, PCX: 6,
+  GER: 5, PAR: 5, AMS: 5, BRU: 5, MIL: 5, MCE: 5, LIS: 5, LSE: 5, EBS: 5, VIE: 5, ISE: 5,
+  TOR: 4
+};
+
+// Ett bolag ska bara ge en rad i kalendern. Utan detta hamnar t.ex. både NVDA och
+// XETRA-noteringen NVD.DE i universumet – samma rapport två gånger, och ett bortkastat
+// uppslag. Olika aktieslag på samma börs (GOOG/GOOGL) behålls däremot.
+function dedupeCompanies(rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    const key = (r.name || r.ticker).toLowerCase()
+      .replace(/[.,()]/g, ' ')
+      .replace(/(\bser\.? ?|\bclass |\bcl )[ab]\b/, ' ')
+      .replace(/\b(inc|corp|corporation|ab|abp|oyj|a\/s|asa|plc|nv|sa|se|ag|holding|holdings|group|publ|ltd|limited)\b/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+    const g = groups.get(key);
+    if (g) g.push(r); else groups.set(key, [r]);
+  }
+  const out = [];
+  for (const rows2 of groups.values()) {
+    const bestEx = rows2.reduce((a, b) => (TRADABLE[b.exchange] > TRADABLE[a.exchange] ? b : a)).exchange;
+    for (const r of rows2) if (r.exchange === bestEx) out.push(r);
+  }
+  return out;
+}
 
 let auth = null;
 async function getAuth(force) {
@@ -75,7 +99,7 @@ async function fetchRegion(region, want) {
     const j = await res.json();
     const quotes = ((j.finance && j.finance.result && j.finance.result[0]) || {}).quotes || [];
     for (const q of quotes) {
-      if (!TRADABLE.has(q.exchange)) continue;
+      if (!TRADABLE[q.exchange]) continue;
       out.push({
         ticker: q.symbol,
         name: q.longName || q.shortName || q.symbol,
@@ -122,8 +146,10 @@ async function runEarningsCalendar({ dry = false } = {}) {
       console.error(`  ${region}: hoppar över – ${err.message}`);
     }
   }
-  const tickers = [...universe.keys()];
-  console.log(`Universum: ${tickers.length} handlingsbara bolag.`);
+  const deduped = dedupeCompanies([...universe.values()]);
+  const byTicker = new Map(deduped.map(r => [r.ticker, r]));
+  const tickers = [...byTicker.keys()];
+  console.log(`Universum: ${tickers.length} handlingsbara bolag (${universe.size - tickers.length} korsnoteringar bortsorterade).`);
 
   // 2) Rapportdatum, 50 åt gången
   const rows = [];
@@ -135,7 +161,7 @@ async function runEarningsCalendar({ dry = false } = {}) {
       for (const t of chunk) {
         const d = dates.get(t);
         if (!d) { missing++; continue; }
-        rows.push({ ...universe.get(t), ...d, updated_at: new Date().toISOString() });
+        rows.push({ ...byTicker.get(t), ...d, updated_at: new Date().toISOString() });
       }
     } catch (err) {
       console.error(`  rapportdatum ${i}–${i + chunk.length}: ${err.message}`);

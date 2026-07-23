@@ -37,21 +37,26 @@ const TRADABLE = {
   TOR: 4                                      // Toronto (inte NEO = Cboe CA)
 };
 
-// Samma bolag på flera börser → behåll den notering du kan köpa och som ligger närmast
-// hemmamarknaden. A- och B-aktier behålls båda: de är olika papper med olika kurs.
+// Samma bolag på flera börser → behåll bara noteringen på den börs som ligger närmast
+// hemmamarknaden. Alla rader från den vinnande börsen behålls: olika aktieslag på samma
+// marknad (INVE-A/INVE-B, GOOG/GOOGL) är olika papper med olika kurs, inte dubbletter.
 function dedupeTradable(quotes) {
-  const best = new Map();
+  const groups = new Map();
   for (const q of quotes) {
-    const score = TRADABLE[q.exchange];
-    if (!score) continue;                                  // ej handlingsbar hos Avanza
-    const name = (q.longName || q.shortName || q.symbol || '').toLowerCase()
-      .replace(/[.,()]/g, ' ').replace(/\s+/g, ' ').trim();
-    const cls = /(\bser\.? ?|\bclass |\bcl )([ab])\b/.exec(name);
-    const key = name.replace(/(\bser\.? ?|\bclass |\bcl )[ab]\b/, '').trim() + '|' + (cls ? cls[2] : '');
-    const ex = best.get(key);
-    if (!ex || score > TRADABLE[ex.exchange]) best.set(key, q);
+    if (!TRADABLE[q.exchange]) continue;                   // ej handlingsbar hos Avanza
+    const key = (q.longName || q.shortName || q.symbol || '').toLowerCase()
+      .replace(/[.,()]/g, ' ')
+      .replace(/(\bser\.? ?|\bclass |\bcl )[ab]\b/, ' ')   // aktieslag ingår inte i bolagsnamnet
+      .replace(/\s+/g, ' ').trim();
+    const g = groups.get(key);
+    if (g) g.push(q); else groups.set(key, [q]);
   }
-  return [...best.values()];
+  const out = [];
+  for (const rows of groups.values()) {
+    const bestEx = rows.reduce((a, b) => (TRADABLE[b.exchange] > TRADABLE[a.exchange] ? b : a)).exchange;
+    for (const r of rows) if (r.exchange === bestEx) out.push(r);
+  }
+  return out;
 }
 
 async function runScreen(auth, body) {
@@ -65,9 +70,13 @@ async function runScreen(auth, body) {
 
 export async function onRequest(context) {
   const p = new URL(context.request.url).searchParams;
-  const sector = p.get('sector') || '';
-  const industry = p.get('industry') || '';
-  const region = p.get('region') || '';
+  // sector/industry/region tar kommaseparerade listor → OR inom varje grupp,
+  // AND mellan grupperna ("Teknik ELLER Finans" på "Sverige ELLER Norge").
+  const list = (name, re) => (p.get(name) || '').split(',')
+    .map(s => s.trim()).filter(s => s && re.test(s));
+  const sectors = list('sector', /^[A-Za-z &-]{1,40}$/);
+  const industries = list('industry', /^[A-Za-z &-]{1,40}$/);
+  const regionsRaw = list('region', /^[a-z]{2,8}$/);
   const offset = Math.max(0, parseInt(p.get('offset'), 10) || 0);
   const size = Math.min(50, Math.max(1, parseInt(p.get('size'), 10) || 25));
   // Whitelist över fält Yahoo faktiskt kan sortera på (serversidan = över hela universumet)
@@ -79,16 +88,27 @@ export async function onRequest(context) {
   const tradable = p.get('tradable') === '1';
   const AVANZA_REGIONS = ['us', 'se', 'no', 'dk', 'fi', 'de', 'fr', 'nl', 'be', 'it', 'es', 'pt', 'gb', 'ch', 'at', 'ie', 'ca'];
 
-  const GROUPS = { norden: ['se', 'no', 'dk', 'fi'] };
+  const GROUPS = { norden: ['se', 'no', 'dk', 'fi'], alla: AVANZA_REGIONS };
+
+  // "norden"/"alla" expanderas till sina länder; dubbletter tas bort.
+  const regions = [...new Set(regionsRaw.flatMap(r => GROUPS[r] || [r]))].filter(r => r.length === 2);
+
+  const anyOf = (field, values) => values.length === 1
+    ? { operator: 'EQ', operands: [field, values[0]] }
+    : { operator: 'OR', operands: values.map(v => ({ operator: 'EQ', operands: [field, v] })) };
 
   const operands = [];
-  if (sector) operands.push({ operator: 'EQ', operands: ['sector', sector] });
-  if (industry) operands.push({ operator: 'EQ', operands: ['industry', industry] });
-  if (GROUPS[region]) operands.push({ operator: 'OR', operands: GROUPS[region].map(r => ({ operator: 'EQ', operands: ['region', r] })) });
-  else if (region) operands.push({ operator: 'EQ', operands: ['region', region] });
+  // Sektorer och branscher är samma val i UI:t (Halvledare är en bransch, Teknik en
+  // sektor) – de ska därför OR:as ihop, inte AND:as.
+  const catOps = [...sectors.map(s => ({ operator: 'EQ', operands: ['sector', s] })),
+                  ...industries.map(i => ({ operator: 'EQ', operands: ['industry', i] }))];
+  if (catOps.length === 1) operands.push(catOps[0]);
+  else if (catOps.length) operands.push({ operator: 'OR', operands: catOps });
+
+  if (regions.length) operands.push(anyOf('region', regions));
   // Utan vald region: begränsa till Avanzas marknader i stället för hela världen, annars
   // fylls toppen av CEDEAR:er och andra korsnoteringar av amerikanska jättar.
-  else if (tradable) operands.push({ operator: 'OR', operands: AVANZA_REGIONS.map(r => ({ operator: 'EQ', operands: ['region', r] })) });
+  else if (tradable) operands.push(anyOf('region', AVANZA_REGIONS));
   // Måste finnas minst ett villkor – fall tillbaka på "alla med börsvärde" (= hela universumet)
   const query = operands.length
     ? { operator: 'AND', operands }

@@ -394,29 +394,35 @@
     <div class="section" id="section-screener">
       <div class="page-title">Aktie­screener <span>· Bolag du kan handla via Avanza</span><span class="live-badge"><span class="live-dot"></span>Live</span><span class="update-stamp" id="stamp-screener"></span></div>
       <div class="filter-row" id="region-filters">
-        <div class="filter-chip on" data-r="se" onclick="setFilter(this,'region')">🇸🇪 Sverige</div>
-        <div class="filter-chip" data-r="norden" onclick="setFilter(this,'region')">Norden</div>
-        <div class="filter-chip" data-r="us" onclick="setFilter(this,'region')">🇺🇸 USA</div>
-        <div class="filter-chip" data-r="no" onclick="setFilter(this,'region')">🇳🇴 Norge</div>
-        <div class="filter-chip" data-r="dk" onclick="setFilter(this,'region')">🇩🇰 Danmark</div>
-        <div class="filter-chip" data-r="fi" onclick="setFilter(this,'region')">🇫🇮 Finland</div>
-        <div class="filter-chip" data-r="de" onclick="setFilter(this,'region')">🇩🇪 Tyskland</div>
-        <div class="filter-chip" data-r="fr" onclick="setFilter(this,'region')">🇫🇷 Frankrike</div>
-        <div class="filter-chip" data-r="nl" onclick="setFilter(this,'region')">🇳🇱 Nederländerna</div>
-        <div class="filter-chip" data-r="gb" onclick="setFilter(this,'region')">🇬🇧 Storbritannien</div>
-        <div class="filter-chip" data-r="ch" onclick="setFilter(this,'region')">🇨🇭 Schweiz</div>
-        <div class="filter-chip" data-r="ca" onclick="setFilter(this,'region')">🇨🇦 Kanada</div>
+        <div class="filter-chip" data-r="alla" onclick="setFilter(this,'region',event)">🌐 Alla länder</div>
+        <div class="filter-chip" data-r="norden" onclick="setFilter(this,'region',event)">Norden</div>
+        <div class="filter-chip on" data-r="se" onclick="setFilter(this,'region',event)">🇸🇪 Sverige</div>
+        <div class="filter-chip" data-r="us" onclick="setFilter(this,'region',event)">🇺🇸 USA</div>
+        <div class="filter-chip" data-r="no" onclick="setFilter(this,'region',event)">🇳🇴 Norge</div>
+        <div class="filter-chip" data-r="dk" onclick="setFilter(this,'region',event)">🇩🇰 Danmark</div>
+        <div class="filter-chip" data-r="fi" onclick="setFilter(this,'region',event)">🇫🇮 Finland</div>
+        <div class="filter-chip" data-r="de" onclick="setFilter(this,'region',event)">🇩🇪 Tyskland</div>
+        <div class="filter-chip" data-r="fr" onclick="setFilter(this,'region',event)">🇫🇷 Frankrike</div>
+        <div class="filter-chip" data-r="nl" onclick="setFilter(this,'region',event)">🇳🇱 Nederländerna</div>
+        <div class="filter-chip" data-r="gb" onclick="setFilter(this,'region',event)">🇬🇧 Storbritannien</div>
+        <div class="filter-chip" data-r="ch" onclick="setFilter(this,'region',event)">🇨🇭 Schweiz</div>
+        <div class="filter-chip" data-r="it" onclick="setFilter(this,'region',event)">🇮🇹 Italien</div>
+        <div class="filter-chip" data-r="es" onclick="setFilter(this,'region',event)">🇪🇸 Spanien</div>
+        <div class="filter-chip" data-r="ca" onclick="setFilter(this,'region',event)">🇨🇦 Kanada</div>
       </div>
       <div class="filter-row" id="sector-filters">
-        <div class="filter-chip on" data-s="alla" onclick="setFilter(this,'sector')">Alla sektorer</div>
-        <div class="filter-chip" data-s="Teknik" onclick="setFilter(this,'sector')">Teknik</div>
-        <div class="filter-chip" data-s="Halvledare" onclick="setFilter(this,'sector')">Halvledare</div>
-        <div class="filter-chip" data-s="Hälsovård" onclick="setFilter(this,'sector')">Hälsovård</div>
-        <div class="filter-chip" data-s="Finans" onclick="setFilter(this,'sector')">Finans</div>
-        <div class="filter-chip" data-s="Industri" onclick="setFilter(this,'sector')">Industri</div>
-        <div class="filter-chip" data-s="Energi" onclick="setFilter(this,'sector')">Energi</div>
-        <div class="filter-chip" data-s="Konsument" onclick="setFilter(this,'sector')">Konsument</div>
-        <div class="filter-chip" data-s="Försvar" onclick="setFilter(this,'sector')">Försvar</div>
+        <div class="filter-chip on" data-s="alla" onclick="setFilter(this,'sector',event)">Alla sektorer</div>
+        <div class="filter-chip" data-s="Teknik" onclick="setFilter(this,'sector',event)">Teknik</div>
+        <div class="filter-chip" data-s="Halvledare" onclick="setFilter(this,'sector',event)">Halvledare</div>
+        <div class="filter-chip" data-s="Hälsovård" onclick="setFilter(this,'sector',event)">Hälsovård</div>
+        <div class="filter-chip" data-s="Finans" onclick="setFilter(this,'sector',event)">Finans</div>
+        <div class="filter-chip" data-s="Industri" onclick="setFilter(this,'sector',event)">Industri</div>
+        <div class="filter-chip" data-s="Energi" onclick="setFilter(this,'sector',event)">Energi</div>
+        <div class="filter-chip" data-s="Konsument" onclick="setFilter(this,'sector',event)">Konsument</div>
+        <div class="filter-chip" data-s="Försvar" onclick="setFilter(this,'sector',event)">Försvar</div>
+      </div>
+      <div class="filter-row" style="margin-top:-4px">
+        <span style="font-size:11px;color:var(--text3)" id="filter-hint">Tips: håll <b>Ctrl</b> (⌘ på Mac) för att välja flera länder eller sektorer samtidigt.</span>
       </div>
       <div class="filter-row" style="align-items:center">
         <input class="filter-input" type="text" id="name-search" placeholder="Filtrera sidan..." oninput="paintScreener()">
@@ -760,8 +766,8 @@ let currentIsFund = false;
 let currentFundId = null;
 let detailRefreshTimer = null;
 let sectorChartInstance = null;
-let activeRegion = 'se';
-let activeSector = 'alla';
+let activeRegions = new Set(['se']);   // tomt = alla Avanza-marknader
+let activeSectors = new Set();         // tomt = alla sektorer
 let aiOpen = false;
 let aiContext = '';
 let aiHistory = [];
@@ -1062,7 +1068,18 @@ const SECTOR_MAP = {
   'Konsument':  { sector: 'Consumer Cyclical' },
   'Försvar':    { industry: 'Aerospace & Defense' },
 };
-const REGION_FLAGS = { us:'🇺🇸', se:'🇸🇪', gb:'🇬🇧', de:'🇩🇪', fr:'🇫🇷', no:'🇳🇴', dk:'🇩🇰', jp:'🇯🇵' };
+const REGION_FLAGS = { us:'🇺🇸', se:'🇸🇪', gb:'🇬🇧', de:'🇩🇪', fr:'🇫🇷', no:'🇳🇴', dk:'🇩🇰', fi:'🇫🇮',
+  nl:'🇳🇱', ch:'🇨🇭', it:'🇮🇹', es:'🇪🇸', pt:'🇵🇹', be:'🇧🇪', at:'🇦🇹', ie:'🇮🇪', ca:'🇨🇦', jp:'🇯🇵' };
+
+// Landskod ur Yahoo-suffixet, som reserv när q.market saknas.
+const TICKER_SUFFIX_REGION = { '.ST':'se', '.OL':'no', '.CO':'dk', '.HE':'fi', '.DE':'de', '.F':'de',
+  '.PA':'fr', '.AS':'nl', '.BR':'be', '.MI':'it', '.MC':'es', '.LS':'pt', '.VI':'at', '.SW':'ch',
+  '.L':'gb', '.IR':'ie', '.TO':'ca' };
+function marketFromTickerCode(sym){
+  const s = (sym || '').toUpperCase();
+  const dot = s.lastIndexOf('.');
+  return dot < 0 ? 'us' : (TICKER_SUFFIX_REGION[s.slice(dot)] || '');
+}
 function fmtVol(v) {
   if(v >= 1e9) return (v/1e9).toFixed(1)+'B';
   if(v >= 1e6) return (v/1e6).toFixed(1)+'M';
@@ -1174,14 +1191,39 @@ function toggleCol(k) {
   renderColMenu();
 }
 
-function setFilter(el, type) {
-  const group = type === 'region' ? '#region-filters' : '#sector-filters';
-  document.querySelectorAll(group + ' .filter-chip').forEach(c=>c.classList.remove('on'));
-  el.classList.add('on');
-  if(type==='region') activeRegion = el.dataset.r;
-  else activeSector = el.dataset.s;
+// Klick = välj bara den här. Ctrl/⌘-klick = lägg till eller ta bort ur urvalet.
+// "Alla länder"/"Alla sektorer" nollställer alltid – de är inte kombinerbara.
+function setFilter(el, type, ev) {
+  const region = type === 'region';
+  const set = region ? activeRegions : activeSectors;
+  const val = region ? el.dataset.r : el.dataset.s;
+  const multi = ev && (ev.ctrlKey || ev.metaKey);
+
+  if(val === 'alla' || !multi){
+    set.clear();
+    if(val !== 'alla') set.add(val);
+  } else if(set.has(val)){
+    set.delete(val);                       // sista valet bort = tillbaka till "alla"
+  } else {
+    set.delete('norden');                  // gruppen krockar med enskilda länder
+    set.add(val);
+  }
+  paintFilterChips();
   screenerPage = 0;
   loadScreener();
+}
+
+function paintFilterChips(){
+  const mark = (sel, set, key) => document.querySelectorAll(sel + ' .filter-chip').forEach(c => {
+    const v = c.dataset[key];
+    c.classList.toggle('on', set.size ? set.has(v) : v === 'alla');
+  });
+  mark('#region-filters', activeRegions, 'r');
+  mark('#sector-filters', activeSectors, 's');
+  const hint = document.getElementById('filter-hint');
+  if(hint) hint.innerHTML = activeRegions.size > 1 || activeRegions.size === 0
+    ? 'Flera marknader valda — börsvärdessorteringen blir ungefärlig eftersom bolagen redovisas i olika valutor. Ctrl/⌘-klicka för att ändra urvalet.'
+    : 'Tips: håll <b>Ctrl</b> (⌘ på Mac) för att välja flera länder eller sektorer samtidigt.';
 }
 
 // Hämta YTD + senaste kurs för en lista tickers via spark (chunkat, Yahoo klarar ~20/anrop).
@@ -1217,11 +1259,15 @@ async function loadScreener() {
   tbody.innerHTML = `<tr><td colspan="${colspan()}" style="text-align:center;padding:28px;color:var(--text2)">Hämtar aktier…</td></tr>`;
   document.getElementById('pg-info').textContent = '';
   try {
-    const map = activeSector !== 'alla' ? (SECTOR_MAP[activeSector] || {}) : {};
+    // Valda sektorer kan blanda Yahoos "sector" och "industry" (Halvledare är en
+    // bransch) – skicka dem som två listor, proxyn OR:ar ihop dem.
+    const maps = [...activeSectors].map(s => SECTOR_MAP[s] || {});
     const params = new URLSearchParams();
-    if(map.sector) params.set('sector', map.sector);
-    if(map.industry) params.set('industry', map.industry);
-    if(activeRegion !== 'alla') params.set('region', activeRegion);
+    const sectorList = maps.map(m => m.sector).filter(Boolean);
+    const industryList = maps.map(m => m.industry).filter(Boolean);
+    if(sectorList.length) params.set('sector', sectorList.join(','));
+    if(industryList.length) params.set('industry', industryList.join(','));
+    if(activeRegions.size) params.set('region', [...activeRegions].join(','));
     params.set('tradable', '1');  // bara börser Avanza handlar på, en rad per bolag
     params.set('sortField', screenerSortField);
     params.set('sortType', screenerSortType);
@@ -1235,12 +1281,15 @@ async function loadScreener() {
     screenerFilterInfo = (result && result.tradableFilter) || null;
     screenerResults = quotes.map(q => {
       // q.region är opålitlig (= query-regionen, ofta "US"). q.market = "se_market" ger rätt land.
-      const market = (q.market || '').split('_')[0] || (activeRegion !== 'alla' ? activeRegion : '');
+      // Med flera valda marknader går det inte att gissa land ur filtret – då får
+      // q.market avgöra ensam (den är rätt) och flaggan falla tillbaka på tickern.
+      const only = activeRegions.size === 1 ? [...activeRegions][0] : '';
+      const market = (q.market || '').split('_')[0] || (only && only !== 'norden' ? only : '');
       return {
       name: q.shortName || q.longName || q.symbol,
       ticker: q.symbol,
       r: market,
-      sektor: activeSector !== 'alla' ? activeSector : (q.sector || 'Aktie'),
+      sektor: activeSectors.size === 1 ? [...activeSectors][0] : (q.sector || 'Aktie'),
       kurs: q.regularMarketPrice != null ? fmtPrice(q.regularMarketPrice, q.currency) : '–',
       price: q.regularMarketPrice != null ? q.regularMarketPrice : null,
       ytd: null,
@@ -1255,7 +1304,7 @@ async function loadScreener() {
       div: q.trailingAnnualDividendYield != null ? +(q.trailingAnnualDividendYield*100).toFixed(1)
            : (q.dividendYield != null ? +q.dividendYield.toFixed(1) : 0),
       mcap: q.marketCap != null ? Math.round(q.marketCap/1e9) : null,
-      flag: REGION_FLAGS[market] || (activeRegion !== 'alla' ? REGION_FLAGS[activeRegion] : '') || '🏳️'
+      flag: REGION_FLAGS[market] || REGION_FLAGS[marketFromTickerCode(q.symbol)] || '🏳️'
       };
     });
     paintScreener();
