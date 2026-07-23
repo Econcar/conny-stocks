@@ -1830,7 +1830,8 @@ async function loadStockQuote(ticker, name) {
     ].join('');
     const kpis = [
       {l:'Senaste kurs',v: price.toFixed(2)+' '+currency},
-      {l:'Dagens förändring',v: (change>=0?'+':'')+change.toFixed(2), cls: change>=0?'green':'red'},
+      // Både belopp och procent – enbart ett tal utan enhet gick inte att tolka.
+      {l:'Dagens förändring',v: `${change>=0?'+':''}${change.toFixed(2)} ${currency} (${changePct>=0?'+':''}${changePct.toFixed(2)}%)`, cls: change>=0?'green':'red'},
       {l:'ÅTD (portfölj)', v: local?(local.ytd>=0?'+':'')+local.ytd.toFixed(1)+'%':'–', cls: local&&local.ytd>=0?'green':'red'},
       {l:'P/E-tal', v: pe!=null?pe.toFixed(1):'–'},
       {l:'Direktavkastning', v: div!=null?div.toFixed(2)+'%':'–'},
