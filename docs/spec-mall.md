@@ -257,6 +257,7 @@ Konkretiserar "all tillgänglig data". Börja med dessa; fler kan läggas till l
 
 > Framåtblickande arkitekturbeslut utifrån vart specen är på väg. Kompletterar den
 > detaljerade `signal-pipeline-spec.md` (motorn bakom daglig sammanfattning).
+> Skälen bakom de val som redan gjorts finns i `beslutslogg.md`.
 
 ### Utgångsläge (funkar bra idag, behålls)
 
