@@ -2413,7 +2413,7 @@ async function renderMacro() {
   fillFred('m-se-gdp',   'CLVMNACSCAB1GQSE', 'pc1', 1);
 }
 
-// Centralbankernas styrräntor via egen Netlify-funktion (nyckelfria källor).
+// Centralbankernas styrräntor via egen Pages Function (nyckelfria källor).
 async function refreshRates() {
   try {
     const r = await fetch('/api/rates');

@@ -1,6 +1,7 @@
 # Migration: Netlify → Cloudflare Pages
 
-**Status:** Plan / ej påbörjad
+**Status:** Genomförd — appen ligger på https://conny-stocks.pages.dev, Netlify är pensionerat.
+Dokumentet behålls som historik över hur migreringen gjordes.
 **Skapad:** 2026-07-08
 **Varför:** Netlifys kredit-modell stänger av deploys och kan ta sajten offline när
 krediterna tar slut. Cloudflare Pages gratisnivå har ingen sådan modell (statiskt
@@ -39,6 +40,8 @@ functions/api/avanza.js     → /api/avanza
 functions/api/screener.js   → /api/screener
 functions/api/rates.js      → /api/rates
 ```
+
+*(Sedan migreringen har `quote.js`, `fred.js`, `scb.js` och `earnings.js` tillkommit — samma mönster.)*
 
 ## Frontend-ändringar
 

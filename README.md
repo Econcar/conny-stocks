@@ -1,6 +1,8 @@
-# conny-stocks — lokal körning utan Netlify
+# conny-stocks — lokal körning
 
 Detta repo innehåller en statisk frontend (`index.html`) och en liten Express-proxy (`server.js`) som vidarebefordrar anrop till Anthropic/Claude.
+
+I drift ligger appen på **Cloudflare Pages** (https://conny-stocks.pages.dev) och proxyerna körs som Pages Functions i `functions/api/`. `server.js` är motsvarigheten för lokal körning — samma `/api/*`-vägar.
 
 Snabbstart lokalt
 
@@ -48,4 +50,4 @@ Säkerhetsnoter
 
 - Lagra aldrig API-nycklar i repository.
 - Begränsa åtkomst och implementera rate-limiting vid produktion.
-- Överväg att distribuera till en valfri serverplattform (Render, Vercel, Fly, egen VPS).
+- I produktion ligger Claude-nyckeln som miljövariabel i Cloudflare Pages, inte i repot.

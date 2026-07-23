@@ -231,7 +231,7 @@ Konkretiserar "all tillgänglig data". Börja med dessa; fler kan läggas till l
 ### Utgångsläge (funkar bra idag, behålls)
 
 - **En `index.html`** (statisk SPA, inget byggsteg, Chart.js + Supabase via CDN).
-- **Netlify-funktioner** som request-tid-proxys (Yahoo, Avanza, räntor, Claude).
+- **Cloudflare Pages Functions** (`functions/api/`) som request-tid-proxys (Yahoo, Avanza, räntor, Claude).
 - **Supabase** för auth (Google) + watchlist. Klienten räknar, hosten är tunn.
 - Användaren klistrar in **egen Anthropic-nyckel** i webbläsaren.
 
@@ -244,7 +244,7 @@ hända **utan att appen är öppen**. Det går inte i en ren klient-SPA. Därfö
 - **(b) Schemalagd backend-motor** — GitHub Actions-jobb (se signal-pipeline-spec) som hämtar
   data, kör AI och skriver till Supabase. Körs oavsett om någon är inloggad.
 
-Netlify-funktionerna blir kvar men **bara** som lätta proxys. Allt som måste ske i bakgrunden
+Pages Functions blir kvar men **bara** som lätta proxys. Allt som måste ske i bakgrunden
 flyttar till motorn. **Detta är beslutet allt annat hänger på.**
 
 ### Följdändringar
@@ -268,4 +268,4 @@ flyttar till motorn. **Detta är beslutet allt annat hänger på.**
 - Byggsteg-fritt / CDN-libs — behålls tills en riktig smärta uppstår.
 - "Räkna i klienten" för aggregering/rankning — fortsatt rätt.
 - **Hostval är frikopplat från motorn** (motorn kör i GitHub Actions oavsett webbhost).
-  Netlify-credits-strul är en driftfråga, inte en arkitekturfråga — löses separat.
+  Webbhosten flyttades till Cloudflare Pages — en driftfråga, inte en arkitekturfråga.

@@ -213,8 +213,8 @@ Detta liknar signalgenerering för investeringsbeslut.
 
 ## 13. Öppna beslut
 
-- [ ] Hostingval för webbappen (Netlify credits vs Cloudflare-migrering) — påverkar inte
-      jobbet (körs separat), men bör bestämmas.
+- [x] Hostingval för webbappen — **Cloudflare Pages** (se `cloudflare-migration.md`). Påverkar
+      inte jobbet, som körs separat.
 - [ ] Första källa att implementera (forum vs SEC EDGAR).
 - [ ] Jobbhost: GitHub Actions vs container-cron.
 - [ ] Kadens per källa.
