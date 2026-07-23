@@ -82,6 +82,35 @@ Det är bara jag som ska använda den. Jag är vad vid aktier och teknik. Jag vi
 - Jag vill kunna följa långsiktiga megatrender / investeringsteman (t.ex. AI & halvledare, elektrifiering/EV, försvar, energiomställning, hälsa/demografi) med en löpande AI-analys av hur varje tema utvecklas och vilka bolag/sektorer som gynnas.
 - Jag vill att du hjälper mig att analysera mina investeringar och komma med förslag på förändringar. 
 
+### Status per önskemål (2026-07-23)
+
+> Listan ovan är önskemålen i mina egna ord och ändras inte. Tabellen visar vad som
+> faktiskt finns i appen idag. ✅ klart · 🟡 delvis · ⬜ inte byggt
+
+| Önskemål | Status | Var / vad som saknas |
+|---|---|---|
+| Daglig sammanfattning av världshändelser | 🟡 | Sidan **Nyheter** + motorn (`engine/`, kör 06:00 UTC dagligen: RSS, GDELT, SEC EDGAR, insider). Notis till mobilen saknas. |
+| Lista aktier globalt + svenska fonder, kurser & nyckeltal | ✅ | **Aktiescreener** (sektor/industri/region), sök, **Aktiedetalj**, fonder via Avanza. |
+| Favoritlista | ✅ | **Bevakningslista** i sidopanelen, Supabase-synkad mellan enheter. |
+| Larm när något händer (t.ex. kurs över nivå) | ⬜ | Inte byggt. Kräver server-side utvärdering + notiskanal (Telegram var det tänkta valet). |
+| Räntor och växelkurser | 🟡 | Räntor klart (**Makro**: centralbanksräntor via `/api/rates` + FRED). Växelkurser används bara internt för att räkna om portföljinnehav till SEK — ingen egen vy. |
+| Hur olika marknader går | ✅ | **Översikt** + **Makro**. |
+| Index | ✅ | **Översikt**. |
+| Råvaror | ⬜ | Inte byggt. |
+| Be AI analysera data (t.ex. en aktie) | ✅ | AI-panelen, **Sparade analyser**, samt **AI-fond** som förvaltar en fiktiv portfölj. |
+| Insiderköp | 🟡 | `engine/sources/insider.js` samlar in data till Nyheter — ingen egen vy för insidersyn. |
+| Mata in / hämta Avanza-innehav | 🟡 | **Min portfölj**: klistra in eller ladda upp tabellen från Avanza (Innehav → Inköpsinfo). Automatisk hämtning finns inte — Avanza har inget publikt konto-API. |
+| Skanna aktieforum efter triggers | ⬜ | Inte byggt. Motorns källor är RSS, GDELT, EDGAR och insider — inget forum. |
+| Hur olika sektorer går | ✅ | Screenern filtrerar och sorterar på sektor/industri. |
+| Skräckindex | ✅ | **Riskbarometer** (VIX, VXN m.fl. med tolkningsband). |
+| Följa megatrender med löpande AI-analys | ✅ | **Megatrender** + `engine/lib/megatrends.js`. |
+| AI som analyserar *mina* investeringar och föreslår ändringar | 🟡 | AI analyserar enskilda aktier, och AI-fonden förvaltar en fiktiv portfölj — men ingen genomgång av den egna portföljen med konkreta förändringsförslag. |
+
+**Byggt utan att stå i §6** (kom till under arbetets gång): **Rapportkalender** (kommande
+kvartalsrapporter i datumordning), **Jämförelse** (aktier sida vid sida), **AI-fond**
+(AI bygger och förvaltar en fiktiv portfölj med schemalagd omvärdering, historik och
+kostnadsspårning), **Riskbarometer** som egen sida.
+
 ---
 
 ## 7. En vanlig dag med appen
@@ -106,28 +135,29 @@ Jag missar inte en möjlighet till en bra investering. Jag undviker dåliga inve
 
 > Grovsortera funktionerna från §6. Det hjälper oss börja på rätt ställe.
 
-**Måste ha (annars är appen inte värd något för mig):**
-- Jag vill varje dag kunna få en sammanfatting av sådant som har hänt i världen som kan påverka mina investeringar. Det kan vara enskilda akter, fonder eller stora makrotrender.
-- Jag vill kunna lista aktier (globalt, inkl. Stockholmsbörsen) och svenska fonder, med löpande uppdaterade kurser (nära realtid) och nyckeltal — från bästa tillgängliga källa. (Se §12 Datakällor.)
+> Uppdaterad 2026-07-23: det mesta av ursprungslistan är byggt. Nedan är vad som
+> återstår, omsorterat efter var värdet finns nu. Full status i §6.
 
+**Klart** — daglig sammanfattning (Nyheter + motorn), aktie- och fondlistning med kurser
+och nyckeltal, favoritlista, sektorer, index, räntor, marknader, skräckindex, AI-analys av
+enskild aktie, megatrender, portföljinmatning. Plus Rapportkalender, Jämförelse och AI-fond
+som inte fanns i den ursprungliga listan.
 
-**Bra att ha (vill ha, men kan komma senare):**
-- Jag vill kunna se hur olika sektorer går.
-- Jag vill ha koll på olika index.
-- Jag vill ha koll på räntor och växelkurser.
-- Jag vill ha koll på hur olika marknader går.
-- Jag vill ha koll på råvaror
-- Jag vill kunna ha koll på olika skräckindex.
-- Jag vill kunna följa megatrender / investeringsteman med löpande AI-analys (se §6).
+**Måste ha (kvar):**
+- Jag vill kunna sätta larm på aktier/fonder om något speciellt händer - ex om en aktie stiger över en viss nivå.
+  *— den enda kvarvarande punkten som kräver ny infrastruktur (server-side utvärdering + notiskanal). Motorn finns nu, så grunden är på plats.*
+- Jag vill ha rapport till min mobil när något viktigt händer (§7) — samma beroende som larmen.
+
+**Bra att ha (kvar):**
+- Jag vill att du hjälper mig att analysera mina investeringar och komma med förslag på förändringar.
+  *— delvis: AI analyserar enskilda aktier, men inte min egen portfölj som helhet.*
+- Jag vill ha information om insiderköp — data samlas redan in, men saknar egen vy.
+- Jag vill ha koll på växelkurser — finns internt för valutaomräkning, men ingen egen vy.
 
 **Kan vänta (drömmar / framtid):**
-- Jag vill kunna ska en ska en favoritlista med aktier/fonder som jag följer lite närmare.
-- Jag vill kunna sätta larm på aktier/fonder om något speciellt händer - ex om en aktie stiger över en viss nivå.
-- Jag vill kunna be AI analysera data (ex en aktier)
-- Jag vill ha information om insiderköp
-- Jag vill kunna mata in eller hämta vilka investeringar jag har gjort i Avanza.
+- Jag vill ha koll på råvaror
 - Jag vill kunna skanna olika aktieforum för att kunna leta efter olika triggers (sälj/köp).
-- Jag vill att du hjälper mig att analysera mina investeringar och komma med förslag på förändringar.
+- Automatisk hämtning av innehav från Avanza (idag: klistra in tabellen).
 
 ---
 
