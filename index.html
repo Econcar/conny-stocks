@@ -1793,7 +1793,13 @@ async function loadStockQuote(ticker, name) {
     const changePct = (change/prev)*100;
     const currency = meta.currency;
     // Live fundamenta för valfri ticker (fallback till lokala storbolagslistan).
-    const fund = await fetchFundamentals(ticker);
+    // ÅTD hämtas live via spark – den lokala listan täcker bara ett fåtal storbolag,
+    // så bolag utanför den (t.ex. EQT) hade ingen ÅTD alls tidigare.
+    const [fund, spark] = await Promise.all([
+      fetchFundamentals(ticker),
+      fetchSparkPrices([ticker]).catch(() => ({}))
+    ]);
+    const ytd = (spark[ticker] && spark[ticker].ytd != null) ? spark[ticker].ytd : (local ? local.ytd : null);
     // Nyckeltal: enbart live från Yahoo (inga hårdkodade reservvärden).
     const pe = fund?.pe != null ? fund.pe : null;
     const div = fund?.div != null ? fund.div : null;
@@ -1803,7 +1809,7 @@ async function loadStockQuote(ticker, name) {
       || `${name} är ett bolag noterat på ${meta.exchangeName || ticker}. Klicka "Analysera med AI" för en fullständig bolagsanalys.`;
     currentStockMeta = {
       kurs: price.toFixed(2) + ' ' + currency,
-      ytd: local ? local.ytd : null,
+      ytd,
       pe, div, mcap: mcapStr, sektor: sector,
       flag: local ? local.flag : '',
       r: local ? local.r : '',
@@ -1832,7 +1838,7 @@ async function loadStockQuote(ticker, name) {
       {l:'Senaste kurs',v: price.toFixed(2)+' '+currency},
       // Både belopp och procent – enbart ett tal utan enhet gick inte att tolka.
       {l:'Dagens förändring',v: `${change>=0?'+':''}${change.toFixed(2)} ${currency} (${changePct>=0?'+':''}${changePct.toFixed(2)}%)`, cls: change>=0?'green':'red'},
-      {l:'ÅTD (portfölj)', v: local?(local.ytd>=0?'+':'')+local.ytd.toFixed(1)+'%':'–', cls: local&&local.ytd>=0?'green':'red'},
+      {l:'ÅTD (i år)', v: ytd!=null?(ytd>=0?'+':'')+ytd.toFixed(1)+'%':'–', cls: ytd!=null&&ytd>=0?'green':'red'},
       {l:'P/E-tal', v: pe!=null?pe.toFixed(1):'–'},
       {l:'Direktavkastning', v: div!=null?div.toFixed(2)+'%':'–'},
       {l:'Marknadsv.', v: mcapStr||'–'},
