@@ -174,11 +174,16 @@ async function runEarningsCalendar({ dry = false } = {}) {
     return { universe: tickers.length, written: 0, missing };
   }
 
-  // 3) Skriv och rensa bort rader som inte längre finns i universumet
+  // 3) Skriv, och rensa: passerade rapporter äldre än 35 dagar (håller "senaste
+  //    veckan/månaden" men slänger gammalt + Yahoos trasiga historiska datum), samt
+  //    framtida rader för bolag som inte längre är i universumet (>14 dygn utan uppdatering).
   let written = 0;
   for (let i = 0; i < rows.length; i += 500) written += await upsertEarnings(rows.slice(i, i + 500));
-  const pruned = await pruneEarnings(new Date(Date.now() - 7 * 86400000).toISOString());
-  return { universe: tickers.length, written, missing, pruned };
+  await pruneEarnings({
+    pastCutoffDate: new Date(Date.now() - 35 * 86400000).toISOString().slice(0, 10),
+    staleBeforeIso: new Date(Date.now() - 14 * 86400000).toISOString()
+  });
+  return { universe: tickers.length, written, missing };
 }
 
 module.exports = { runEarningsCalendar };

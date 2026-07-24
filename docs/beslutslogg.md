@@ -32,6 +32,28 @@ kräver ligger i `signal-pipeline-spec.md` §4.1 så att den inte behöver göra
 
 ---
 
+### 2026-07-24 · Rapportkalendern sparar en rad per (ticker, datum) så passerade rapporter blir kvar
+
+Nyckeln i `earnings_calendar` ändrades från `(ticker)` till `(ticker, report_date)`.
+
+**Varför:** Yahoos `v7/quote` ger bara bolagets **nästa** rapportdatum. Med `ticker` som
+nyckel skrev nästa kvartals datum över det passerade vid varje nattkörning — så
+"Senaste veckan"-vyn tömdes efter hand och lämnade bara Yahoos glesa USA-kalender. Passerade
+datum går inte att hämta i efterhand (Yahoo har dem inte per ticker), så de måste sparas när
+de fångas. Med sammansatt nyckel blir bolagets nya datum en **ny rad** och den passerade
+lämnas orörd.
+
+**Rensning:** passerade rader äldre än 35 dagar tas bort (håller senaste veckan/månaden, slänger
+gammalt + Yahoos trasiga historiska datum – äldsta var från 2019). Framtida rader som inte
+uppdaterats på 14 dygn tas bort = bolag som fallit ur universumet; passerade rader rör vi inte,
+deras `updated_at` fryser med flit.
+
+**Kostnad:** en företeelse att känna till – om Yahoo flyttar ett *uppskattat* framtida datum
+(t.ex. 15→22 okt) får bolaget två framtida rader tills den gamla rensas efter 14 dygn. Sällsynt
+och självläkande. Migreringen bevarar redan insamlade rader (in-place `alter`, ingen `drop`).
+
+---
+
 ### 2026-07-23 · Rapportkalendern byggs av motorn, screenern visar bara Avanza-handlade bolag
 
 Motorn bygger varje natt ett universum av bolag som går att handla via Avanza (Yahoos screener

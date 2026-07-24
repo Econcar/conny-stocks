@@ -88,8 +88,10 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
   `node engine/run.js --trends-only`.
 - **Daglig rapportkalender:** motorn bygger ett universum av bolag som går att handla via
   Avanza (Yahoos screener, ~1 800 bolag efter börsfilter) och slår upp nästa rapportdatum per
-  ticker via `v7/quote`. Sparas i `earnings_calendar` (kräver `../supabase-earnings.sql`).
-  Ingen AI inblandad. Rader som inte skrivits om på 7 dygn rensas bort. Kör enbart den med
+  ticker via `v7/quote`. Sparas i `earnings_calendar` (kräver `../supabase-earnings.sql`), en
+  rad per (ticker, rapportdatum) så att **passerade** rapporter ligger kvar i stället för att
+  skrivas över av nästa kvartals datum. Ingen AI inblandad. Rensning: passerade rader >35 dygn
+  och framtida rader >14 dygn utan uppdatering (= ur universumet). Kör enbart den med
   `node engine/run.js --earnings-only` (lägg till `--dry` för att bara se resultatet).
   Skälet till att detta ligger i motorn: Yahoos egen kalender-endpoint är nästan tom
   (601 rader ≈ 22 unika bolag på ett år, inga nordiska) – se `../docs/beslutslogg.md`.

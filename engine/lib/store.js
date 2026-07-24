@@ -172,13 +172,14 @@ async function updateAIFundData(id, data) {
   if (!res.ok) throw new Error(`Supabase-skrivning (ai_funds) misslyckades (${res.status}): ${await res.text()}`);
 }
 
-// Rapportkalendern: en rad per ticker, upsert på primärnyckeln.
+// Rapportkalendern: en rad per (ticker, rapportdatum). Upsert på den sammansatta
+// nyckeln – nästa datum läggs till som ny rad, passerade rader lämnas orörda.
 async function upsertEarnings(rows) {
   if (!rows.length) return 0;
   if (!SUPABASE_URL || !SERVICE_KEY) {
     throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
   }
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/earnings_calendar?on_conflict=ticker`, {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/earnings_calendar?on_conflict=ticker,report_date`, {
     method: 'POST',
     headers: {
       apikey: SERVICE_KEY,
@@ -192,17 +193,23 @@ async function upsertEarnings(rows) {
   return rows.length;
 }
 
-// Rensar rader som inte skrivits om på ett tag – bolag som fallit ur universumet
-// eller vars ticker bytt namn skulle annars ligga kvar för alltid.
-async function pruneEarnings(beforeIso) {
+// Två sorters bortrensning:
+//  1) Passerade rapporter äldre än `pastCutoffDate` (håller "senaste veckan/månaden"
+//     men slänger gammalt – och Yahoos trasiga datum långt bak i tiden, t.ex. 2019).
+//  2) FRAMTIDA rader som inte skrivits om sedan `staleBeforeIso` = bolag som fallit ur
+//     universumet (passerade rader rör vi inte här – deras updated_at fryser med flit).
+async function pruneEarnings({ pastCutoffDate, staleBeforeIso }) {
   if (!SUPABASE_URL || !SERVICE_KEY) {
     throw new Error('Saknar SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY i miljön');
   }
-  const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/earnings_calendar?updated_at=lt.${encodeURIComponent(beforeIso)}`,
-    { method: 'DELETE', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, Prefer: 'return=minimal' } }
-  );
-  if (!res.ok) throw new Error(`Supabase-rensning (earnings_calendar) misslyckades (${res.status}): ${await res.text()}`);
+  const del = async (query) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/earnings_calendar?${query}`, {
+      method: 'DELETE', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, Prefer: 'return=minimal' }
+    });
+    if (!res.ok) throw new Error(`Supabase-rensning (earnings_calendar) misslyckades (${res.status}): ${await res.text()}`);
+  };
+  if (pastCutoffDate) await del(`report_date=lt.${encodeURIComponent(pastCutoffDate)}`);
+  if (staleBeforeIso) await del(`report_date=gte.${encodeURIComponent(new Date().toISOString().slice(0, 10))}&updated_at=lt.${encodeURIComponent(staleBeforeIso)}`);
   return true;
 }
 
