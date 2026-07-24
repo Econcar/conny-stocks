@@ -387,6 +387,9 @@
         <div class="filter-chip" data-imp="0.3" onclick="setSignalFilter(this,'imp')">Påverkan ≥ 0.3</div>
         <div class="filter-chip" data-imp="0.5" onclick="setSignalFilter(this,'imp')">Materiellt ≥ 0.5</div>
       </div>
+      <div class="filter-row" id="signals-source-filters">
+        <div class="filter-chip on" data-src="alla" onclick="setSignalFilter(this,'source')">Alla källor</div>
+      </div>
       <div id="signals-list"></div>
     </div>
 
@@ -4138,7 +4141,14 @@ function initAuth() {
 // Publik läsning via RLS – funkar även utloggad. Se engine/ och docs/signal-pipeline-spec.md.
 let signalsCache = null;
 let signalsCacheAt = 0;
-const signalFilter = { sent: 'alla', imp: 0 };
+const signalFilter = { sent: 'alla', imp: 0, source: 'alla' };
+
+// Läsbara källnamn – rådata i signals.source är adapter-id (reddit, sec_edgar …).
+const SOURCE_LABELS = {
+  rss: '📰 Nyhetsflöde', sec_edgar: '🏛️ SEC 8-K', sec_insider: '👤 Insider (Form 4)',
+  reddit: '💬 Reddit-forum', gdelt: '🌐 GDELT'
+};
+const sourceLabel = s => SOURCE_LABELS[s] || (s || 'Okänd källa');
 
 function timeAgo(iso) {
   if(!iso) return '';
@@ -4256,8 +4266,10 @@ function applySignalFilters() {
     if(countEl) countEl.textContent = '·';
     return;
   }
+  renderSignalSourceChips();
   const filtered = signalsCache
     .filter(g => (signalFilter.sent === 'alla' || g.sentiment === signalFilter.sent)
+              && (signalFilter.source === 'alla' || g.source === signalFilter.source)
               && ((g.impact_score || 0) >= signalFilter.imp))
     .sort((a,b) => (b.impact_score||0) - (a.impact_score||0)
                 || new Date(b.published_at||0) - new Date(a.published_at||0));
@@ -4297,7 +4309,7 @@ function signalCard(g) {
         ${chips}
         ${badge}
         <span class="signal-sent" style="color:${col}">${escHtml(sent)}</span>
-        <span class="signal-dot">·</span><span>${escHtml(g.source || '')}</span>
+        <span class="signal-dot">·</span><span>${escHtml(sourceLabel(g.source))}</span>
         <span class="signal-dot">·</span><span>${timeAgo(g.published_at)}</span>
         ${link}
       </div>
@@ -4306,12 +4318,28 @@ function signalCard(g) {
 }
 
 function setSignalFilter(el, kind) {
-  const attr = kind === 'sent' ? 'data-sent' : 'data-imp';
+  const attr = kind === 'sent' ? 'data-sent' : kind === 'source' ? 'data-src' : 'data-imp';
   document.querySelectorAll('#section-signals [' + attr + ']').forEach(c => c.classList.remove('on'));
   el.classList.add('on');
   if(kind === 'sent') signalFilter.sent = el.getAttribute('data-sent');
+  else if(kind === 'source') signalFilter.source = el.getAttribute('data-src');
   else signalFilter.imp = parseFloat(el.getAttribute('data-imp'));
   applySignalFilters();
+}
+
+// Källfiltret byggs av de källor som faktiskt finns i datan – ett chip per källa,
+// så forumsignaler går att plocka fram (och en tom Reddit-natt inte lämnar ett dött val).
+function renderSignalSourceChips() {
+  const row = document.getElementById('signals-source-filters');
+  if(!row || !signalsCache) return;
+  const counts = {};
+  for(const g of signalsCache) counts[g.source] = (counts[g.source] || 0) + 1;
+  const sources = Object.keys(counts).sort((a,b) => counts[b] - counts[a]);
+  if(!sources.includes(signalFilter.source)) signalFilter.source = 'alla';
+  row.innerHTML = [`<div class="filter-chip${signalFilter.source==='alla'?' on':''}" data-src="alla" onclick="setSignalFilter(this,'source')">Alla källor</div>`]
+    .concat(sources.map(s =>
+      `<div class="filter-chip${signalFilter.source===s?' on':''}" data-src="${escHtml(s)}" onclick="setSignalFilter(this,'source')">${escHtml(sourceLabel(s))} <span style="color:var(--text3)">${counts[s]}</span></div>`
+    )).join('');
 }
 
 // ══════════ WATCHLIST ══════════
