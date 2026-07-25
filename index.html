@@ -2871,7 +2871,8 @@ function sortPortfolio(col){
 function renderPortfolioTable(){
   const wrap = document.getElementById('pf-table-wrap'); if(!wrap) return;
   const dir = pfSort.dir === 'asc' ? 1 : -1;
-  const keyer = { name:r=>r.name, qty:r=>r.h.qty, gav:r=>r.h.gav, price:r=>r.price, day:r=>r.day, gain:r=>r.gain, rec:r=>r.recBuy, value:r=>r.valSek };
+  const keyer = { name:r=>r.name, qty:r=>r.h.qty, gav:r=>r.h.gav, price:r=>r.price,
+    day:r=>(r.rets ? r.rets[pfPeriod] : null), gain:r=>r.gain, rec:r=>r.recBuy, value:r=>r.valSek };
   const getk = keyer[pfSort.col] || keyer.value;
   const sorted = pfEnriched.slice().sort((a,b) => {
     const va = getk(a), vb = getk(b);
@@ -2882,20 +2883,74 @@ function renderPortfolioTable(){
   });
   const arrow = c => pfSort.col === c ? (pfSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
   const s = 'cursor:pointer;user-select:none';
-  wrap.innerHTML = `<div style="overflow-x:auto"><table class="pf-table">
+  const hasMv = portfolio.some(h => h.mv != null);
+  const periodChips = PF_PERIODS.map(([p,lbl]) =>
+    `<div class="filter-chip${p===pfPeriod?' on':''}" onclick="setPfPeriod('${p}')">${lbl}</div>`).join('');
+  wrap.innerHTML = `<div class="filter-row" style="margin-bottom:8px;align-items:center">
+      <span style="font-size:12px;color:var(--text3)">Utveckling:</span>${periodChips}
+    </div>
+    <div style="overflow-x:auto"><table class="pf-table">
     <thead><tr>
       <th style="text-align:left;${s}" onclick="sortPortfolio('name')">Innehav${arrow('name')}</th>
       <th style="text-align:right;${s}" onclick="sortPortfolio('qty')">Antal${arrow('qty')}</th>
       <th style="text-align:right;${s}" onclick="sortPortfolio('gav')">GAV${arrow('gav')}</th>
       <th style="text-align:right;${s}" onclick="sortPortfolio('price')">Kurs${arrow('price')}</th>
-      <th style="text-align:right;${s}" onclick="sortPortfolio('day')">1 dag${arrow('day')}</th>
+      <th style="text-align:right;${s}" onclick="sortPortfolio('day')">${pfPeriodLabel()}${arrow('day')}</th>
       <th style="text-align:right;${s}" onclick="sortPortfolio('gain')">Sedan köp${arrow('gain')}</th>
       <th style="text-align:right;${s}" onclick="sortPortfolio('rec')" title="Analytikernas köp/håll/sälj-rekommendationer (Yahoo)">Analytiker${arrow('rec')}</th>
       <th style="text-align:right;${s}" onclick="sortPortfolio('value')">Värde${arrow('value')}</th>
       <th></th>
     </tr></thead>
-    <tbody>${sorted.map(r => r.html).join('')}</tbody>
+    <tbody>${sorted.map(r => pfRowHtml(r, hasMv)).join('')}</tbody>
   </table></div>`;
+}
+
+// Utveckling över en period ur en 1-årsserie {dates,closes}. Hittar stängningen
+// på/före måldatumet och jämför med senaste. ÅTD = från årets första handelsdag.
+function pfReturn(series, period){
+  if(!series || !series.closes || series.closes.length < 2) return null;
+  const { dates, closes } = series;
+  const lastC = closes[closes.length - 1], lastD = dates[dates.length - 1];
+  let target;
+  if(period === 'ytd'){ target = lastD.slice(0,4) + '-01-01'; }
+  else { const days = period === '1w' ? 7 : period === '1mo' ? 30 : 365;
+    const d = new Date(lastD + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - days); target = d.toISOString().slice(0,10); }
+  let idx = -1;
+  for(let i = 0; i < dates.length; i++){ if(dates[i] <= target) idx = i; else break; }
+  if(idx < 0) idx = 0; // måldatum före seriestart → använd första kända kurs
+  const baseC = closes[idx];
+  return (baseC != null && baseC !== 0) ? (lastC/baseC - 1)*100 : null;
+}
+
+// Valbar utvecklingsperiod för portföljtabellen.
+let pfPeriod = '1d';
+const PF_PERIODS = [['1d','1 dag'],['1w','1 vecka'],['1mo','1 mån'],['ytd','ÅTD'],['1y','1 år']];
+const pfPeriodLabel = () => (PF_PERIODS.find(p => p[0] === pfPeriod) || PF_PERIODS[0])[1];
+function setPfPeriod(p){ pfPeriod = p; renderPortfolioTable(); }
+
+// Bygger en tabellrad. Utvecklingskolumnen visar vald period (pfPeriod).
+function pfRowHtml(r, hasMv){
+  const h = r.h;
+  const chg = r.rets ? r.rets[pfPeriod] : null;
+  const chgCol = chg == null ? 'var(--text3)' : (chg >= 0 ? 'var(--green)' : 'var(--red)');
+  const gainCol = r.gain == null ? 'var(--text3)' : (r.gain >= 0 ? 'var(--green)' : 'var(--red)');
+  const valCol = r.off ? 'var(--red)' : 'var(--text)';
+  const avSub = hasMv ? `<div style="font-size:10px;color:var(--text3)">${h.mv != null ? 'Avanza ' + fmtSekNum(h.mv,0) : '–'}</div>` : '';
+  const recTotal = r.rec ? r.rec.buy + r.rec.hold + r.rec.sell : null;
+  const recCell = r.rec
+    ? `<span style="color:var(--green)">${r.rec.buy} köp</span> · ${r.rec.hold} håll · <span style="color:var(--red)">${r.rec.sell} sälj</span><div style="font-size:10px;color:var(--text3)">${recTotal} analytiker</div>`
+    : '<span style="color:var(--text3)">–</span>';
+  return `<tr onclick="loadStock('${escQuote(h.ticker)}','${escQuote(h.name||h.ticker)}')" style="cursor:pointer">
+    <td>${escHtml(h.name||h.ticker)}<div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(h.ticker)}</div></td>
+    <td style="text-align:right">${h.qty != null ? fmtSekNum(h.qty,0) : '–'}</td>
+    <td style="text-align:right">${h.gav != null ? fmtSekNum(h.gav,2) : '–'} ${escHtml(h.currency||'')}</td>
+    <td style="text-align:right">${r.price != null ? fmtSekNum(r.price,2) : '–'}</td>
+    <td style="text-align:right;color:${chgCol}">${chg != null ? fmtSekPct(chg) : '–'}</td>
+    <td style="text-align:right;color:${gainCol}">${r.gain != null ? fmtSekPct(r.gain) : '–'}</td>
+    <td style="text-align:right;white-space:nowrap;font-size:12px">${recCell}</td>
+    <td style="text-align:right;color:${valCol}">${r.off ? '⚠ ' : ''}${r.valSek != null ? fmtSekNum(r.valSek,0)+' kr' : '–'}${avSub}</td>
+    <td style="text-align:center"><button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();removeHolding('${escQuote(h.ticker)}')" style="opacity:.6">×</button></td>
+  </tr>`;
 }
 
 async function renderPortfolio(){
@@ -2908,6 +2963,8 @@ async function renderPortfolio(){
   let quotes = await fetchQuotesChunked(tickers);
   // Analytikerrekommendationer (köp/håll/sälj) – hämtas parallellt med kurserna.
   const recsPromise = fetchRecommendations(tickers);
+  // 1-årshistorik för utveckling över valbara perioder (1v/1mån/ÅTD/1år) i tabellen.
+  const histPromise = fetchSparkSeries(tickers, '1y');
   // Valutakurser baseras på Yahoos EGEN prisvaluta per innehav (inte Avanzas etikett),
   // så pence/cent och felnoteringar hanteras rätt.
   const priceCcys = [...new Set(Object.values(quotes).map(q => normPriceCurrency(q.currency).ccy).filter(c => c && c !== 'SEK'))];
@@ -2918,6 +2975,7 @@ async function renderPortfolio(){
   if(fxSyms.length){ try { const fd = await fetchSparkData(fxSyms); allCcys.forEach(c => { const s = FX_SYMBOL[c]; if(s && fd[s]) fx[c] = fd[s].price; }); } catch(e){} }
   const rateOf = c => { c = (c||'SEK').toUpperCase(); if(c === 'SEK') return 1; return fx[c] != null ? fx[c] : null; };
   const recs = await recsPromise;
+  const hist = await histPromise;
 
   const hasMv = portfolio.some(h => h.mv != null);
   let totalSek = 0, totalCostSek = 0, totalMv = 0, partial = false;
@@ -2941,27 +2999,11 @@ async function renderPortfolio(){
     const diff = (valSek != null && h.mv) ? ((valSek - h.mv)/h.mv)*100 : null;
     const off = diff != null && Math.abs(diff) > 10;
     if(off) outliers.push(`${h.name||h.ticker} (${h.ticker}): vårt ${fmtSekNum(valSek,0)} kr vs Avanza ${fmtSekNum(h.mv,0)} kr`);
-    const dayCol = day == null ? 'var(--text3)' : (day >= 0 ? 'var(--green)' : 'var(--red)');
-    const gainCol = gain == null ? 'var(--text3)' : (gain >= 0 ? 'var(--green)' : 'var(--red)');
-    const valCol = off ? 'var(--red)' : 'var(--text)';
-    const avSub = hasMv ? `<div style="font-size:10px;color:var(--text3)">${h.mv != null ? 'Avanza ' + fmtSekNum(h.mv,0) : '–'}</div>` : '';
     const rec = recs[h.ticker] || null;
-    const recTotal = rec ? rec.buy + rec.hold + rec.sell : null;
-    const recCell = rec
-      ? `<span style="color:var(--green)">${rec.buy} köp</span> · ${rec.hold} håll · <span style="color:var(--red)">${rec.sell} sälj</span><div style="font-size:10px;color:var(--text3)">${recTotal} analytiker</div>`
-      : '<span style="color:var(--text3)">–</span>';
-    const html = `<tr onclick="loadStock('${escQuote(h.ticker)}','${escQuote(h.name||h.ticker)}')" style="cursor:pointer">
-      <td>${escHtml(h.name||h.ticker)}<div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(h.ticker)}</div></td>
-      <td style="text-align:right">${h.qty != null ? fmtSekNum(h.qty,0) : '–'}</td>
-      <td style="text-align:right">${h.gav != null ? fmtSekNum(h.gav,2) : '–'} ${escHtml(h.currency||'')}</td>
-      <td style="text-align:right">${price != null ? fmtSekNum(price,2) : '–'}</td>
-      <td style="text-align:right;color:${dayCol}">${day != null ? fmtSekPct(day) : '–'}</td>
-      <td style="text-align:right;color:${gainCol}">${gain != null ? fmtSekPct(gain) : '–'}</td>
-      <td style="text-align:right;white-space:nowrap;font-size:12px">${recCell}</td>
-      <td style="text-align:right;color:${valCol}">${off ? '⚠ ' : ''}${valSek != null ? fmtSekNum(valSek,0)+' kr' : '–'}${avSub}</td>
-      <td style="text-align:center"><button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();removeHolding('${escQuote(h.ticker)}')" style="opacity:.6">×</button></td>
-    </tr>`;
-    return { h, price, day, valSek, gain, rec, recBuy: rec ? rec.buy : null, name: (h.name||h.ticker).toLowerCase(), html };
+    // Utveckling över flera perioder ur 1-årshistoriken (1 dag kommer från kursanropet).
+    const s = hist[h.ticker];
+    const rets = { '1d': day, '1w': pfReturn(s, '1w'), '1mo': pfReturn(s, '1mo'), 'ytd': pfReturn(s, 'ytd'), '1y': pfReturn(s, '1y') };
+    return { h, price, day, valSek, gain, off, rec, recBuy: rec ? rec.buy : null, rets, name: (h.name||h.ticker).toLowerCase() };
   });
   const totalGain = totalCostSek > 0 ? ((totalSek - totalCostSek)/totalCostSek)*100 : null;
   view.innerHTML = `
