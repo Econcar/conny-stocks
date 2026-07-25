@@ -3131,6 +3131,38 @@ const AI_PRICES = {
   'claude-fable-5': { in: 10, out: 50 }
 };
 const aiPriceKnown = model => !!AI_PRICES[model];
+
+// Läsbara modellnamn för prislistan.
+const AI_MODEL_NAMES = {
+  'claude-haiku-4-5': 'Haiku 4.5',
+  'claude-sonnet-4-6': 'Sonnet 4.6',
+  'claude-sonnet-5': 'Sonnet 5',
+  'claude-opus-4-8': 'Opus 4.8',
+  'claude-fable-5': 'Fable 5'
+};
+
+// Referens-prislista över alla modeller (USD + SEK per 1M tokens).
+function aiPriceTableHtml(){
+  const rows = Object.entries(AI_PRICES)
+    .sort((a,b) => a[1].in - b[1].in)
+    .map(([id,p]) => `<tr>
+      <td>${escHtml(AI_MODEL_NAMES[id] || id)}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--text3)">${escHtml(id)}</td>
+      <td style="text-align:right">$${p.in.toFixed(2)}</td>
+      <td style="text-align:right">$${p.out.toFixed(2)}</td>
+      <td style="text-align:right">${fmtSekNum(p.in*SEK_PER_USD,0)} / ${fmtSekNum(p.out*SEK_PER_USD,0)} kr</td>
+    </tr>`).join('');
+  return `<div class="card" style="padding:0;margin-bottom:14px">
+    <div style="padding:12px 14px;font-weight:600">Prislista <span class="muted" style="font-weight:400">· per 1M tokens (in / ut)</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Modell</th><th>ID</th><th style="text-align:right">In (USD)</th><th style="text-align:right">Ut (USD)</th><th style="text-align:right">In / Ut (SEK)</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div style="padding:10px 14px;font-size:11px;color:var(--text3)">
+      Cache-läsning debiteras ~0,1× in-priset, cache-skapande ~1,25×. Webbsök ~$0,01 per sökning.
+      SEK ≈ USD × ${SEK_PER_USD}. Anthropics prislista; uppdateras för hand i koden om den ändras.
+    </div>
+  </div>`;
+}
 let aiSessionCostUsd = 0;
 function estimateCostText(model, usage){
   if(!usage) return '';
@@ -3508,7 +3540,7 @@ async function renderAiCost(){
 
 function renderAiCostBody(rows){
   const el = document.getElementById('aicost-body');
-  if(!rows.length){ el.innerHTML = '<div class="info-msg">Inga AI-kostnader loggade i perioden ännu. Motorn loggar varje natt; on-demand-analyser loggas när du är inloggad.</div>'; return; }
+  if(!rows.length){ el.innerHTML = '<div class="info-msg" style="margin-bottom:14px">Inga AI-kostnader loggade i perioden ännu. Motorn loggar varje natt; on-demand-analyser loggas när du är inloggad.</div>' + aiPriceTableHtml(); return; }
 
   // Modeller utan känt pris – kostnaden för dem är en uppskattning (reservpris).
   const unknownModels = [...new Set(rows.map(r => r.model).filter(m => m && !aiPriceKnown(m)))];
@@ -3559,7 +3591,7 @@ function renderAiCostBody(rows){
 
   el.innerHTML = priceNote + kpis
     + '<div class="card" style="margin-bottom:14px"><div class="card-title">Kostnad per dag (USD)</div><div style="height:180px"><canvas id="aicostChart"></canvas></div></div>'
-    + breakdown + log;
+    + breakdown + log + aiPriceTableHtml();
 
   drawAiCostChart(rows);
 }
