@@ -1141,8 +1141,18 @@ const COL_DEFS = {
     cell:s=>`<td style="text-align:right;color:var(--text2);font-size:12px">${s.mcap!=null?(s.mcap>=1000?(s.mcap/1000).toFixed(1)+'T':s.mcap+'B'):'–'}</td>` },
   volym:   { label:'Volym', align:'right', sortField:'dayvolume', val:s=>(s.volym||0),
     cell:s=>`<td style="text-align:right;color:var(--text2);font-size:12px">${s.volym!=null?fmtVol(s.volym):'–'}</td>` },
+  valuta:  { label:'Valuta', align:'left', sortField:null, val:s=>(s.valuta||''),
+    cell:s=>`<td style="color:var(--text2);font-size:12px">${escHtml(s.valuta||'–')}</td>` },
+  hi52:    { label:'52v hög', align:'right', sortField:null, val:s=>(s.hi52!=null?s.hi52:-1),
+    cell:s=>`<td style="text-align:right" class="td-mono">${s.hi52!=null?fmtSekNum(s.hi52,2):'–'}</td>` },
+  lo52:    { label:'52v låg', align:'right', sortField:null, val:s=>(s.lo52!=null?s.lo52:-1),
+    cell:s=>`<td style="text-align:right" class="td-mono">${s.lo52!=null?fmtSekNum(s.lo52,2):'–'}</td>` },
+  fwdeps:  { label:'Fwd EPS', align:'right', sortField:null, val:s=>(s.fwdeps!=null?s.fwdeps:-1e12),
+    cell:s=>`<td style="text-align:right" class="td-mono">${s.fwdeps!=null?s.fwdeps.toFixed(2):'–'}</td>` },
+  avgvol:  { label:'Snittvol.', align:'right', sortField:null, val:s=>(s.avgvol||0),
+    cell:s=>`<td style="text-align:right;color:var(--text2);font-size:12px">${s.avgvol!=null?fmtVol(s.avgvol):'–'}</td>` },
 };
-const COL_ORDER = ['marknad','sektor','kurs','ytd','dag','ar52','pe','fpe','pb','eps','div','mcap','volym','rating'];
+const COL_ORDER = ['marknad','valuta','sektor','kurs','ytd','dag','ar52','hi52','lo52','pe','fpe','pb','eps','fwdeps','div','mcap','volym','avgvol','rating'];
 const DEFAULT_COLS = ['marknad','sektor','kurs','ytd','pe','div','mcap']; // samma 7 som tidigare
 
 function getCols() {
@@ -1320,6 +1330,11 @@ async function loadScreener() {
       div: q.trailingAnnualDividendYield != null ? +(q.trailingAnnualDividendYield*100).toFixed(1)
            : (q.dividendYield != null ? +q.dividendYield.toFixed(1) : 0),
       mcap: q.marketCap != null ? Math.round(q.marketCap/1e9) : null,
+      valuta: q.currency || '',
+      hi52: q.fiftyTwoWeekHigh != null ? q.fiftyTwoWeekHigh : null,
+      lo52: q.fiftyTwoWeekLow != null ? q.fiftyTwoWeekLow : null,
+      fwdeps: q.epsForward != null ? +q.epsForward.toFixed(2) : null,
+      avgvol: q.averageDailyVolume3Month != null ? q.averageDailyVolume3Month : null,
       flag: REGION_FLAGS[market] || REGION_FLAGS[marketFromTickerCode(q.symbol)] || '🏳️'
       };
     });
@@ -2961,11 +2976,19 @@ async function renderPortfolio(){
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:8px">
         <div class="card-title" style="margin:0">Portföljens utveckling <span id="pf-chart-change" style="font-weight:400;font-size:12px"></span></div>
-        <div class="filter-row" style="margin:0">
-          <div class="filter-chip" data-range="1mo" onclick="setPortfolioChartRange('1mo',this)">1M</div>
-          <div class="filter-chip on" data-range="6mo" onclick="setPortfolioChartRange('6mo',this)">6M</div>
-          <div class="filter-chip" data-range="ytd" onclick="setPortfolioChartRange('ytd',this)">ÅTD</div>
-          <div class="filter-chip" data-range="1y" onclick="setPortfolioChartRange('1y',this)">1Å</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div class="filter-row" style="margin:0">
+            <div class="filter-chip" data-range="1mo" onclick="setPortfolioChartRange('1mo',this)">1M</div>
+            <div class="filter-chip on" data-range="6mo" onclick="setPortfolioChartRange('6mo',this)">6M</div>
+            <div class="filter-chip" data-range="ytd" onclick="setPortfolioChartRange('ytd',this)">ÅTD</div>
+            <div class="filter-chip" data-range="1y" onclick="setPortfolioChartRange('1y',this)">1Å</div>
+            <div class="filter-chip" data-range="2y" onclick="setPortfolioChartRange('2y',this)">2Å</div>
+            <div class="filter-chip" data-range="5y" onclick="setPortfolioChartRange('5y',this)">5Å</div>
+          </div>
+          <div class="filter-row" style="margin:0">
+            <div class="filter-chip on" data-mode="sek" onclick="setPortfolioChartMode('sek',this)">kr</div>
+            <div class="filter-chip" data-mode="pct" onclick="setPortfolioChartMode('pct',this)">%</div>
+          </div>
         </div>
       </div>
       <div style="height:220px"><canvas id="pf-chart"></canvas></div>
@@ -2983,11 +3006,18 @@ async function renderPortfolio(){
 
 // ══════════ PORTFÖLJGRAF ══════════
 let portfolioChartRange = '6mo';
+let portfolioChartMode = 'sek';   // 'sek' = kronvärde, 'pct' = rebaserad % från start
 let portfolioChartInstance = null;
 
 function setPortfolioChartRange(range, el){
   portfolioChartRange = range;
   document.querySelectorAll('#section-portfolio [data-range]').forEach(c => c.classList.remove('on'));
+  if(el) el.classList.add('on');
+  renderPortfolioChart();
+}
+function setPortfolioChartMode(mode, el){
+  portfolioChartMode = mode;
+  document.querySelectorAll('#section-portfolio [data-mode]').forEach(c => c.classList.remove('on'));
   if(el) el.classList.add('on');
   renderPortfolioChart();
 }
@@ -3063,30 +3093,35 @@ async function renderPortfolioChart(){
     return sum + (portfolioCash || 0);
   });
 
-  const first = values.find(v => v != null), last = values[values.length - 1];
-  if(changeEl && first && last){
-    const pct = ((last - first) / first) * 100;
+  const base = values.find(v => v != null), last = values[values.length - 1];
+  if(changeEl && base && last){
+    const pct = ((last - base) / base) * 100;
     changeEl.innerHTML = `<span style="color:${pct>=0?'var(--green)':'var(--red)'}">${fmtSekPct(pct)}</span> <span class="muted">i perioden</span>`;
   }
   const dropped = tickers.length - withData.length;
   if(note) note.textContent = `Rekonstruerat utifrån dina nuvarande innehav (${withData.length} bolag${dropped?`, ${dropped} utan historik`:''})${portfolioCash?' + likvida medel':''} – historiska köp/sälj ingår inte. Källa: Yahoo Finance.`;
 
+  // Procent-läge: rebasera mot första punkten (= 0 %). Annars kronvärde.
+  const pctMode = portfolioChartMode === 'pct';
+  const plotted = values.map(v => v == null ? null : (pctMode ? (base ? (v/base - 1)*100 : null) : Math.round(v)));
+  const fmtY = pctMode ? (v => fmtSekPct(v)) : (v => fmtSekNum(v, 0) + ' kr');
+
   if(portfolioChartInstance) portfolioChartInstance.destroy();
   portfolioChartInstance = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: { labels: dates.map(d => d.slice(5)), datasets: [{
-      data: values.map(v => v != null ? Math.round(v) : null),
+      data: plotted,
       borderColor: 'var(--accent)', borderWidth: 2, pointRadius: 0, tension: 0.15,
       fill: true, backgroundColor: 'rgba(79,142,247,0.08)'
     }]},
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: {
         title: items => dates[items[0].dataIndex],
-        label: c => fmtSekNum(c.raw, 0) + ' kr'
+        label: c => pctMode ? fmtSekPct(c.raw) : fmtSekNum(c.raw, 0) + ' kr'
       }}},
       scales: {
         x: { ticks: { color: '#6b7280', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
-        y: { ticks: { color: '#6b7280', callback: v => fmtSekNum(v, 0) + ' kr' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+        y: { ticks: { color: '#6b7280', callback: fmtY }, grid: { color: 'rgba(255,255,255,0.05)' } }
       }
     }
   });
