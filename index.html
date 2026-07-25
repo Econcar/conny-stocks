@@ -2686,9 +2686,10 @@ async function fetchQuotesChunked(tickers){
   return out;
 }
 
-// Analytikernas köp/håll/sälj-antal per ticker (Yahoo recommendationTrend, senaste
-// perioden). Ett anrop per ticker via /api/quote, körs i grupper om 8 parallellt.
-async function fetchRecommendations(tickers){
+// Per-ticker fundamenta via /api/quote (ett anrop/ticker, 8 parallellt): analytikernas
+// köp/håll/sälj, P/E, direktavkastning, börsvärde och sektor – till valbara tabellkolumner.
+async function fetchHoldingInfo(tickers){
+  const g = x => (x && typeof x === 'object') ? x.raw : x;
   const out = {};
   for(let i = 0; i < tickers.length; i += 8){
     const chunk = tickers.slice(i, i + 8);
@@ -2697,14 +2698,20 @@ async function fetchRecommendations(tickers){
         const r = await fetch('/api/quote?symbol=' + encodeURIComponent(t));
         const j = await r.json();
         const res = j && j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0];
-        const tr = res && res.recommendationTrend && res.recommendationTrend.trend;
+        if(!res) return;
+        const sd = res.summaryDetail || {}, pr = res.price || {}, ap = res.assetProfile || {};
+        const tr = res.recommendationTrend && res.recommendationTrend.trend;
         const cur = Array.isArray(tr) ? (tr.find(x => x.period === '0m') || tr[0]) : null;
+        let rec = null;
         if(cur){
-          const buy = (cur.strongBuy||0) + (cur.buy||0);
-          const hold = cur.hold || 0;
-          const sell = (cur.sell||0) + (cur.strongSell||0);
-          if(buy + hold + sell > 0) out[t] = { buy, hold, sell };
+          const buy = (cur.strongBuy||0)+(cur.buy||0), hold = cur.hold||0, sell = (cur.sell||0)+(cur.strongSell||0);
+          if(buy + hold + sell > 0) rec = { buy, hold, sell };
         }
+        const pe = g(sd.trailingPE);
+        const dy = g(sd.dividendYield); const divy = dy != null ? +(dy*100).toFixed(2) : null;
+        const mc = g(pr.marketCap) != null ? g(pr.marketCap) : g(sd.marketCap);
+        out[t] = { rec, pe: pe != null ? +pe.toFixed(1) : null, divy,
+          mcap: mc != null ? Math.round(mc/1e9) : null, sektor: ap.sector || null };
       } catch(e){}
     }));
   }
@@ -2871,9 +2878,10 @@ function sortPortfolio(col){
 function renderPortfolioTable(){
   const wrap = document.getElementById('pf-table-wrap'); if(!wrap) return;
   const dir = pfSort.dir === 'asc' ? 1 : -1;
-  const keyer = { name:r=>r.name, qty:r=>r.h.qty, gav:r=>r.h.gav, price:r=>r.price,
-    day:r=>(r.rets ? r.rets[pfPeriod] : null), gain:r=>r.gain, rec:r=>r.recBuy, value:r=>r.valSek };
-  const getk = keyer[pfSort.col] || keyer.value;
+  const total = pfEnriched.reduce((s,r) => s + (r.valSek || 0), 0);
+  const ctx = { total };
+  const getk = pfSort.col === 'name' ? (r=>r.name)
+    : (PF_COL_DEFS[pfSort.col] ? (r => PF_COL_DEFS[pfSort.col].val(r, ctx)) : (r => r.valSek));
   const sorted = pfEnriched.slice().sort((a,b) => {
     const va = getk(a), vb = getk(b);
     if(va == null && vb == null) return 0;
@@ -2883,25 +2891,29 @@ function renderPortfolioTable(){
   });
   const arrow = c => pfSort.col === c ? (pfSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
   const s = 'cursor:pointer;user-select:none';
-  const hasMv = portfolio.some(h => h.mv != null);
   const periodChips = PF_PERIODS.map(([p,lbl]) =>
     `<div class="filter-chip${p===pfPeriod?' on':''}" onclick="setPfPeriod('${p}')">${lbl}</div>`).join('');
-  wrap.innerHTML = `<div class="filter-row" style="margin-bottom:8px;align-items:center">
-      <span style="font-size:12px;color:var(--text3)">Utveckling:</span>${periodChips}
+  const headCells = pfVisibleCols.map(k =>
+    `<th style="text-align:${PF_COL_DEFS[k].align||'right'};${s}" onclick="sortPortfolio('${k}')">${escHtml(pfColLabel(k))}${arrow(k)}</th>`).join('');
+  const bodyRows = sorted.map(r => `<tr onclick="loadStock('${escQuote(r.h.ticker)}','${escQuote(r.h.name||r.h.ticker)}')" style="cursor:pointer">
+      <td>${escHtml(r.h.name||r.h.ticker)}<div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(r.h.ticker)}</div></td>
+      ${pfVisibleCols.map(k => PF_COL_DEFS[k].cell(r, ctx)).join('')}
+      <td style="text-align:center"><button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();removeHolding('${escQuote(r.h.ticker)}')" style="opacity:.6">×</button></td>
+    </tr>`).join('');
+  wrap.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div class="filter-row" style="margin:0;align-items:center"><span style="font-size:12px;color:var(--text3)">Utveckling:</span>${periodChips}</div>
+      <div style="position:relative">
+        <button class="filter-input" onclick="togglePfColMenu()" style="width:auto;cursor:pointer">⚙ Kolumner</button>
+        <div id="pf-col-menu" class="col-menu" style="display:none;left:auto;right:0"></div>
+      </div>
     </div>
     <div style="overflow-x:auto"><table class="pf-table">
     <thead><tr>
       <th style="text-align:left;${s}" onclick="sortPortfolio('name')">Innehav${arrow('name')}</th>
-      <th style="text-align:right;${s}" onclick="sortPortfolio('qty')">Antal${arrow('qty')}</th>
-      <th style="text-align:right;${s}" onclick="sortPortfolio('gav')">GAV${arrow('gav')}</th>
-      <th style="text-align:right;${s}" onclick="sortPortfolio('price')">Kurs${arrow('price')}</th>
-      <th style="text-align:right;${s}" onclick="sortPortfolio('day')">${pfPeriodLabel()}${arrow('day')}</th>
-      <th style="text-align:right;${s}" onclick="sortPortfolio('gain')">Sedan köp${arrow('gain')}</th>
-      <th style="text-align:right;${s}" onclick="sortPortfolio('rec')" title="Analytikernas köp/håll/sälj-rekommendationer (Yahoo)">Analytiker${arrow('rec')}</th>
-      <th style="text-align:right;${s}" onclick="sortPortfolio('value')">Värde${arrow('value')}</th>
+      ${headCells}
       <th></th>
     </tr></thead>
-    <tbody>${sorted.map(r => pfRowHtml(r, hasMv)).join('')}</tbody>
+    <tbody>${bodyRows}</tbody>
   </table></div>`;
 }
 
@@ -2913,7 +2925,7 @@ function pfReturn(series, period){
   const lastC = closes[closes.length - 1], lastD = dates[dates.length - 1];
   let target;
   if(period === 'ytd'){ target = lastD.slice(0,4) + '-01-01'; }
-  else { const days = period === '1w' ? 7 : period === '1mo' ? 30 : 365;
+  else { const days = period === '1w' ? 7 : period === '1mo' ? 30 : period === '2y' ? 730 : period === '5y' ? 1825 : 365;
     const d = new Date(lastD + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - days); target = d.toISOString().slice(0,10); }
   let idx = -1;
   for(let i = 0; i < dates.length; i++){ if(dates[i] <= target) idx = i; else break; }
@@ -2924,33 +2936,51 @@ function pfReturn(series, period){
 
 // Valbar utvecklingsperiod för portföljtabellen.
 let pfPeriod = '1d';
-const PF_PERIODS = [['1d','1 dag'],['1w','1 vecka'],['1mo','1 mån'],['ytd','ÅTD'],['1y','1 år']];
+const PF_PERIODS = [['1d','1 dag'],['1w','1 vecka'],['1mo','1 mån'],['ytd','ÅTD'],['1y','1 år'],['2y','2 år'],['5y','5 år']];
 const pfPeriodLabel = () => (PF_PERIODS.find(p => p[0] === pfPeriod) || PF_PERIODS[0])[1];
 function setPfPeriod(p){ pfPeriod = p; renderPortfolioTable(); }
 
-// Bygger en tabellrad. Utvecklingskolumnen visar vald period (pfPeriod).
-function pfRowHtml(r, hasMv){
-  const h = r.h;
-  const chg = r.rets ? r.rets[pfPeriod] : null;
-  const chgCol = chg == null ? 'var(--text3)' : (chg >= 0 ? 'var(--green)' : 'var(--red)');
-  const gainCol = r.gain == null ? 'var(--text3)' : (r.gain >= 0 ? 'var(--green)' : 'var(--red)');
-  const valCol = r.off ? 'var(--red)' : 'var(--text)';
-  const avSub = hasMv ? `<div style="font-size:10px;color:var(--text3)">${h.mv != null ? 'Avanza ' + fmtSekNum(h.mv,0) : '–'}</div>` : '';
-  const recTotal = r.rec ? r.rec.buy + r.rec.hold + r.rec.sell : null;
-  const recCell = r.rec
-    ? `<span style="color:var(--green)">${r.rec.buy} köp</span> · ${r.rec.hold} håll · <span style="color:var(--red)">${r.rec.sell} sälj</span><div style="font-size:10px;color:var(--text3)">${recTotal} analytiker</div>`
-    : '<span style="color:var(--text3)">–</span>';
-  return `<tr onclick="loadStock('${escQuote(h.ticker)}','${escQuote(h.name||h.ticker)}')" style="cursor:pointer">
-    <td>${escHtml(h.name||h.ticker)}<div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${escHtml(h.ticker)}</div></td>
-    <td style="text-align:right">${h.qty != null ? fmtSekNum(h.qty,0) : '–'}</td>
-    <td style="text-align:right">${h.gav != null ? fmtSekNum(h.gav,2) : '–'} ${escHtml(h.currency||'')}</td>
-    <td style="text-align:right">${r.price != null ? fmtSekNum(r.price,2) : '–'}</td>
-    <td style="text-align:right;color:${chgCol}">${chg != null ? fmtSekPct(chg) : '–'}</td>
-    <td style="text-align:right;color:${gainCol}">${r.gain != null ? fmtSekPct(r.gain) : '–'}</td>
-    <td style="text-align:right;white-space:nowrap;font-size:12px">${recCell}</td>
-    <td style="text-align:right;color:${valCol}">${r.off ? '⚠ ' : ''}${r.valSek != null ? fmtSekNum(r.valSek,0)+' kr' : '–'}${avSub}</td>
-    <td style="text-align:center"><button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();removeHolding('${escQuote(h.ticker)}')" style="opacity:.6">×</button></td>
-  </tr>`;
+// Valbara kolumner i portföljtabellen (Innehav visas alltid först, × alltid sist).
+// Samma mönster som aktiescreenerns ⚙ Kolumner. label kan vara en funktion (period).
+const PF_COL_DEFS = {
+  qty:    { label:'Antal', val:r=>r.h.qty, cell:r=>`<td style="text-align:right">${r.h.qty!=null?fmtSekNum(r.h.qty,0):'–'}</td>` },
+  gav:    { label:'GAV', val:r=>r.h.gav, cell:r=>`<td style="text-align:right">${r.h.gav!=null?fmtSekNum(r.h.gav,2):'–'} ${escHtml(r.h.currency||'')}</td>` },
+  price:  { label:'Kurs', val:r=>r.price, cell:r=>`<td style="text-align:right">${r.price!=null?fmtSekNum(r.price,2):'–'}</td>` },
+  change: { label:()=>pfPeriodLabel(), val:r=>r.rets?r.rets[pfPeriod]:null,
+    cell:r=>{const c=r.rets?r.rets[pfPeriod]:null;const col=c==null?'var(--text3)':(c>=0?'var(--green)':'var(--red)');return `<td style="text-align:right;color:${col}">${c!=null?fmtSekPct(c):'–'}</td>`;} },
+  gain:   { label:'Sedan köp', val:r=>r.gain,
+    cell:r=>{const col=r.gain==null?'var(--text3)':(r.gain>=0?'var(--green)':'var(--red)');return `<td style="text-align:right;color:${col}">${r.gain!=null?fmtSekPct(r.gain):'–'}</td>`;} },
+  weight: { label:'Andel', val:(r,c)=>c.total?(r.valSek/c.total*100):null,
+    cell:(r,c)=>{const w=(c.total&&r.valSek!=null)?(r.valSek/c.total*100):null;return `<td style="text-align:right">${w!=null?w.toFixed(1)+'%':'–'}</td>`;} },
+  plkr:   { label:'Vinst/förlust', val:r=>r.plSek,
+    cell:r=>{const v=r.plSek;const col=v==null?'var(--text3)':(v>=0?'var(--green)':'var(--red)');return `<td style="text-align:right;color:${col}">${v!=null?(v>=0?'+':'')+fmtSekNum(v,0)+' kr':'–'}</td>`;} },
+  rec:    { label:'Analytiker', val:r=>r.recBuy,
+    cell:r=>{if(!r.rec)return '<td style="text-align:right"><span style="color:var(--text3)">–</span></td>';const t=r.rec.buy+r.rec.hold+r.rec.sell;return `<td style="text-align:right;white-space:nowrap;font-size:12px"><span style="color:var(--green)">${r.rec.buy} köp</span> · ${r.rec.hold} håll · <span style="color:var(--red)">${r.rec.sell} sälj</span><div style="font-size:10px;color:var(--text3)">${t} analytiker</div></td>`;} },
+  pe:     { label:'P/E', val:r=>r.pe, cell:r=>`<td style="text-align:right">${r.pe!=null?r.pe.toFixed(1):'–'}</td>` },
+  div:    { label:'Direktavk.', val:r=>r.divy, cell:r=>`<td style="text-align:right">${(r.divy!=null&&r.divy>0)?r.divy.toFixed(1)+'%':'–'}</td>` },
+  mcap:   { label:'Börsvärde', val:r=>r.mcap, cell:r=>`<td style="text-align:right;color:var(--text2);font-size:12px">${r.mcap!=null?(r.mcap>=1000?(r.mcap/1000).toFixed(1)+'T':r.mcap+'B'):'–'}</td>` },
+  sektor: { label:'Sektor', align:'left', val:r=>r.sektor||'', cell:r=>`<td style="color:var(--text2);font-size:12px">${escHtml(r.sektor||'–')}</td>` },
+  valuta: { label:'Valuta', align:'left', val:r=>r.priceCcy||'', cell:r=>`<td style="color:var(--text2);font-size:12px">${escHtml(r.priceCcy||'–')}</td>` },
+  avanza: { label:'Avanza-värde', val:r=>r.h.mv, cell:r=>`<td style="text-align:right;color:var(--text2)">${r.h.mv!=null?fmtSekNum(r.h.mv,0)+' kr':'–'}</td>` },
+  value:  { label:'Värde', val:r=>r.valSek, cell:r=>{const col=r.off?'var(--red)':'var(--text)';return `<td style="text-align:right;color:${col}">${r.off?'⚠ ':''}${r.valSek!=null?fmtSekNum(r.valSek,0)+' kr':'–'}</td>`;} },
+};
+const PF_COL_ORDER = ['qty','gav','price','change','gain','weight','plkr','rec','pe','div','mcap','sektor','valuta','avanza','value'];
+const PF_DEFAULT_COLS = ['qty','gav','price','change','gain','rec','value'];
+const pfColLabel = k => { const l = PF_COL_DEFS[k].label; return typeof l === 'function' ? l() : l; };
+
+function getPfCols(){
+  try { const s = JSON.parse(localStorage.getItem('pfCols')); if(Array.isArray(s) && s.length) return PF_COL_ORDER.filter(k => s.includes(k)); } catch(e){}
+  return PF_DEFAULT_COLS.slice();
+}
+let pfVisibleCols = getPfCols();
+function savePfCols(){ try { localStorage.setItem('pfCols', JSON.stringify(pfVisibleCols)); } catch(e){} }
+function togglePfColMenu(){ const m = document.getElementById('pf-col-menu'); const show = m.style.display === 'none'; m.style.display = show ? 'block' : 'none'; if(show) renderPfColMenu(); }
+function renderPfColMenu(){ document.getElementById('pf-col-menu').innerHTML = PF_COL_ORDER.map(k =>
+  `<label><input type="checkbox" ${pfVisibleCols.includes(k)?'checked':''} onchange="togglePfCol('${k}')"> ${pfColLabel(k)}</label>`).join(''); }
+function togglePfCol(k){
+  if(pfVisibleCols.includes(k)){ if(pfVisibleCols.length <= 1) return; pfVisibleCols = pfVisibleCols.filter(x => x !== k); }
+  else pfVisibleCols = PF_COL_ORDER.filter(x => pfVisibleCols.includes(x) || x === k);
+  savePfCols(); renderPortfolioTable(); renderPfColMenu();
 }
 
 async function renderPortfolio(){
@@ -2961,10 +2991,10 @@ async function renderPortfolio(){
   view.innerHTML = '<div class="info-msg">Hämtar kurser…</div>';
   const tickers = [...new Set(portfolio.map(h => h.ticker))];
   let quotes = await fetchQuotesChunked(tickers);
-  // Analytikerrekommendationer (köp/håll/sälj) – hämtas parallellt med kurserna.
-  const recsPromise = fetchRecommendations(tickers);
-  // 1-årshistorik för utveckling över valbara perioder (1v/1mån/ÅTD/1år) i tabellen.
-  const histPromise = fetchSparkSeries(tickers, '1y');
+  // Fundamenta per innehav (analytiker, P/E, direktavk., börsvärde, sektor) – parallellt.
+  const infoPromise = fetchHoldingInfo(tickers);
+  // 5-årshistorik för utveckling över valbara perioder (1v … 5år) i tabellen.
+  const histPromise = fetchSparkSeries(tickers, '5y');
   // Valutakurser baseras på Yahoos EGEN prisvaluta per innehav (inte Avanzas etikett),
   // så pence/cent och felnoteringar hanteras rätt.
   const priceCcys = [...new Set(Object.values(quotes).map(q => normPriceCurrency(q.currency).ccy).filter(c => c && c !== 'SEK'))];
@@ -2974,7 +3004,7 @@ async function renderPortfolio(){
   let fx = {};
   if(fxSyms.length){ try { const fd = await fetchSparkData(fxSyms); allCcys.forEach(c => { const s = FX_SYMBOL[c]; if(s && fd[s]) fx[c] = fd[s].price; }); } catch(e){} }
   const rateOf = c => { c = (c||'SEK').toUpperCase(); if(c === 'SEK') return 1; return fx[c] != null ? fx[c] : null; };
-  const recs = await recsPromise;
+  const info = await infoPromise;
   const hist = await histPromise;
 
   const hasMv = portfolio.some(h => h.mv != null);
@@ -2999,11 +3029,17 @@ async function renderPortfolio(){
     const diff = (valSek != null && h.mv) ? ((valSek - h.mv)/h.mv)*100 : null;
     const off = diff != null && Math.abs(diff) > 10;
     if(off) outliers.push(`${h.name||h.ticker} (${h.ticker}): vårt ${fmtSekNum(valSek,0)} kr vs Avanza ${fmtSekNum(h.mv,0)} kr`);
-    const rec = recs[h.ticker] || null;
-    // Utveckling över flera perioder ur 1-årshistoriken (1 dag kommer från kursanropet).
+    const inf = info[h.ticker] || {};
+    const rec = inf.rec || null;
+    const plSek = (valSek != null && costSek != null) ? valSek - costSek : null;
+    // Utveckling över flera perioder ur 5-årshistoriken (1 dag kommer från kursanropet).
     const s = hist[h.ticker];
-    const rets = { '1d': day, '1w': pfReturn(s, '1w'), '1mo': pfReturn(s, '1mo'), 'ytd': pfReturn(s, 'ytd'), '1y': pfReturn(s, '1y') };
-    return { h, price, day, valSek, gain, off, rec, recBuy: rec ? rec.buy : null, rets, name: (h.name||h.ticker).toLowerCase() };
+    const rets = { '1d': day, '1w': pfReturn(s,'1w'), '1mo': pfReturn(s,'1mo'), 'ytd': pfReturn(s,'ytd'),
+                   '1y': pfReturn(s,'1y'), '2y': pfReturn(s,'2y'), '5y': pfReturn(s,'5y') };
+    return { h, price, valSek, gain, off, rec, recBuy: rec ? rec.buy : null, plSek, priceCcy,
+      pe: inf.pe != null ? inf.pe : null, divy: inf.divy != null ? inf.divy : null,
+      mcap: inf.mcap != null ? inf.mcap : null, sektor: inf.sektor || null,
+      rets, name: (h.name||h.ticker).toLowerCase() };
   });
   const totalGain = totalCostSek > 0 ? ((totalSek - totalCostSek)/totalCostSek)*100 : null;
   view.innerHTML = `
