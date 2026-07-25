@@ -17,6 +17,7 @@ const FX_SYMBOL = { USD:'SEK=X', EUR:'EURSEK=X', GBP:'GBPSEK=X', DKK:'DKKSEK=X',
 // Priser (USD per 1M tokens, in/ut) för kostnadsberäkning per omvärdering.
 const AI_PRICES = {
   'claude-haiku-4-5': { in: 1, out: 5 }, 'claude-sonnet-4-6': { in: 3, out: 15 },
+  'claude-sonnet-5': { in: 3, out: 15 },
   'claude-opus-4-8': { in: 5, out: 25 }, 'claude-fable-5': { in: 10, out: 50 }
 };
 function costUsdOf(model, usage) {
@@ -198,7 +199,7 @@ async function reevalFund(f) {
   const today = new Date().toLocaleDateString('sv-SE');
   const sys = `Du är portföljförvaltare och omvärderar en befintlig fiktiv fond. Behåll det som fungerar, ombalansera vid behov enligt strategin. Returnera HELA den nya portföljen via verktyget rebalance_portfolio (vikter summerar ~100, Yahoo-tickers) samt en kort kommentar om vad du ändrar och varför.${f.web ? ' Du kan söka på nätet.' : ''}`;
   const user = `Dagens datum: ${today}. Fondens strategi/instruktioner:\n${f.instructions || f.strategy || '(ingen)'}\n\nNuvarande värde: ${Math.round(total)} SEK. Nuvarande innehav:\n${lines}\n\nOmvärdera nu.`;
-  const { input, usage } = await aiTool(f.model || 'claude-sonnet-4-6', sys, user, REBALANCE_TOOL, !!f.web);
+  const { input, usage } = await aiTool(f.model || 'claude-sonnet-5', sys, user, REBALANCE_TOOL, !!f.web);
   const built = await buildHoldings(input.holdings || [], total);
   if (!built.length) throw new Error('kunde inte prissätta de nya innehaven');
   const changes = diffHoldings(f.holdings, built);
@@ -206,7 +207,7 @@ async function reevalFund(f) {
   if (input.strategy) f.strategy = input.strategy;
   f.lastReevalAt = new Date().toISOString();
   f.reevalLog = f.reevalLog || [];
-  f.reevalLog.unshift({ date: f.lastReevalAt, commentary: (input.commentary || '') + ' (auto · server)', valueSek: Math.round(total), costUsd: costUsdOf(f.model || 'claude-sonnet-4-6', usage), changes, holdings: built.map((h) => ({ ...h })) });
+  f.reevalLog.unshift({ date: f.lastReevalAt, commentary: (input.commentary || '') + ' (auto · server)', valueSek: Math.round(total), costUsd: costUsdOf(f.model || 'claude-sonnet-5', usage), changes, holdings: built.map((h) => ({ ...h })) });
   if (f.reevalLog.length > 50) f.reevalLog = f.reevalLog.slice(0, 50);
   recordNav(f, total);
   return f;

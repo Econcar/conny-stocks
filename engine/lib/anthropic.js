@@ -59,9 +59,9 @@ async function logUsage(context, model, u) {
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const TRIAGE_MODEL = process.env.ENGINE_TRIAGE_MODEL || 'claude-haiku-4-5';
-// Sonnet 4.6 för djupanalys/risk/megatrender – stark nog för nyhetsanalys men
-// klart billigare än Opus. Sätt ENGINE_DEEP_MODEL=claude-opus-4-8 för att gå tillbaka.
-const DEEP_MODEL = process.env.ENGINE_DEEP_MODEL || 'claude-sonnet-4-6';
+// Sonnet 5 för djupanalys/risk/megatrender – Opus-nära kvalitet till Sonnet-pris.
+// Sätt ENGINE_DEEP_MODEL=claude-opus-4-8 (dyrare) eller claude-sonnet-4-6 (äldre) för att byta.
+const DEEP_MODEL = process.env.ENGINE_DEEP_MODEL || 'claude-sonnet-5';
 
 // Fasta instruktioner – ligger först med cache_control så de cachas mellan anrop.
 const TRIAGE_SYSTEM = [
