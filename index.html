@@ -3989,6 +3989,54 @@ async function recordAiUsage(context, model, usage){
   } catch(e){ /* kostnadslogg får aldrig störa själva anropet */ }
 }
 
+// Strömmande anrop mot /api/claude (SSE). Undviker Cloudflares 524-timeout på
+// långa svar (t.ex. webbsök). Sätter ihop text + usage ur strömmen. onText får
+// den löpande texten för progressiv visning. Returnerar {text, usage, stop_reason}
+// eller {error}.
+async function callClaudeStream(body, onText){
+  let res;
+  try {
+    res = await fetch('/api/claude', { method:'POST',
+      headers:{ 'Content-Type':'application/json', 'x-api-key':getApiKey() },
+      body: JSON.stringify({ ...body, stream:true }) });
+  } catch(e){ return { error:{ message:'Nätverksfel: ' + e.message } }; }
+
+  const ct = res.headers.get('content-type') || '';
+  if(!ct.includes('text/event-stream')){
+    // Fel före strömstart (ogiltig nyckel, credits, 5xx) → JSON eller HTML.
+    const raw = await res.text();
+    let data; try { data = JSON.parse(raw); } catch(_){
+      return { error:{ message:(res.status===524 || /error code: 5\d\d/i.test(raw))
+        ? 'Servern hann inte svara i tid (timeout, ~100 s). Prova igen, eller stäng av Webbsök för ett snabbare svar.'
+        : ('Ogiltigt svar från servern (' + res.status + ').') } };
+    }
+    if(data && data.error) return { error: data.error };
+    const text = Array.isArray(data.content) ? data.content.filter(b=>b.type==='text').map(b=>b.text).join('').trim() : '';
+    return { text, usage:data.usage, stop_reason:data.stop_reason };
+  }
+
+  const reader = res.body.getReader(); const dec = new TextDecoder();
+  let buf='', text='', usage={}, stop_reason=null, errMsg=null;
+  while(true){
+    const { done, value } = await reader.read(); if(done) break;
+    buf += dec.decode(value, { stream:true });
+    let nl;
+    while((nl = buf.indexOf('\n')) >= 0){
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl+1);
+      if(!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if(!payload || payload === '[DONE]') continue;
+      let ev; try { ev = JSON.parse(payload); } catch(_){ continue; }
+      if(ev.type === 'message_start' && ev.message && ev.message.usage) usage = { ...usage, ...ev.message.usage };
+      else if(ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta'){ text += ev.delta.text; if(onText) onText(text); }
+      else if(ev.type === 'message_delta'){ if(ev.delta && ev.delta.stop_reason) stop_reason = ev.delta.stop_reason; if(ev.usage) usage = { ...usage, ...ev.usage }; }
+      else if(ev.type === 'error'){ errMsg = (ev.error && (ev.error.message || ev.error.type)) || 'okänt streamingfel'; }
+    }
+  }
+  if(errMsg) return { error:{ message: errMsg } };
+  return { text, usage, stop_reason };
+}
+
 async function aiToolCall(model, system, userText, tool, web){
   if(!getApiKey()) throw new Error('Ingen API-nyckel angiven.');
   const body = { model, max_tokens: 3000, system, messages: [{ role: 'user', content: userText }], tools: [tool] };
@@ -4467,28 +4515,17 @@ Format: Använd **fetstil** för viktiga punkter. Använd - för punktlistor. H�
       const searchType = /haiku/.test(selectedModel) ? 'web_search_20250305' : 'web_search_20260209';
       body.tools = [{ type: searchType, name: 'web_search', max_uses: 5 }];
     }
-    const response = await fetch('/api/claude', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
-      body: JSON.stringify(body)
-    });
-    const rawText = await response.text();
-    let data;
-    try { data = JSON.parse(rawText); }
-    catch(_){ data = { error: { message: (response.status === 524 || /error code: 5\d\d/i.test(rawText)) ? 'Servern hann inte svara i tid (timeout, ~100 s). Prova igen, eller stäng av Webbsök för ett snabbare svar.' : ('Ogiltigt svar från servern (' + response.status + ').') } }; }
-    // Visa API:ets riktiga felmeddelande (t.ex. slut på credits, ogiltig nyckel)
-    // istället för en missvisande gissning.
+    // Strömmande anrop – texten kommer löpande och uppdaterar "skriver…"-bubblan,
+    // vilket också håller anslutningen vid liv förbi Cloudflares 100 s-tak.
+    const typingBubble = () => { const el = document.getElementById(typingId); return el ? el.querySelector('.msg-bubble') : null; };
+    const result = await callClaudeStream(body, partial => { const b = typingBubble(); if(b) b.innerHTML = formatAIText(partial); });
+    const data = result.error ? { error: result.error } : { usage: result.usage };
     let reply;
-    if(data && data.error){
-      reply = '**API-fel:** ' + (data.error.message || data.error.type || 'okänt fel');
+    if(result.error){
+      reply = '**API-fel:** ' + (result.error.message || result.error.type || 'okänt fel');
     } else {
-      // Webbsök-svar innehåller flera block (server_tool_use, web_search_tool_result,
-      // och ett eller flera text-block) – slå ihop alla text-block, inte bara det första.
-      reply = (Array.isArray(data.content)
-        ? data.content.filter(b => b.type === 'text').map(b => b.text).join('').trim()
-        : '') || 'Kunde inte hämta svar (tomt svar från API:t).';
-      // Markera tydligt om svaret kapades av längdgränsen.
-      if(data.stop_reason === 'max_tokens') reply += '\n\n_…(svaret nådde längdgränsen och kapades. Ställ en följdfråga för resten, eller be om en kortare sammanfattning.)_';
+      reply = (result.text || '').trim() || 'Kunde inte hämta svar (tomt svar från API:t).';
+      if(result.stop_reason === 'max_tokens') reply += '\n\n_…(svaret nådde längdgränsen och kapades. Ställ en följdfråga för resten, eller be om en kortare sammanfattning.)_';
     }
     aiHistory.push({role:'assistant', content: reply});
     const typingEl = document.getElementById(typingId);

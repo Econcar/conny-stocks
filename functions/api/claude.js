@@ -22,10 +22,14 @@ export async function onRequest(context) {
       },
       body
     });
-    const data = await response.text();
-    return new Response(data, {
+    // Strömma igenom svaret (byte för byte) i stället för att buffra hela. För
+    // streaming-anrop (stream:true) kommer headers direkt → Cloudflares ~100 s edge-
+    // timeout (524) slår inte till även när Claude + webbsök tar lång tid. För vanliga
+    // JSON-svar fungerar passthrough lika bra.
+    const ct = response.headers.get('content-type') || 'application/json';
+    return new Response(response.body, {
       status: response.status,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': ct }
     });
   } catch (e) {
     return json({ error: e.message }, 500);
