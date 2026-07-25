@@ -3799,7 +3799,7 @@ async function indexReturnSince(sym, sinceMs){
 function modelOptionsHtml(sel){
   let vals = []; const el = document.getElementById('model-select');
   if(el && el.options.length) vals = [...el.options].map(o => o.value);
-  if(!vals.length) vals = ['claude-haiku-4-5','claude-sonnet-4-6','claude-opus-4-8','claude-fable-5'];
+  if(!vals.length) vals = ['claude-haiku-4-5','claude-sonnet-4-6','claude-sonnet-5','claude-opus-4-8','claude-fable-5'];
   return vals.map(v => `<option value="${v}"${v===sel?' selected':''}>${v.replace('claude-','')}</option>`).join('');
 }
 
