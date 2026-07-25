@@ -5,6 +5,43 @@
 // instruktionen (cache_control) → billigt över många dokument.
 
 const { ANALYSIS_TOOL, DEEP_ANALYSIS_TOOL } = require('./schema');
+const { recordAiUsage } = require('./store');
+
+// USD per 1M tokens (in/ut) – Anthropics prislista. Samma tabell som i index.html.
+const PRICES = {
+  'claude-haiku-4-5': { in: 1, out: 5 },
+  'claude-sonnet-4-6': { in: 3, out: 15 },
+  'claude-opus-4-8': { in: 5, out: 25 },
+  'claude-fable-5': { in: 10, out: 50 }
+};
+
+// Kostnad i USD för ett svar utifrån usage. Cache-skapande = 1,25×, cache-läsning = 0,1×.
+function costUsd(model, u) {
+  if (!u) return 0;
+  const p = PRICES[model] || { in: 3, out: 15 };
+  const inT = u.input_tokens || 0, outT = u.output_tokens || 0;
+  const cr = u.cache_read_input_tokens || 0, cc = u.cache_creation_input_tokens || 0;
+  const sr = (u.server_tool_use && u.server_tool_use.web_search_requests) || 0;
+  return (inT * p.in + cc * p.in * 1.25 + cr * p.in * 0.1 + outT * p.out) / 1e6 + sr * 0.01;
+}
+
+// Loggar ett anrop till ai_usage (user_id null = motorn). Fire-and-forget: en
+// kostnadslogg får aldrig fälla själva pipelinen, så fel sväljs.
+async function logUsage(context, model, u) {
+  try {
+    await recordAiUsage({
+      context, model,
+      input_tokens: (u && u.input_tokens) || 0,
+      output_tokens: (u && u.output_tokens) || 0,
+      cache_read_tokens: (u && u.cache_read_input_tokens) || 0,
+      cache_create_tokens: (u && u.cache_creation_input_tokens) || 0,
+      web_searches: (u && u.server_tool_use && u.server_tool_use.web_search_requests) || 0,
+      cost_usd: costUsd(model, u)
+    });
+  } catch (err) {
+    if (!logUsage._warned) { console.error(`[ai_usage] kunde inte logga kostnad: ${err.message}`); logUsage._warned = true; }
+  }
+}
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const TRIAGE_MODEL = process.env.ENGINE_TRIAGE_MODEL || 'claude-haiku-4-5';
@@ -45,7 +82,7 @@ const DEEP_SYSTEM = [
 ];
 
 // Gemensamt anrop mot Messages API med tvingat tool_use.
-async function runAnalysis(doc, { model, system, tool, maxTokens }) {
+async function runAnalysis(doc, { model, system, tool, maxTokens, context }) {
   if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY i miljön');
 
   const hint = doc.hint_tickers.length
@@ -79,6 +116,7 @@ async function runAnalysis(doc, { model, system, tool, maxTokens }) {
   }
 
   const data = await res.json();
+  await logUsage(context || 'engine', model, data.usage);
   const toolUse = (data.content || []).find((b) => b.type === 'tool_use');
   if (!toolUse) {
     throw new Error(`Inget tool_use-svar för ${doc.source}/${doc.external_id}`);
@@ -88,12 +126,12 @@ async function runAnalysis(doc, { model, system, tool, maxTokens }) {
 
 // Steg 1 – triage (Haiku), körs på allt.
 function analyze(doc) {
-  return runAnalysis(doc, { model: TRIAGE_MODEL, system: TRIAGE_SYSTEM, tool: ANALYSIS_TOOL, maxTokens: 1024 });
+  return runAnalysis(doc, { model: TRIAGE_MODEL, system: TRIAGE_SYSTEM, tool: ANALYSIS_TOOL, maxTokens: 1024, context: 'engine-triage' });
 }
 
 // Steg 2 – djupanalys (Opus), bara på materiellt flaggade dokument.
 function deepAnalyze(doc) {
-  return runAnalysis(doc, { model: DEEP_MODEL, system: DEEP_SYSTEM, tool: DEEP_ANALYSIS_TOOL, maxTokens: 1536 });
+  return runAnalysis(doc, { model: DEEP_MODEL, system: DEEP_SYSTEM, tool: DEEP_ANALYSIS_TOOL, maxTokens: 1536, context: 'engine-deep' });
 }
 
 // Fri textsyntes (utan verktyg) – för t.ex. daglig riskbarometer-sammanvägning.
@@ -107,6 +145,7 @@ async function synthesize(prompt, opts = {}) {
   });
   if (!res.ok) throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${await res.text()}`);
   const data = await res.json();
+  await logUsage(opts.context || 'engine-synthesize', model, data.usage);
   const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
   return { text, model };
 }
@@ -126,9 +165,10 @@ async function extract(prompt, tool, opts = {}) {
   });
   if (!res.ok) throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${await res.text()}`);
   const data = await res.json();
+  await logUsage(opts.context || 'engine-extract', model, data.usage);
   const toolUse = (data.content || []).find(b => b.type === 'tool_use');
   if (!toolUse) throw new Error('Inget tool_use-svar');
   return { input: toolUse.input, model };
 }
 
-module.exports = { analyze, deepAnalyze, synthesize, extract, TRIAGE_MODEL, DEEP_MODEL };
+module.exports = { analyze, deepAnalyze, synthesize, extract, costUsd, logUsage, TRIAGE_MODEL, DEEP_MODEL };

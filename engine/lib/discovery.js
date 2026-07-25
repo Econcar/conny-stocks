@@ -52,7 +52,7 @@ async function discoverThemes() {
     '(inte en enskild dagshändelse). Ge slug, namn, 6–12 nyckelord (bolag/termer, gemener) och ' +
     'en kort motivering. Om inget nytt tema tydligt framträder: returnera en tom lista.';
 
-  const { input, model } = await extract(prompt, DISCOVERY_TOOL, { maxTokens: 1024 });
+  const { input, model } = await extract(prompt, DISCOVERY_TOOL, { maxTokens: 1024, context: 'engine-discovery' });
   const proposed = Array.isArray(input.themes) ? input.themes : [];
 
   const rows = [];

@@ -89,7 +89,7 @@ async function runMegatrends() {
       `med din egen kunskap om temat.`;
 
     try {
-      const { input, model } = await extract(prompt, MEGATREND_TOOL, { model: TREND_MODEL, maxTokens: 2500 });
+      const { input, model } = await extract(prompt, MEGATREND_TOOL, { model: TREND_MODEL, maxTokens: 2500, context: 'engine-megatrends' });
       const analysis = (input.analysis || '').trim();
       const companies = Array.isArray(input.companies) ? input.companies.slice(0, 8) : [];
       if (!analysis) throw new Error('tom analys (troligen avklippt svar)');

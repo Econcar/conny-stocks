@@ -5,6 +5,7 @@
 // Speglar klientens logik i index.html (buildFundHoldings, reevalAIFund).
 
 const { getAIFunds, updateAIFundData } = require('./store');
+const { logUsage } = require('./anthropic');
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const UA = 'Mozilla/5.0 (compatible; conny-stocks-engine)';
@@ -178,6 +179,7 @@ async function aiTool(model, system, userText, tool, web) {
   });
   if (!res.ok) throw new Error(`Anthropic (${model}) ${res.status}: ${await res.text()}`);
   const data = await res.json();
+  await logUsage('engine-aifund', model, data.usage);
   const tu = (data.content || []).find(b => b.type === 'tool_use' && b.name === tool.name);
   if (!tu) throw new Error('inget tool_use-svar');
   return { input: tu.input, usage: data.usage };

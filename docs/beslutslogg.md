@@ -32,6 +32,28 @@ kräver ligger i `signal-pipeline-spec.md` §4.1 så att den inte behöver göra
 
 ---
 
+### 2026-07-25 · AI-kostnader loggas centralt i en tabell, egen sida med tidslogg
+
+Ny tabell `ai_usage` (kräver `supabase-ai-usage.sql`) som *varje* AI-anrop skriver till –
+både motorn (bakgrund, `user_id=null`) och webbläsaren (on-demand, `user_id=auth.uid()`).
+Ny sida "AI-kostnader": KPI:er (pengar, anrop, tokens in/ut, motor vs on-demand), dygnsgraf,
+fördelning per kontext, och en tidslogg över när kostnaderna sker.
+
+**Varför en gemensam tabell:** kostnaden uppstod på tre ställen med helt olika spårning –
+motorn spårade **ingenting** (och är sannolikt den största posten, körs varje natt på allt),
+on-demand fanns bara i sessionen (försvann vid omladdning), AI-fonden i sin egen logg. En
+tabell ger en sanning och en tidslinje. Loggningen sker i respektive chokepoint
+(`engine/lib/anthropic.js` + `aifunds.js`, samt `aiToolCall`/chatt i index.html).
+
+**Robusthet:** kostnadsloggen är fire-and-forget – ett fel där (t.ex. saknad tabell) får
+aldrig fälla själva AI-anropet eller pipelinen. Motorn varnar en gång och går vidare.
+
+**Kostnad/avgränsning:** priserna är hårdkodade per modell (speglas i motorn och index.html –
+två ställen att hålla i synk om Anthropic ändrar pris). SEK-omräkning är en grov konstant
+(10,5). RLS: motorns rader är globalt läsbara, dina on-demand-rader ser bara du.
+
+---
+
 ### 2026-07-25 · Enhetstester + pre-deploy-spärr, med Nodes inbyggda testkörare
 
 `test/` kör med `node --test` (ingen `npm install` – repo:t ligger på Google Drive där npm

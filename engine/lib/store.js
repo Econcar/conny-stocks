@@ -239,8 +239,25 @@ async function pruneEarnings({ pastCutoffDate, staleBeforeIso }) {
   return true;
 }
 
+// AI-kostnadslogg: en rad per AI-anrop från motorn (user_id = null). Servicerollen
+// kringgår RLS. Se supabase-ai-usage.sql.
+async function recordAiUsage(row) {
+  if (!SUPABASE_URL || !SERVICE_KEY) return;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/ai_usage`, {
+    method: 'POST',
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal'
+    },
+    body: JSON.stringify({ user_id: null, ...row })
+  });
+  if (!res.ok) throw new Error(`ai_usage (${res.status}): ${await res.text()}`);
+}
+
 module.exports = {
   upsertSignals, recentExternalIds, upsertRiskAnalysis, recentSignals, upsertMegatrend,
   getThemes, insertThemes, getAIFunds, updateAIFundData, upsertEarnings, pruneEarnings,
-  earningsTableExists
+  earningsTableExists, recordAiUsage
 };
