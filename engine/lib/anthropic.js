@@ -7,10 +7,13 @@
 const { ANALYSIS_TOOL, DEEP_ANALYSIS_TOOL } = require('./schema');
 const { recordAiUsage } = require('./store');
 
-// USD per 1M tokens (in/ut) – Anthropics prislista. Samma tabell som i index.html.
+// USD per 1M tokens (in/ut) – Anthropics prislista. Samma tabell som i index.html;
+// uppdatera BÅDA om Anthropic ändrar pris. Modeller utanför listan flaggas (okänt pris).
+// (claude-sonnet-5 har intropris $2/$10 t.o.m. 2026-08-31; vi kör standard $3/$15.)
 const PRICES = {
   'claude-haiku-4-5': { in: 1, out: 5 },
   'claude-sonnet-4-6': { in: 3, out: 15 },
+  'claude-sonnet-5': { in: 3, out: 15 },
   'claude-opus-4-8': { in: 5, out: 25 },
   'claude-fable-5': { in: 10, out: 50 }
 };
@@ -25,9 +28,20 @@ function costUsd(model, u) {
   return (inT * p.in + cc * p.in * 1.25 + cr * p.in * 0.1 + outT * p.out) / 1e6 + sr * 0.01;
 }
 
+// Varna en gång per okänd modell så att pristabellen kan uppdateras. Kostnaden
+// räknas då med reservpriset ($3/$15) och är alltså en gissning.
+const _warnedModels = new Set();
+function warnUnknownModel(model) {
+  if (!model || PRICES[model] || _warnedModels.has(model)) return;
+  _warnedModels.add(model);
+  console.error(`[ai_usage] okänd modell "${model}" – saknas i PRICES, kostnaden är en uppskattning. ` +
+    'Uppdatera pristabellen i engine/lib/anthropic.js och index.html.');
+}
+
 // Loggar ett anrop till ai_usage (user_id null = motorn). Fire-and-forget: en
 // kostnadslogg får aldrig fälla själva pipelinen, så fel sväljs.
 async function logUsage(context, model, u) {
+  warnUnknownModel(model);
   try {
     await recordAiUsage({
       context, model,

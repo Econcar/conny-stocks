@@ -3119,13 +3119,18 @@ function appendMsg(role, text, meta) {
 }
 
 // Ungefärlig kostnad per anrop utifrån API:ets usage (tokens) + ev. webbsökningar.
-// Priser i USD per 1M tokens (in/ut) – samma som Anthropics prislista.
+// Priser i USD per 1M tokens (in/ut) – samma som Anthropics prislista. Uppdatera BÅDE
+// denna och PRICES i engine/lib/anthropic.js om Anthropic ändrar pris. Modeller utanför
+// listan räknas med reservpriset ($3/$15) och flaggas som "uppskattat pris".
+// (claude-sonnet-5 har intropris $2/$10 t.o.m. 2026-08-31; vi kör standard $3/$15.)
 const AI_PRICES = {
   'claude-haiku-4-5': { in: 1, out: 5 },
   'claude-sonnet-4-6': { in: 3, out: 15 },
+  'claude-sonnet-5': { in: 3, out: 15 },
   'claude-opus-4-8': { in: 5, out: 25 },
   'claude-fable-5': { in: 10, out: 50 }
 };
+const aiPriceKnown = model => !!AI_PRICES[model];
 let aiSessionCostUsd = 0;
 function estimateCostText(model, usage){
   if(!usage) return '';
@@ -3505,6 +3510,12 @@ function renderAiCostBody(rows){
   const el = document.getElementById('aicost-body');
   if(!rows.length){ el.innerHTML = '<div class="info-msg">Inga AI-kostnader loggade i perioden ännu. Motorn loggar varje natt; on-demand-analyser loggas när du är inloggad.</div>'; return; }
 
+  // Modeller utan känt pris – kostnaden för dem är en uppskattning (reservpris).
+  const unknownModels = [...new Set(rows.map(r => r.model).filter(m => m && !aiPriceKnown(m)))];
+  const priceNote = unknownModels.length
+    ? `<div class="info-msg" style="background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.25);margin-bottom:14px">⚠ Okänd prissättning för <b>${unknownModels.map(escHtml).join(', ')}</b> – kostnaden räknas med reservpriset ($3/$15 per 1M tokens) och kan vara fel. Lägg till modellen i pristabellen (AI_PRICES i index.html och PRICES i engine/lib/anthropic.js).</div>`
+    : '';
+
   const inTok = r => (r.input_tokens||0) + (r.cache_read_tokens||0) + (r.cache_create_tokens||0);
   const sum = (arr, f) => arr.reduce((s,r)=>s+f(r),0);
   const engine = rows.filter(r => aiCtxIsEngine(r.context));
@@ -3539,14 +3550,14 @@ function renderAiCostBody(rows){
   const logRows = rows.slice(0, 200).map(r=>`<tr>
     <td style="white-space:nowrap;font-size:11px;color:var(--text3)">${new Date(r.created_at).toLocaleString('sv-SE')}</td>
     <td>${escHtml(aiCtxLabel(r.context))}</td>
-    <td style="font-family:var(--mono);font-size:11px">${escHtml((r.model||'').replace('claude-',''))}</td>
+    <td style="font-family:var(--mono);font-size:11px">${escHtml((r.model||'').replace('claude-',''))}${r.model && !aiPriceKnown(r.model) ? ' <span title="Okänt pris – uppskattat" style="color:var(--amber,#f59e0b)">⚠</span>' : ''}</td>
     <td style="text-align:right;font-size:11px">${(inTok(r)/1e3).toFixed(1)}k / ${((r.output_tokens||0)/1e3).toFixed(1)}k</td>
     <td style="text-align:right">$${(+r.cost_usd||0).toFixed(4)}</td></tr>`).join('');
   const log = `<div class="card" style="padding:0"><div style="padding:12px 14px;font-weight:600">Tidslogg · när kostnaderna sker <span class="muted" style="font-weight:400">(senaste ${Math.min(rows.length,200)} anropen, nyast först)</span></div><div class="table-wrap"><table>
     <thead><tr><th>Tidpunkt</th><th>Vad</th><th>Modell</th><th style="text-align:right">In/ut</th><th style="text-align:right">Kostnad</th></tr></thead>
     <tbody>${logRows}</tbody></table></div></div>`;
 
-  el.innerHTML = kpis
+  el.innerHTML = priceNote + kpis
     + '<div class="card" style="margin-bottom:14px"><div class="card-title">Kostnad per dag (USD)</div><div style="height:180px"><canvas id="aicostChart"></canvas></div></div>'
     + breakdown + log;
 

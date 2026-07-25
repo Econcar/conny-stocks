@@ -32,6 +32,23 @@ kräver ligger i `signal-pipeline-spec.md` §4.1 så att den inte behöver göra
 
 ---
 
+### 2026-07-25 · Okänd-modell-detektering för AI-priser (i stället för att polla priser)
+
+Priserna är hårdkodade per modell på två ställen (`AI_PRICES` i index.html, `PRICES` i
+`engine/lib/anthropic.js`). När en modell utan känt pris används räknas kostnaden med
+reservpriset ($3/$15) och **flaggas**: motorn loggar en varning (en gång per modell),
+kostnadssidan visar en banner + ⚠ på raderna. `claude-sonnet-5` lades till i båda tabellerna.
+
+**Varför detektering, inte automatik:** det finns ingen maskinläsbar pris-API att polla —
+`/v1/messages` ger tokens men inte pris, `/v1/models` ger förmågor men inte pris, och att
+skrapa dokumentationen är skört. Den verkliga driften är att en *ny modell* dyker upp med fel
+reservpris; det går att fånga automatiskt utan känslig credential. Faktisk fakturerad kostnad
+finns i Anthropics Admin-API men kräver en org-nivå-adminnyckel — bortvalt, samma avvägning
+som Supabase-PAT:en. Priserna uppdateras för hand de fåtal gånger Anthropic ändrar dem;
+flaggan säger till när det behövs.
+
+---
+
 ### 2026-07-25 · AI-kostnader loggas centralt i en tabell, egen sida med tidslogg
 
 Ny tabell `ai_usage` (kräver `supabase-ai-usage.sql`) som *varje* AI-anrop skriver till –
