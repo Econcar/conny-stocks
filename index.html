@@ -3086,9 +3086,15 @@ async function fetchSparkSeries(symbols, range){
 }
 
 // Forward-fill en serie till en gemensam datumlista (bär senaste kända värde framåt).
+// Seedar startvärdet med senaste kända kurs PÅ/FÖRE första datumet – annars blir
+// första punkten null för serier som inte handlade exakt på startdagen (t.ex. en
+// FX-serie med annan handelskalender), vilket tappar innehav och snedvrider basen.
 function denseFill(dates, series){
-  const map = {}; (series.dates||[]).forEach((d,i) => map[d] = series.closes[i]);
-  const out = []; let last = null;
+  const sd = series.dates || [], sc = series.closes || [];
+  const map = {}; sd.forEach((d,i) => map[d] = sc[i]);
+  let last = null;
+  if(dates.length){ for(let i = 0; i < sd.length && sd[i] <= dates[0]; i++) last = sc[i]; }
+  const out = [];
   for(const d of dates){ if(map[d] != null) last = map[d]; out.push(last); }
   return out;
 }
