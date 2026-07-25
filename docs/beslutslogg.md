@@ -32,6 +32,28 @@ kräver ligger i `signal-pipeline-spec.md` §4.1 så att den inte behöver göra
 
 ---
 
+### 2026-07-25 · Enhetstester + pre-deploy-spärr, med Nodes inbyggda testkörare
+
+`test/` kör med `node --test` (ingen `npm install` – repo:t ligger på Google Drive där npm
+strular). `verify.mjs` syntaxkollar all JS + index.html:s inline-script och kör testerna;
+`deploy.ps1` kör det före push och **avbryter vid fel**.
+
+**Varför just detta:** den vanligaste verkliga bristen här är att Yahoo/Avanza ändrar
+svarsformat – det fångar enhetstester inte. Men logikregression fångar de, och en sådan hann
+redan slinka in (dubblettregeln slog ihop GOOG/GOOGL). Testerna täcker därför den rena logiken
+(dubblettfilter i screener + motor); API-formkontroll får vara manuell. Spärren i deploy väger
+tyngre än testerna själva – den gör att de faktiskt körs varje gång.
+
+**Index.html testas inte** direkt: funktionerna är inte exporterbara utan att dela upp
+enfilsupplägget, vilket vi valde att inte göra nu. `verify.mjs` syntaxkollar filen i stället.
+
+**SQL-migrering:** valde detektering framför automatik. Motorn kollar att `earnings_calendar`
+finns (annars tydligt "kör supabase-earnings.sql") och översätter det gamla-nyckeln-felet
+(42P10) till ett handlingsbart meddelande. Full automatik via Management API valdes bort – den
+hade krävt en bred, känslig Personal Access Token för något som händer sällan.
+
+---
+
 ### 2026-07-24 · Rapportkalendern sparar en rad per (ticker, datum) så passerade rapporter blir kvar
 
 Nyckeln i `earnings_calendar` ändrades från `(ticker)` till `(ticker, report_date)`.

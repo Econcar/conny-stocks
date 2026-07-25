@@ -18,6 +18,16 @@ sources/*.js  →  lib/schema.js   →  lib/anthropic.js  →  lib/store.js
 Källoberoende: en ny datakälla = en ny adapter i `sources/`. Analys och lagring
 rörs inte.
 
+## Tester & pre-deploy-kontroll
+
+`node verify.mjs` (från repo-roten) syntaxkollar all JS + index.html:s inline-script och kör
+enhetstesterna i `test/`. `deploy.ps1` kör detta **före** varje push och avbryter om något
+fallerar. Kör tester enskilt med `node --test test/*.test.mjs`. Allt använder Nodes inbyggda
+testkörare – ingen `npm install` (viktigt: repo:t ligger på Google Drive där npm strular).
+
+Testerna täcker den rena logiken (dubblettfilter i screener och motor). De fångar INTE att
+Yahoo/Avanza ändrar svarsformat – det är en annan sorts kontroll och görs manuellt vid behov.
+
 ## Kör lokalt
 
 1. Installera Node 20+.

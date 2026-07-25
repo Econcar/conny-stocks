@@ -59,6 +59,10 @@ function dedupeTradable(quotes) {
   return out;
 }
 
+// Exporteras för enhetstest. Cloudflare Pages anropar bara onRequest; extra
+// namngivna exporter är ofarliga. Se test/screener.test.mjs.
+export { dedupeTradable, TRADABLE };
+
 async function runScreen(auth, body) {
   const url = 'https://query1.finance.yahoo.com/v1/finance/screener?crumb=' + encodeURIComponent(auth.crumb);
   return fetch(url, {

@@ -189,8 +189,34 @@ async function upsertEarnings(rows) {
     },
     body: JSON.stringify(rows)
   });
-  if (!res.ok) throw new Error(`Supabase-skrivning (earnings_calendar) misslyckades (${res.status}): ${await res.text()}`);
+  if (!res.ok) {
+    const detail = await res.text();
+    // 42P10: on_conflict-målet (ticker,report_date) saknar unik constraint = tabellen
+    // ligger kvar på den gamla nyckeln. Ge ett handlingsbart meddelande.
+    if (res.status === 400 && /42P10|no unique or exclusion constraint/i.test(detail)) {
+      throw new Error(
+        'earnings_calendar ligger kvar på den gamla nyckeln (ticker) – passerade rapporter ' +
+        'skulle skrivas över. Kör om supabase-earnings.sql (migrerar till ticker+report_date).'
+      );
+    }
+    throw new Error(`Supabase-skrivning (earnings_calendar) misslyckades (${res.status}): ${detail}`);
+  }
   return rows.length;
+}
+
+// Finns tabellen? Ett lätt GET som skiljer "saknas" (relation finns inte) från allt
+// annat. Används för ett tydligt felmeddelande innan skrivning.
+async function earningsTableExists() {
+  if (!SUPABASE_URL || !SERVICE_KEY) return false;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/earnings_calendar?select=ticker&limit=1`, {
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` }
+  });
+  if (res.ok) return true;
+  const detail = await res.text();
+  if (res.status === 404 || /PGRST205|could not find the table|does not exist/i.test(detail)) return false;
+  // Andra fel (t.ex. nätverk/behörighet) ska inte tolkas som "saknas" – låt skrivningen
+  // rapportera dem i stället.
+  return true;
 }
 
 // Två sorters bortrensning:
@@ -215,5 +241,6 @@ async function pruneEarnings({ pastCutoffDate, staleBeforeIso }) {
 
 module.exports = {
   upsertSignals, recentExternalIds, upsertRiskAnalysis, recentSignals, upsertMegatrend,
-  getThemes, insertThemes, getAIFunds, updateAIFundData, upsertEarnings, pruneEarnings
+  getThemes, insertThemes, getAIFunds, updateAIFundData, upsertEarnings, pruneEarnings,
+  earningsTableExists
 };

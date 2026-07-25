@@ -7,7 +7,18 @@
 // ticker är för många anrop för att göra i webbläsaren vid varje sidvisning, men
 // helt rimligt en gång per dygn här. Se docs/beslutslogg.md.
 
-const { upsertEarnings, pruneEarnings } = require('./store');
+const { upsertEarnings, pruneEarnings, earningsTableExists } = require('./store');
+
+// Kollar att tabellen finns innan skrivning – ett handlingsbart meddelande i stället
+// för ett kryptiskt PostgREST-fel. Den gamla-nyckeln-varianten fångas separat i
+// store.upsertEarnings (ger ett distinkt fel vid on_conflict). Se supabase-earnings.sql.
+async function ensureEarningsSchema() {
+  if (!(await earningsTableExists())) {
+    throw new Error(
+      'Tabellen earnings_calendar saknas. Kör supabase-earnings.sql i Supabase → SQL Editor först.'
+    );
+  }
+}
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
@@ -177,6 +188,7 @@ async function runEarningsCalendar({ dry = false } = {}) {
   // 3) Skriv, och rensa: passerade rapporter äldre än 35 dagar (håller "senaste
   //    veckan/månaden" men slänger gammalt + Yahoos trasiga historiska datum), samt
   //    framtida rader för bolag som inte längre är i universumet (>14 dygn utan uppdatering).
+  await ensureEarningsSchema();
   let written = 0;
   for (let i = 0; i < rows.length; i += 500) written += await upsertEarnings(rows.slice(i, i + 500));
   await pruneEarnings({
@@ -186,4 +198,5 @@ async function runEarningsCalendar({ dry = false } = {}) {
   return { universe: tickers.length, written, missing };
 }
 
-module.exports = { runEarningsCalendar };
+// dedupeCompanies och TRADABLE exporteras för enhetstest (test/engine-earnings.test.mjs).
+module.exports = { runEarningsCalendar, dedupeCompanies, TRADABLE };

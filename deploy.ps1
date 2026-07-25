@@ -6,6 +6,14 @@ param(
     [string]$Message = "Uppdatering"
 )
 
+# Pre-deploy-kontroll: syntax + enhetstester. Avbryter push om nagot fallerar.
+Write-Host "Kor kontroller (node verify.mjs)..." -ForegroundColor Cyan
+node verify.mjs
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Kontrollerna misslyckades - deploy avbruten. Inget pushat." -ForegroundColor Red
+    exit 1
+}
+
 Write-Host "Lagar till andringar..." -ForegroundColor Cyan
 git add -A
 
