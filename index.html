@@ -2924,10 +2924,39 @@ async function renderPortfolio(){
     </div>
     <div style="margin-bottom:12px"><button class="action-btn" onclick="analyzePortfolioAI()">✦ Analysera min portfölj med AI</button></div>
     <div id="pf-table-wrap"></div>
+    <div id="pf-analyses"></div>
     ${outliers.length ? `<div class="info-msg" style="margin-top:8px;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">⚠ Dessa innehav avviker mycket mot Avanzas värde (trolig fel börs/valuta – kolla tickern):<br>${outliers.map(escHtml).join('<br>')}</div>` : ''}
     ${partial ? '<div class="info-msg" style="margin-top:8px">Vissa värden saknas (okänd kurs eller valutakurs) och räknas inte in i totalen.</div>' : ''}`;
   renderPortfolioTable();
+  renderPortfolioAnalyses();
   setUpdatedStamp('stamp-portfolio');
+}
+
+// Tidigare portföljanalyser, direkt i portföljvyn (samma data som "Sparade
+// analyser", filtrerat på titeln "Portföljanalys"). Klick fäller ut hela texten.
+async function renderPortfolioAnalyses(){
+  const el = document.getElementById('pf-analyses'); if(!el) return;
+  let list = aiAnalyses.filter(a => (a.title||'') === 'Portföljanalys');
+  if(sb && currentUser){
+    try {
+      const { data } = await sb.from('analyses').select('id,created_at,title,model,answer')
+        .eq('title', 'Portföljanalys').order('created_at', { ascending: false }).limit(50);
+      if(data) list = data.map(r => ({ id:r.id, ts:new Date(r.created_at).getTime(), title:r.title, model:r.model, answer:r.answer, cloud:true }));
+    } catch(e){}
+  }
+  if(!list.length){ el.innerHTML = ''; return; }
+  const items = list.slice(0, 20).map(a => {
+    const d = new Date(a.ts).toLocaleString('sv-SE', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    const key = 'pf' + (a.cloud ? ('c'+a.id) : ('l'+a.ts));
+    return `<div class="pf-card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer" onclick="toggleAnalysis('${key}')">
+        <div><div style="font-weight:600">✦ ${escHtml(a.title||'Portföljanalys')}</div><div style="font-size:11px;color:var(--text3)">${d} · ${escHtml((a.model||'').replace('claude-',''))}</div></div>
+        <span style="font-size:11px;color:var(--accent)">Visa ▾</span>
+      </div>
+      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13px;line-height:1.55">${formatAIText(a.answer||'')}</div>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div style="font-weight:600;margin:18px 0 8px">Tidigare AI-analyser av portföljen <span class="muted" style="font-weight:400">· sparas automatiskt</span></div>${items}`;
 }
 
 async function analyzePortfolioAI(){
@@ -3197,6 +3226,8 @@ async function saveAnalysis(entry){
     catch(e){ console.warn('analys molnspar:', e.message); }
   }
   if(currentSection === 'analyses') renderAnalyses();
+  // Portföljanalyser visas även i portföljvyn – uppdatera den om man står där.
+  if(currentSection === 'portfolio' && (entry.title||'') === 'Portföljanalys') renderPortfolioAnalyses();
 }
 
 async function renderAnalyses(){
