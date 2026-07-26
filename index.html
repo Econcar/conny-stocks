@@ -3901,7 +3901,7 @@ function renderAiCostBody(rows){
 
   el.innerHTML = priceNote + kpis
     + '<div class="card" style="margin-bottom:14px"><div class="card-title">Kostnad per dag (USD)</div><div style="height:180px"><canvas id="aicostChart"></canvas></div></div>'
-    + breakdown + log + aiPriceTableHtml();
+    + breakdown + aiPriceTableHtml() + log;
 
   drawAiCostChart(rows);
 }
