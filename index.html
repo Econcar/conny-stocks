@@ -594,6 +594,8 @@
           <div class="filter-chip" onclick="setRiskPeriod(this,'1y')">1Å</div>
           <div class="filter-chip" onclick="setRiskPeriod(this,'2y')">2Å</div>
           <div class="filter-chip" onclick="setRiskPeriod(this,'5y')">5Å</div>
+          <div class="filter-chip" onclick="setRiskPeriod(this,'10y')">10Å</div>
+          <div class="filter-chip" onclick="setRiskPeriod(this,'max')" title="Så långt varje indikator räcker – olika startår (VIX/SKEW 1990, Bitcoin 2014)">Max</div>
         </div>
         <div class="chart-wrap" style="height:300px"><canvas id="riskChart" role="img" aria-label="Riskindikator över tid"></canvas></div>
       </div>
@@ -911,8 +913,10 @@ async function refreshLivePrices() {
 
 // ══════════ MARKNADSDATA VIA YAHOO SPARK ══════════
 // Delad hjälpare: hämtar pris, ÅTD-% och dagsförändring för valfria symboler.
-async function fetchSparkData(symbols, range = 'ytd') {
-  const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${encodeURIComponent(symbols.join(','))}&range=${range}&interval=1d`;
+// `interval` grovkornar långa spann: på 10 år ger dagsdata ~2 500 punkter per symbol
+// bara för att räkna ut en procentsiffra. Korta spann använder dagsdata som förut.
+async function fetchSparkData(symbols, range = 'ytd', interval = '1d') {
+  const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${encodeURIComponent(symbols.join(','))}&range=${range}&interval=${interval}`;
   const data = await fetchYahoo(url);
   const results = (data && data.spark && data.spark.result) || [];
   const bySym = {};
@@ -2224,8 +2228,11 @@ let riskChartInstance = null;
 let riskBySym = {};
 let currentRiskSym = '^VIX';
 let currentRiskPeriod = '3mo';
-const RISK_RANGE = { '1mo':'1mo', '3mo':'3mo', '6mo':'6mo', '1y':'1y', '2y':'2y', '5y':'5y' };
-const RISK_PLABEL = { '1mo':'1M', '3mo':'3M', '6mo':'6M', '1y':'1Å', '2y':'2Å', '5y':'5Å' };
+const RISK_RANGE = { '1mo':'1mo', '3mo':'3mo', '6mo':'6mo', '1y':'1y', '2y':'2y', '5y':'5y', '10y':'10y', 'max':'max' };
+const RISK_PLABEL = { '1mo':'1M', '3mo':'3M', '6mo':'6M', '1y':'1Å', '2y':'2Å', '5y':'5Å', '10y':'10Å', 'max':'Max' };
+// Kortens upplösning per period (grafen har sin egen karta i loadRiskChart).
+// Yahoo degraderar ändå till månad vid range=max, så vi ber om det direkt.
+const RISK_INTERVAL = { '10y':'1wk', 'max':'1mo' };
 
 // Kompakt, klickbart indikatorkort. Klick väljer indikator för den stora grafen.
 function riskCard(def, d) {
@@ -2264,8 +2271,8 @@ async function setRiskPeriod(el, period) {
 
 // Stor graf över vald indikator, med valbar tidsaxel.
 async function loadRiskChart(sym, period) {
-  const rangeMap = {'1mo':'1mo','3mo':'3mo','6mo':'6mo','1y':'1y','2y':'2y','5y':'5y'};
-  const intervalMap = {'1mo':'1d','3mo':'1d','6mo':'1d','1y':'1wk','2y':'1wk','5y':'1mo'};
+  const rangeMap = {'1mo':'1mo','3mo':'3mo','6mo':'6mo','1y':'1y','2y':'2y','5y':'5y','10y':'10y','max':'max'};
+  const intervalMap = {'1mo':'1d','3mo':'1d','6mo':'1d','1y':'1wk','2y':'1wk','5y':'1mo','10y':'1mo','max':'1mo'};
   try {
     const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${intervalMap[period]}&range=${rangeMap[period]}`);
     const r = data.chart.result[0];
@@ -2290,7 +2297,7 @@ async function loadRiskChart(sym, period) {
 async function refreshRiskCards() {
   let bySym = {};
   try {
-    bySym = await fetchSparkData(RISK_ALL.map(x => x.sym), RISK_RANGE[currentRiskPeriod] || 'ytd');
+    bySym = await fetchSparkData(RISK_ALL.map(x => x.sym), RISK_RANGE[currentRiskPeriod] || 'ytd', RISK_INTERVAL[currentRiskPeriod] || '1d');
   } catch(e) { /* visar "ingen data" per kort nedan */ }
   riskBySym = bySym; // spara för AI-sammanvägningen
   document.getElementById('risk-fear').innerHTML = RISK_FEAR.map(x => riskCard(x, bySym[x.sym])).join('');
