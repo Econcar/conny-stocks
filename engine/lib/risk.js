@@ -14,6 +14,7 @@ const INDICATORS = [
   { sym: '^SKEW',    label: 'SKEW (prissatt svans-/kraschrisk)' },
   { sym: 'DX-Y.NYB', label: 'Dollarindex (DXY)' },
   { sym: 'GC=F',     label: 'Guld' },
+  { sym: 'SI=F',     label: 'Silver (säker hamn + industrimetall)' },
   { sym: 'HG=F',     label: 'Koppar ("Dr Copper")' },
   { sym: '^TNX',     label: '10-årsränta USA' },
   { sym: 'HYG',      label: 'High yield-kredit (HYG-ETF)' },

@@ -612,6 +612,7 @@
             <div>
               <div style="color:var(--text);font-weight:600;margin-bottom:5px">Risk på/av &amp; säkra hamnar</div>
               <b>Guld</b> ↑ = flykt till säkerhet · ↓ = riskaptit<br>
+              <b>Silver</b> – både säker hamn och industrimetall: följer guld vid oro, men svänger mer och drar iväg med konjunkturen. Silver upp <i>utan</i> guld = industriefterfrågan · guld upp utan silver = ren rädsla.<br>
               <b>Dollarindex</b> ↑ = global oro/flykt till dollar · ↓ = riskaptit<br>
               <b>10-årsränta</b> ↑ = tro på tillväxt/inflation (snabba hopp pressar aktier) · ↓ = flykt till obligationer<br>
               <b>Koppar</b> ("Dr Copper") ↑ = stark konjunktur · ↓ = inbromsning<br>
@@ -2197,6 +2198,7 @@ const RISK_FEAR = [
 const RISK_ONOFF = [
   { sym:'DX-Y.NYB', label:'Dollarindex',       fmt:v=>v.toFixed(2) },
   { sym:'GC=F',     label:'Guld (oz)',          fmt:v=>'$'+nfmt0(v) },
+  { sym:'SI=F',     label:'Silver (oz)',        fmt:v=>'$'+v.toFixed(2) },
   { sym:'HG=F',     label:'Koppar (lb)',        fmt:v=>'$'+v.toFixed(2) },
   { sym:'^TNX',     label:'10-årsränta USA',    fmt:v=>v.toFixed(2)+'%' },
   { sym:'HYG',      label:'High yield-kredit',  fmt:v=>'$'+v.toFixed(2) },
