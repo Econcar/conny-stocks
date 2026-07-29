@@ -58,18 +58,19 @@
   .nav-item:hover { background: rgba(255,255,255,0.05); color: var(--text); }
   .nav-item.active { background: rgba(79,142,247,0.15); color: var(--accent); }
   .nav-icon { font-size: 15px; width: 18px; text-align: center; }
-  .watchlist-section { padding: 10px 8px; flex: 1; }
-  .watchlist-item {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 10px; border-radius: 7px; cursor: pointer; transition: background 0.12s;
-  }
-  .watchlist-item:hover { background: rgba(255,255,255,0.04); }
-  .wl-name { font-size: 12px; font-weight: 500; color: var(--text); }
-  .wl-ticker { font-size: 10px; color: var(--text3); font-family: var(--mono); }
-  .wl-price { font-size: 12px; font-family: var(--mono); }
-  .wl-right { display: flex; align-items: center; gap: 6px; }
-  .wl-remove { opacity: 0; border: none; background: transparent; color: var(--text3); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; transition: color 0.12s; }
-  .watchlist-item:hover .wl-remove { opacity: 1; }
+  .sidebar-foot { padding: 10px 8px; flex: 1; }
+  /* Bevakningslistan är en egen sida (#section-watchlist), inte längre en sidebar-lista. */
+  .wl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .wl-table th { color: var(--text3); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--border2); text-align: left; }
+  .wl-table th.num { text-align: right; }
+  .wl-table td { padding: 10px; border-bottom: 1px solid var(--border); }
+  .wl-table td.num { text-align: right; font-family: var(--mono); }
+  .wl-row { cursor: pointer; transition: background 0.12s; }
+  .wl-row:hover { background: rgba(255,255,255,0.03); }
+  .wl-name { font-weight: 500; color: var(--text); }
+  .wl-ticker { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+  .wl-remove { opacity: 0; border: none; background: transparent; color: var(--text3); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; transition: color 0.12s; }
+  .wl-row:hover .wl-remove { opacity: 1; }
   .wl-remove:hover { color: var(--red); }
   #account-bar { padding: 4px 10px 10px; }
   .acct-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; font-weight: 500; cursor: pointer; transition: background 0.12s; }
@@ -318,16 +319,15 @@
     <div class="nav-item" onclick="showSection('macro')"><span class="nav-icon">◎</span> Makro</div>
     <div class="nav-item" onclick="showSection('risk')"><span class="nav-icon">◔</span> Riskbarometer</div>
     <div class="nav-item" onclick="showSection('trends')"><span class="nav-icon">◇</span> Megatrender</div>
+    <div class="nav-item" onclick="showSection('watchlist')"><span class="nav-icon">★</span> Bevakningslista</div>
     <div class="nav-item" onclick="showSection('portfolio')"><span class="nav-icon">▤</span> Min portfölj</div>
     <div class="nav-item" onclick="showSection('aifund')"><span class="nav-icon">❈</span> AI-fond</div>
     <div class="nav-item" onclick="showSection('analyses')"><span class="nav-icon">✎</span> Sparade analyser</div>
     <div class="nav-item" onclick="showSection('aicost')"><span class="nav-icon">◵</span> AI-kostnader</div>
   </div>
 
-  <div class="watchlist-section">
-    <div class="nav-label">Bevakningslista</div>
+  <div class="sidebar-foot">
     <div id="account-bar"></div>
-    <div id="watchlist-items"></div>
   </div>
 </nav>
 
@@ -633,6 +633,13 @@
       <div class="info-msg" style="margin-bottom:14px">Daglig AI-analys av långsiktiga teman, grundad i motorns färska nyhetssignaler. Uppdateras varje dag. Motorn spanar veckovis efter nya framväxande teman – förslagen dyker upp längst ner.</div>
       <div id="trends-list"></div>
       <div id="trends-suggestions" style="margin-top:20px"></div>
+    </div>
+
+    <!-- ── BEVAKNINGSLISTA ── -->
+    <div class="section" id="section-watchlist">
+      <div class="page-title">Bevakningslista <span>· Aktier och fonder du följer</span><span class="update-stamp" id="stamp-watchlist"></span></div>
+      <div class="info-msg">Lägg till papper från deras detaljsida med <b>+ Bevakningslista</b>. Listan sparas i webbläsaren och synkas till molnet när du är inloggad.</div>
+      <div class="card"><div id="watchlist-items"></div></div>
     </div>
 
     <div class="section" id="section-portfolio">
@@ -978,16 +985,21 @@ async function refreshMarketKpis() {
 }
 
 function updateWatchlistPrices() {
-  document.querySelectorAll('#watchlist-items .watchlist-item').forEach(item => {
-    const id = item.getAttribute('data-id');
+  let any = false;
+  document.querySelectorAll('#watchlist-items .wl-row').forEach(row => {
+    const id = row.getAttribute('data-id');
     const data = livePrices[id] || stocks.find(s=>s.ticker === id);
-    if(!data || data.kurs == null) return;
-    const priceEl = item.querySelector('.wl-price');
-    if(priceEl) {
-      priceEl.textContent = data.kurs;
-      priceEl.className = 'wl-price ' + (data.ytd >= 0 ? 'green' : 'red');
+    if(!data || data.kurs == null) return; // fonder saknar Yahoo-kurs → raden står kvar på "–"
+    const priceEl = row.querySelector('.wl-price');
+    if(priceEl) { priceEl.textContent = data.kurs; priceEl.className = 'num wl-price'; }
+    const ytdEl = row.querySelector('.wl-ytd');
+    if(ytdEl && data.ytd != null) {
+      ytdEl.textContent = (data.ytd >= 0 ? '+' : '') + data.ytd + '%';
+      ytdEl.className = 'num wl-ytd ' + (data.ytd >= 0 ? 'green' : 'red');
     }
+    any = true;
   });
+  if(any) setUpdatedStamp('stamp-watchlist');
 }
 
 // ══════════ AUTO-UPPDATERING PÅ DETALJSIDAN ══════════
@@ -1022,6 +1034,7 @@ function showSection(s) {
   if(s === 'risk') renderRisk();
   if(s === 'trends') renderTrends();
   if(s === 'compare') renderCompare();
+  if(s === 'watchlist') renderWatchlist();
   if(s === 'portfolio') renderPortfolio();
   if(s === 'analyses') renderAnalyses();
   if(s === 'aifund') renderAIFund();
@@ -4910,16 +4923,27 @@ function saveWatchlist(list) {
 }
 
 function renderWatchlist() {
-  const html = getWatchlist().map(w => {
+  const el = document.getElementById('watchlist-items');
+  if(!el) return;
+  const list = getWatchlist();
+  if(!list.length) {
+    el.innerHTML = '<div class="muted" style="padding:16px;font-size:13px">Inga bevakade papper ännu. Öppna en aktie eller fond och klicka <b>+ Bevakningslista</b>.</div>';
+    return;
+  }
+  const rows = list.map(w => {
     const click = w.isFund
       ? `loadFund('${escQuote(w.id)}','${escQuote(w.name)}')`
       : `loadStock('${escQuote(w.id)}','${escQuote(w.name)}')`;
-    return `<div class="watchlist-item" data-id="${escHtml(w.id)}" onclick="${escHtml(click)}">
-      <div><div class="wl-name">${escHtml(w.name)}</div><div class="wl-ticker">${escHtml(w.label||w.id)}</div></div>
-      <div class="wl-right"><span class="wl-price muted">–</span><button class="wl-remove" title="Ta bort från bevakning" onclick="event.stopPropagation();removeFromWatchlist('${escQuote(w.id)}')">×</button></div>
-    </div>`;
+    return `<tr class="wl-row" data-id="${escHtml(w.id)}" onclick="${escHtml(click)}">
+      <td><div class="wl-name">${escHtml(w.name)}</div><div class="wl-ticker">${escHtml(w.label||w.id)}</div></td>
+      <td class="num wl-price muted">–</td>
+      <td class="num wl-ytd muted">–</td>
+      <td class="num"><button class="wl-remove" title="Ta bort från bevakning" onclick="event.stopPropagation();removeFromWatchlist('${escQuote(w.id)}')">×</button></td>
+    </tr>`;
   }).join('');
-  document.getElementById('watchlist-items').innerHTML = html;
+  el.innerHTML = `<div style="overflow-x:auto"><table class="wl-table">
+    <thead><tr><th>Namn</th><th class="num">Kurs</th><th class="num">I år</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
   updateWatchlistPrices();
 }
 
