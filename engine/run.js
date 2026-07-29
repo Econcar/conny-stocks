@@ -143,6 +143,7 @@ async function main() {
   let docCount = 0;
   let deepCount = 0;
   let errCount = 0;
+  let writeFailed = false;
 
   for (const source of sources) {
     let docs;
@@ -213,8 +214,14 @@ async function main() {
     console.log(`\n[DRY] ${allRows.length} rader skulle skrivas:`);
     console.log(JSON.stringify(allRows, null, 2));
   } else if (allRows.length) {
-    const written = await upsertSignals(allRows);
+    // Skrivningen får inte sänka resten av körningen: de dagliga analyserna nedan
+    // körs ändå, och jobbet fallerar först på sista raden i main().
+    const { written, failed, firstError } = await upsertSignals(allRows);
     console.log(`\nSkrev ${written} rader till signals.`);
+    if (failed) {
+      writeFailed = true;
+      console.error(`⚠ ${failed} rader kunde INTE skrivas: ${firstError}`);
+    }
   } else {
     console.log('\nInga rader att skriva.');
   }
@@ -232,6 +239,7 @@ async function main() {
   }
 
   if (errCount && !docCount) process.exit(1); // allt föll → låt jobbet fallera
+  if (writeFailed) process.exit(1); // analyserna hann köras, men skrivningen sprack
 }
 
 main().catch((err) => {

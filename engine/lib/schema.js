@@ -119,8 +119,24 @@ function toSignalRows(doc, analysis, model) {
     model: model || null
   };
   const sector = (analysis.sectors && analysis.sectors[0]) || null;
-  const tickers = analysis.tickers && analysis.tickers.length ? analysis.tickers : [''];
-  return tickers.map((ticker) => ({ ...base, ticker: ticker || '', sector }));
+  return normalizeTickers(analysis.tickers).map((ticker) => ({ ...base, ticker, sector }));
+}
+
+// Trimmar, versaliserar och tar bort dubbletter ur AI:ns ticker-lista.
+// Modellen svarar ibland med samma bolag två gånger ("NVDA", " nvda") – två rader
+// med samma (source, external_id, ticker) i samma batch får Postgres upsert att
+// fallera på HELA skrivningen (21000: ON CONFLICT … cannot affect row a second time).
+// Tom lista → [''] = en marknadsbred rad.
+function normalizeTickers(list) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(list) ? list : []) {
+    const ticker = String(raw == null ? '' : raw).trim().toUpperCase();
+    if (!ticker || seen.has(ticker)) continue;
+    seen.add(ticker);
+    out.push(ticker);
+  }
+  return out.length ? out : [''];
 }
 
 function clamp01(n) {
@@ -129,4 +145,4 @@ function clamp01(n) {
   return Math.max(0, Math.min(1, x));
 }
 
-module.exports = { ANALYSIS_TOOL, DEEP_ANALYSIS_TOOL, validateDocument, toSignalRows };
+module.exports = { ANALYSIS_TOOL, DEEP_ANALYSIS_TOOL, validateDocument, toSignalRows, normalizeTickers };
