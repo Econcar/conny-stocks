@@ -199,9 +199,13 @@ async function main() {
         allRows.push(...rows);
         docCount++;
         const deep = model === DEEP_MODEL ? ' ⬆djup' : '';
+        // Logga tickers från raderna, inte från AI-svaret: modellen svarar ibland
+        // med något annat än en array och då kastade .join() – efter att raden
+        // redan lagts till, så dokumentet bokfördes både som ✓ och som fel.
+        const tickers = rows.map((r) => r.ticker).filter(Boolean).join(',');
         console.log(
           `  ✓ ${doc.external_id} → ${analysis.sentiment} ` +
-          `impact=${analysis.impact_score} tickers=[${(analysis.tickers || []).join(',')}]${deep}`
+          `impact=${analysis.impact_score} tickers=[${tickers}]${deep}`
         );
       } catch (err) {
         console.error(`  ✗ ${doc.external_id}: ${err.message}`);

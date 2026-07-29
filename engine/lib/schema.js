@@ -128,9 +128,14 @@ function toSignalRows(doc, analysis, model) {
 // fallera på HELA skrivningen (21000: ON CONFLICT … cannot affect row a second time).
 // Tom lista → [''] = en marknadsbred rad.
 function normalizeTickers(list) {
+  // Modellen svarar nästan alltid med en array, men ibland med en sträng
+  // ("NVDA, AAPL") – ta emot båda i stället för att tappa bolagen.
+  const items = Array.isArray(list) ? list
+    : typeof list === 'string' ? list.split(',')
+    : [];
   const out = [];
   const seen = new Set();
-  for (const raw of Array.isArray(list) ? list : []) {
+  for (const raw of items) {
     const ticker = String(raw == null ? '' : raw).trim().toUpperCase();
     if (!ticker || seen.has(ticker)) continue;
     seen.add(ticker);
