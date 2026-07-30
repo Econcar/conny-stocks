@@ -645,6 +645,17 @@
       <div class="card"><div id="watchlist-items"></div></div>
       <div class="card" id="wl-chart-card" style="margin-top:16px;display:none">
         <div class="card-title" id="wl-chart-title">–</div>
+        <div class="filter-row" id="wl-chart-controls" style="margin-bottom:10px;align-items:center;gap:6px">
+          <div class="filter-chip on" id="wl-mode-price" onclick="setWlChartMode('price')">Kurs</div>
+          <div class="filter-chip" id="wl-mode-pct" onclick="setWlChartMode('pct')">%</div>
+          <span style="width:8px"></span>
+          <span style="font-size:11px;color:var(--text3)">Jämför:</span>
+          <div class="filter-chip" onclick="addWlCompare('^GSPC','S&P 500')">S&amp;P 500</div>
+          <div class="filter-chip" onclick="addWlCompare('^IXIC','Nasdaq')">Nasdaq</div>
+          <div class="filter-chip" onclick="addWlCompare('^OMX','OMXS30')">OMXS30</div>
+          <input class="filter-input" id="wl-compare-input" placeholder="+ ticker/fond" onkeydown="if(event.key==='Enter')addWlCompareInput()" style="width:110px">
+        </div>
+        <div id="wl-compare-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
         <div id="wl-chart-msg" class="muted" style="display:none;font-size:13px;padding:6px 2px"></div>
         <div class="chart-wrap" id="wl-chart-wrap" style="height:300px"><canvas id="wlChart" role="img" aria-label="Utveckling för markerat papper"></canvas></div>
       </div>
@@ -1951,21 +1962,22 @@ async function fetchChartSeries(sym, range, interval) {
   } catch(e) { return null; }
 }
 
-async function loadPriceChart(ticker, period) {
-  const rangeMap = {'1w':'5d','1mo':'1mo','3mo':'3mo','6mo':'6mo','1y':'1y','2y':'2y','5y':'5y'};
-  const intervalMap = {'1w':'60m','1mo':'1d','3mo':'1d','6mo':'1wk','1y':'1wk','2y':'1wk','5y':'1mo'};
-  const range = rangeMap[period], interval = intervalMap[period];
+// Ritar en kurs-/utvecklingsgraf med valfria jämförelseserier. Delas av aktiesidan
+// och bevakningslistan – tidsaxel-inriktningen nedan (keyOf/alignRebase) är klurig
+// nog att bara få finnas på ett ställe. Returnerar Chart-instansen, eller null om
+// primärserien saknas (då lämnas `prev` orörd).
+async function drawSeriesChart({ canvasId, sym, name, compare = [], range, interval, mode = 'price', prev = null }) {
   const intraday = /[mh]$/.test(interval);
   try {
-    const primary = await fetchChartSeries(ticker, range, interval);
-    if(!primary || !primary.ts.length) return;
+    const primary = await fetchChartSeries(sym, range, interval);
+    if(!primary || !primary.ts.length) return null;
     const comp = [];
-    for(const c of compareSyms) {
+    for(const c of compare) {
       const s = await fetchChartSeries(c.sym, range, interval);
       if(s && s.ts.length) comp.push({ ...c, ...s });
     }
     const hasCompare = comp.length > 0;
-    const pct = chartMode === 'pct' || hasCompare; // jämförelse kräver %
+    const pct = mode === 'pct' || hasCompare; // jämförelse kräver %
 
     const ts = primary.ts;
     const labels = ts.map(t=>{
@@ -1996,7 +2008,7 @@ async function loadPriceChart(ticker, period) {
     const pf = primVals.find(v => v != null), pl = [...primVals].reverse().find(v => v != null);
     const primColor = (pl >= pf) ? '#22c55e' : '#ef4444';
     const datasets = [{
-      label: currentStockName || ticker, data: primVals,
+      label: name || sym, data: primVals,
       borderColor: primColor, backgroundColor: hasCompare ? 'transparent' : primColor + '18',
       fill: !hasCompare, borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, spanGaps: true
     }];
@@ -2009,9 +2021,8 @@ async function loadPriceChart(ticker, period) {
       });
     });
 
-    if(currentPriceChart) currentPriceChart.destroy();
-    const ctx = document.getElementById('priceChart').getContext('2d');
-    currentPriceChart = new Chart(ctx, {
+    if(prev) prev.destroy();
+    return new Chart(document.getElementById(canvasId).getContext('2d'), {
       type: 'line',
       data: { labels, datasets },
       options: { responsive: true, maintainAspectRatio: false,
@@ -2025,8 +2036,19 @@ async function loadPriceChart(ticker, period) {
           y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, callback: pct ? (v => (v >= 0 ? '+' : '') + v + '%') : undefined } }
         } }
     });
-    updateCompareChips();
-  } catch(e) {}
+  } catch(e) { return null; }
+}
+
+async function loadPriceChart(ticker, period) {
+  const rangeMap = {'1w':'5d','1mo':'1mo','3mo':'3mo','6mo':'6mo','1y':'1y','2y':'2y','5y':'5y'};
+  const intervalMap = {'1w':'60m','1mo':'1d','3mo':'1d','6mo':'1wk','1y':'1wk','2y':'1wk','5y':'1mo'};
+  const chart = await drawSeriesChart({
+    canvasId: 'priceChart', sym: ticker, name: currentStockName || ticker,
+    compare: compareSyms, range: rangeMap[period], interval: intervalMap[period],
+    mode: chartMode, prev: currentPriceChart
+  });
+  if(chart) currentPriceChart = chart;
+  updateCompareChips();
 }
 
 function reloadChart() {
@@ -4955,26 +4977,26 @@ const wlTdPct = v => `<td style="text-align:right;color:${v==null?'var(--text3)'
 const wlTdText = v => `<td style="color:var(--text2);font-size:12px">${escHtml(v||'–')}</td>`;
 
 const WL_COL_DEFS = {
-  marknad: { label:'Marknad', align:'left', cell:r=>wlTdText(r.marknad) },
-  valuta:  { label:'Valuta', align:'left', cell:r=>wlTdText(r.valuta) },
-  sektor:  { label:'Sektor', align:'left', cell:r=>wlTdText(r.sektor) },
-  kurs:    { label:'Kurs', cell:r=>wlTdNum(r.price!=null?fmtSekNum(r.price,2):'–') },
-  change:  { label:()=>wlPeriodLabel(), cell:r=>wlTdPct(r.ret) },
-  ytd:     { label:'ÅTD %', cell:r=>wlTdPct(r.ytd) },
-  dag:     { label:'Dag %', cell:r=>wlTdPct(r.dag) },
-  ar52:    { label:'52v %', cell:r=>wlTdPct(r.ar52) },
-  hi52:    { label:'52v hög', cell:r=>wlTdNum(r.hi52!=null?fmtSekNum(r.hi52,2):'–') },
-  lo52:    { label:'52v låg', cell:r=>wlTdNum(r.lo52!=null?fmtSekNum(r.lo52,2):'–') },
-  pe:      { label:'P/E', cell:r=>wlTdNum(r.pe!=null?r.pe.toFixed(1):'–') },
-  fpe:     { label:'Fwd P/E', cell:r=>wlTdNum(r.fpe!=null?r.fpe.toFixed(1):'–') },
-  pb:      { label:'P/B', cell:r=>wlTdNum(r.pb!=null?r.pb.toFixed(1):'–') },
-  eps:     { label:'EPS', cell:r=>wlTdNum(r.eps!=null?r.eps.toFixed(2):'–') },
-  fwdeps:  { label:'Fwd EPS', cell:r=>wlTdNum(r.fwdeps!=null?r.fwdeps.toFixed(2):'–') },
-  div:     { label:'Utd.%', cell:r=>wlTdNum(r.divy>0?r.divy.toFixed(1)+'%':'–') },
-  mcap:    { label:'Mkt cap', cell:r=>wlTdNum(r.mcap!=null?(r.mcap>=1000?(r.mcap/1000).toFixed(1)+'T':r.mcap+'B'):'–') },
-  volym:   { label:'Volym', cell:r=>wlTdNum(r.volym!=null?fmtVol(r.volym):'–') },
-  avgvol:  { label:'Snittvol.', cell:r=>wlTdNum(r.avgvol!=null?fmtVol(r.avgvol):'–') },
-  rating:  { label:'Analytiker', align:'left', cell:r=>{ if(!r.rec) return wlTdText(null); const t=r.rec.buy+r.rec.hold+r.rec.sell;
+  marknad: { label:'Marknad', align:'left', val:r=>r.marknad||'', cell:r=>wlTdText(r.marknad) },
+  valuta:  { label:'Valuta', align:'left', val:r=>r.valuta||'', cell:r=>wlTdText(r.valuta) },
+  sektor:  { label:'Sektor', align:'left', val:r=>r.sektor||'', cell:r=>wlTdText(r.sektor) },
+  kurs:    { label:'Kurs', val:r=>r.price, cell:r=>wlTdNum(r.price!=null?fmtSekNum(r.price,2):'–') },
+  change:  { label:()=>wlPeriodLabel(), val:r=>r.ret, cell:r=>wlTdPct(r.ret) },
+  ytd:     { label:'ÅTD %', val:r=>r.ytd, cell:r=>wlTdPct(r.ytd) },
+  dag:     { label:'Dag %', val:r=>r.dag, cell:r=>wlTdPct(r.dag) },
+  ar52:    { label:'52v %', val:r=>r.ar52, cell:r=>wlTdPct(r.ar52) },
+  hi52:    { label:'52v hög', val:r=>r.hi52, cell:r=>wlTdNum(r.hi52!=null?fmtSekNum(r.hi52,2):'–') },
+  lo52:    { label:'52v låg', val:r=>r.lo52, cell:r=>wlTdNum(r.lo52!=null?fmtSekNum(r.lo52,2):'–') },
+  pe:      { label:'P/E', val:r=>r.pe, cell:r=>wlTdNum(r.pe!=null?r.pe.toFixed(1):'–') },
+  fpe:     { label:'Fwd P/E', val:r=>r.fpe, cell:r=>wlTdNum(r.fpe!=null?r.fpe.toFixed(1):'–') },
+  pb:      { label:'P/B', val:r=>r.pb, cell:r=>wlTdNum(r.pb!=null?r.pb.toFixed(1):'–') },
+  eps:     { label:'EPS', val:r=>r.eps, cell:r=>wlTdNum(r.eps!=null?r.eps.toFixed(2):'–') },
+  fwdeps:  { label:'Fwd EPS', val:r=>r.fwdeps, cell:r=>wlTdNum(r.fwdeps!=null?r.fwdeps.toFixed(2):'–') },
+  div:     { label:'Utd.%', val:r=>r.divy, cell:r=>wlTdNum(r.divy>0?r.divy.toFixed(1)+'%':'–') },
+  mcap:    { label:'Mkt cap', val:r=>r.mcap, cell:r=>wlTdNum(r.mcap!=null?(r.mcap>=1000?(r.mcap/1000).toFixed(1)+'T':r.mcap+'B'):'–') },
+  volym:   { label:'Volym', val:r=>r.volym, cell:r=>wlTdNum(r.volym!=null?fmtVol(r.volym):'–') },
+  avgvol:  { label:'Snittvol.', val:r=>r.avgvol, cell:r=>wlTdNum(r.avgvol!=null?fmtVol(r.avgvol):'–') },
+  rating:  { label:'Analytiker', align:'left', val:r=>r.rec?r.rec.buy:null, cell:r=>{ if(!r.rec) return wlTdText(null); const t=r.rec.buy+r.rec.hold+r.rec.sell;
     return `<td style="font-size:12px;white-space:nowrap"><span style="color:var(--green)">${r.rec.buy} köp</span> · ${r.rec.hold} håll · <span style="color:var(--red)">${r.rec.sell} sälj</span><div style="font-size:10px;color:var(--text3)">${t} analytiker</div></td>`; } },
 };
 const WL_COL_ORDER = ['marknad','valuta','sektor','kurs','change','ytd','dag','ar52','hi52','lo52','pe','fpe','pb','eps','fwdeps','div','mcap','volym','avgvol','rating'];
@@ -5008,6 +5030,14 @@ function wlRow(w){
     avgvol:inf.avgvol, marknad:inf.marknad, sektor:inf.sektor, rec:inf.rec };
 }
 
+// col:null = listans egen ordning (som den sparats). Klick på en rubrik sorterar.
+let wlSort = { col:null, dir:'desc' };
+function sortWatchlist(col){
+  if(wlSort.col === col) wlSort.dir = wlSort.dir === 'asc' ? 'desc' : 'asc';
+  else wlSort = { col, dir: col === 'name' ? 'asc' : 'desc' };
+  paintWatchlist();
+}
+
 function paintWatchlist(){
   const el = document.getElementById('watchlist-items');
   if(!el) return;
@@ -5019,10 +5049,24 @@ function paintWatchlist(){
   }
   const chips = PF_PERIODS.map(([p,lbl]) =>
     `<div class="filter-chip${p===wlPeriod?' on':''}" onclick="setWlPeriod('${p}')">${lbl}</div>`).join('');
+  const sortStyle = 'cursor:pointer;user-select:none';
+  const arrow = c => wlSort.col === c ? (wlSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
   const head = wlVisibleCols.map(k =>
-    `<th style="text-align:${WL_COL_DEFS[k].align||'right'}">${escHtml(wlColLabel(k))}</th>`).join('');
-  const body = list.map(w => {
-    const r = wlRow(w);
+    `<th style="text-align:${WL_COL_DEFS[k].align||'right'};${sortStyle}" onclick="sortWatchlist('${k}')">${escHtml(wlColLabel(k))}${arrow(k)}</th>`).join('');
+  // Tomma värden hamnar sist oavsett riktning – annars fyller "–" toppen.
+  let rows = list.map(wlRow);
+  if(wlSort.col){
+    const dir = wlSort.dir === 'asc' ? 1 : -1;
+    const getk = wlSort.col === 'name' ? (r => r.name.toLowerCase()) : WL_COL_DEFS[wlSort.col].val;
+    rows = rows.slice().sort((a,b) => {
+      const va = getk(a), vb = getk(b);
+      if(va == null && vb == null) return 0;
+      if(va == null) return 1; if(vb == null) return -1;
+      if(typeof va === 'string' && typeof vb === 'string') return va < vb ? -dir : va > vb ? dir : 0;
+      return (va - vb) * dir;
+    });
+  }
+  const body = rows.map(r => {
     const open = r.isFund ? `loadFund('${escQuote(r.id)}','${escQuote(r.name)}')` : `loadStock('${escQuote(r.id)}','${escQuote(r.name)}')`;
     return `<tr class="wl-row${r.id===wlSelected?' sel':''}" data-id="${escHtml(r.id)}" onclick="selectWlRow('${escQuote(r.id)}')">
       <td><div class="wl-name">${escHtml(r.name)}</div><div class="wl-ticker">${escHtml(r.label)}</div></td>
@@ -5040,7 +5084,7 @@ function paintWatchlist(){
       </div>
     </div>
     <div style="overflow-x:auto"><table class="wl-table">
-      <thead><tr><th>Namn</th>${head}<th></th></tr></thead>
+      <thead><tr><th style="${sortStyle}" onclick="sortWatchlist('name')">Namn${arrow('name')}</th>${head}<th></th></tr></thead>
       <tbody>${body}</tbody>
     </table></div>`;
 }
@@ -5056,39 +5100,63 @@ function selectWlRow(id){
 // Grafens upplösning per period – 1 dag blir intradag, långa spann veckovis.
 const WL_CHART_RANGE = { '1d':['1d','5m'], '1w':['5d','30m'], '1mo':['1mo','1d'], 'ytd':['ytd','1d'], '1y':['1y','1d'], '2y':['2y','1wk'], '5y':['5y','1wk'] };
 
+// Jämförelseserier i bevakningsgrafen – samma mönster som aktiesidans.
+let wlChartMode = 'price';
+let wlCompare = [];
+function setWlChartMode(m){
+  wlChartMode = m;
+  document.getElementById('wl-mode-price').classList.toggle('on', m === 'price');
+  document.getElementById('wl-mode-pct').classList.toggle('on', m === 'pct');
+  if(wlSelected) drawWatchlistChart();
+}
+function addWlCompare(sym, name){
+  sym = (sym || '').trim();
+  if(!sym || sym === wlSelected || wlCompare.find(c => c.sym === sym)) return;
+  if(wlCompare.length >= 5) return;
+  wlCompare.push({ sym, name: name || sym });
+  if(wlSelected) drawWatchlistChart(); else updateWlCompareChips();
+}
+async function addWlCompareInput(){
+  const el = document.getElementById('wl-compare-input');
+  const v = (el.value || '').trim();
+  if(!v) return;
+  el.value = ''; el.placeholder = 'söker…';
+  const r = await resolveSymbol(v);
+  el.placeholder = '+ ticker/fond';
+  if(r) addWlCompare(r.sym, r.name);
+  else addWlCompare(v.toUpperCase(), v.toUpperCase()); // fallback: prova som ticker
+}
+function removeWlCompare(sym){
+  wlCompare = wlCompare.filter(c => c.sym !== sym);
+  if(wlSelected) drawWatchlistChart(); else updateWlCompareChips();
+}
+function updateWlCompareChips(){
+  const el = document.getElementById('wl-compare-chips');
+  if(!el) return;
+  el.innerHTML = wlCompare.map(c =>
+    `<span class="ticker-chip" style="cursor:default">${escHtml(c.name)} <span onclick="removeWlCompare('${escQuote(c.sym)}')" style="cursor:pointer;color:var(--text3)">×</span></span>`).join('');
+}
+
 async function drawWatchlistChart(){
   const card = document.getElementById('wl-chart-card');
   const item = getWatchlist().find(w => w.id === wlSelected);
   if(!card || !item) return;
   card.style.display = '';
   document.getElementById('wl-chart-title').textContent = `${item.name} · ${wlPeriodLabel()}`;
+  updateWlCompareChips();
   const msg = document.getElementById('wl-chart-msg'), wrap = document.getElementById('wl-chart-wrap');
   const fail = t => { msg.textContent = t; msg.style.display = ''; wrap.style.display = 'none'; if(wlChart){ wlChart.destroy(); wlChart = null; } };
   if(item.isFund) return fail('Fonder saknar kursserie hos Yahoo – öppna fondens egen sida för utvecklingen.');
+  // Canvasen måste vara synlig INNAN Chart.js mäter den, annars ritas grafen
+  // med noll höjd efter ett tidigare felmeddelande.
+  msg.style.display = 'none'; wrap.style.display = '';
   const [range, interval] = WL_CHART_RANGE[wlPeriod] || ['1y','1d'];
-  try {
-    const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(item.id)}?interval=${interval}&range=${range}`);
-    const r = data.chart.result[0];
-    const ts = r.timestamp || [];
-    const closes = (r.indicators.quote[0].close || []).map(v => v != null ? +v.toFixed(2) : null);
-    if(!ts.length) return fail('Ingen kursdata för den här perioden.');
-    const intraday = interval.endsWith('m');
-    const labels = ts.map(t => new Date(t*1000).toLocaleString('sv-SE', intraday
-      ? { hour:'2-digit', minute:'2-digit' }
-      : { year:'numeric', month:'short', day:'numeric' }));
-    const valid = closes.filter(v => v != null);
-    const up = valid.length ? valid[valid.length-1] >= valid[0] : true;
-    const color = up ? '#22c55e' : '#ef4444';
-    msg.style.display = 'none'; wrap.style.display = '';
-    if(wlChart) wlChart.destroy();
-    wlChart = new Chart(document.getElementById('wlChart').getContext('2d'), {
-      type: 'line',
-      data: { labels, datasets: [{ data: closes, borderColor: color, borderWidth: 2, backgroundColor: color + '18', fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, spanGaps: true }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
-        scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, maxTicksLimit: 8 } },
-          y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 } } } } }
-    });
-  } catch(e){ fail('Kunde inte hämta kursdata just nu.'); }
+  const chart = await drawSeriesChart({
+    canvasId: 'wlChart', sym: item.id, name: item.name, compare: wlCompare,
+    range, interval, mode: wlChartMode, prev: wlChart
+  });
+  if(!chart) return fail('Ingen kursdata för den här perioden.');
+  wlChart = chart;
 }
 
 // Fundamenta och 5-årshistorik hämtas en gång per papper (fonder hoppas över).
