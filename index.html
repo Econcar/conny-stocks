@@ -67,6 +67,9 @@
   .wl-table td.num { text-align: right; font-family: var(--mono); }
   .wl-row { cursor: pointer; transition: background 0.12s; }
   .wl-row:hover { background: rgba(255,255,255,0.03); }
+  .wl-row.sel { background: rgba(79,142,247,0.12); box-shadow: inset 2px 0 0 var(--accent); }
+  .wl-open { border: none; background: transparent; color: var(--text3); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; transition: color 0.12s; }
+  .wl-open:hover { color: var(--accent); }
   .wl-name { font-weight: 500; color: var(--text); }
   .wl-ticker { font-size: 11px; color: var(--text3); font-family: var(--mono); }
   .wl-remove { opacity: 0; border: none; background: transparent; color: var(--text3); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; transition: color 0.12s; }
@@ -638,8 +641,13 @@
     <!-- ── BEVAKNINGSLISTA ── -->
     <div class="section" id="section-watchlist">
       <div class="page-title">Bevakningslista <span>· Aktier och fonder du följer</span><span class="update-stamp" id="stamp-watchlist"></span></div>
-      <div class="info-msg">Lägg till papper från deras detaljsida med <b>+ Bevakningslista</b>. Listan sparas i webbläsaren och synkas till molnet när du är inloggad.</div>
+      <div class="info-msg">Klicka en rad för att se utvecklingen i grafen · <b>↗</b> öppnar papprets egen sida. Listan sparas i webbläsaren och synkas till molnet när du är inloggad.</div>
       <div class="card"><div id="watchlist-items"></div></div>
+      <div class="card" id="wl-chart-card" style="margin-top:16px;display:none">
+        <div class="card-title" id="wl-chart-title">–</div>
+        <div id="wl-chart-msg" class="muted" style="display:none;font-size:13px;padding:6px 2px"></div>
+        <div class="chart-wrap" id="wl-chart-wrap" style="height:300px"><canvas id="wlChart" role="img" aria-label="Utveckling för markerat papper"></canvas></div>
+      </div>
     </div>
 
     <div class="section" id="section-portfolio">
@@ -905,7 +913,14 @@ async function refreshLivePrices() {
         const stock = stocks.find(s=>s.ticker === r.symbol);
         // behåll tidigare YTD om Yahoo inte gav nog historik
         const effYtd = ytd != null ? ytd : (stock ? stock.ytd : 0);
-        livePrices[r.symbol] = { kurs: fmtPrice(price, meta.currency), ytd: effYtd };
+        // Dagsförändring från de två senaste stängningarna (samma resonemang som i
+        // fetchSparkData: spark saknar previousClose och chartPreviousClose är fjolårets sista).
+        let prev;
+        if(closes.length >= 2) prev = (Math.abs(closes[closes.length-1] - price) < 1e-6) ? closes[closes.length-2] : closes[closes.length-1];
+        else prev = meta.previousClose != null ? meta.previousClose : meta.chartPreviousClose;
+        const day = prev ? +(((price - prev)/prev)*100).toFixed(2) : null;
+        // price/day (rådata) används av bevakningslistans tabell, kurs av sidomeny/översikt.
+        livePrices[r.symbol] = { kurs: fmtPrice(price, meta.currency), ytd: effYtd, price, day, currency: meta.currency };
         if(stock) { stock.kurs = livePrices[r.symbol].kurs; if(ytd != null) stock.ytd = ytd; }
         changed = true;
       });
@@ -984,22 +999,13 @@ async function refreshMarketKpis() {
   } catch(e) { /* behåll föregående värden om Yahoo strular */ }
 }
 
+// Kallas av refreshLivePrices var 60:e sekund. Tabellen läser livePrices direkt,
+// så det räcker att rita om den – och bara när sidan faktiskt är framme.
 function updateWatchlistPrices() {
-  let any = false;
-  document.querySelectorAll('#watchlist-items .wl-row').forEach(row => {
-    const id = row.getAttribute('data-id');
-    const data = livePrices[id] || stocks.find(s=>s.ticker === id);
-    if(!data || data.kurs == null) return; // fonder saknar Yahoo-kurs → raden står kvar på "–"
-    const priceEl = row.querySelector('.wl-price');
-    if(priceEl) { priceEl.textContent = data.kurs; priceEl.className = 'num wl-price'; }
-    const ytdEl = row.querySelector('.wl-ytd');
-    if(ytdEl && data.ytd != null) {
-      ytdEl.textContent = (data.ytd >= 0 ? '+' : '') + data.ytd + '%';
-      ytdEl.className = 'num wl-ytd ' + (data.ytd >= 0 ? 'green' : 'red');
-    }
-    any = true;
-  });
-  if(any) setUpdatedStamp('stamp-watchlist');
+  if(currentSection !== 'watchlist') return;
+  if(!document.querySelector('#watchlist-items .wl-row')) return;
+  paintWatchlist();
+  setUpdatedStamp('stamp-watchlist');
 }
 
 // ══════════ AUTO-UPPDATERING PÅ DETALJSIDAN ══════════
@@ -2710,6 +2716,9 @@ async function fetchQuotesChunked(tickers){
 
 // Per-ticker fundamenta via /api/quote (ett anrop/ticker, 8 parallellt): analytikernas
 // köp/håll/sälj, P/E, direktavkastning, börsvärde och sektor – till valbara tabellkolumner.
+// Används av både portföljen och bevakningslistan; den senare visar även
+// nyckeltalen som annars bara finns i aktiescreenern (Fwd P/E, P/B, EPS, 52v, volym).
+// Yahoo levererar procentfälten som bråkdelar (0.0032 = 0,32 %) – därför ×100.
 async function fetchHoldingInfo(tickers){
   const g = x => (x && typeof x === 'object') ? x.raw : x;
   const out = {};
@@ -2722,6 +2731,7 @@ async function fetchHoldingInfo(tickers){
         const res = j && j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0];
         if(!res) return;
         const sd = res.summaryDetail || {}, pr = res.price || {}, ap = res.assetProfile || {};
+        const ks = res.defaultKeyStatistics || {};
         const tr = res.recommendationTrend && res.recommendationTrend.trend;
         const cur = Array.isArray(tr) ? (tr.find(x => x.period === '0m') || tr[0]) : null;
         let rec = null;
@@ -2732,8 +2742,18 @@ async function fetchHoldingInfo(tickers){
         const pe = g(sd.trailingPE);
         const dy = g(sd.dividendYield); const divy = dy != null ? +(dy*100).toFixed(2) : null;
         const mc = g(pr.marketCap) != null ? g(pr.marketCap) : g(sd.marketCap);
+        const chg = g(pr.regularMarketChangePercent);
+        const w52 = g(ks['52WeekChange']);
         out[t] = { rec, pe: pe != null ? +pe.toFixed(1) : null, divy,
-          mcap: mc != null ? Math.round(mc/1e9) : null, sektor: ap.sector || null };
+          mcap: mc != null ? Math.round(mc/1e9) : null, sektor: ap.sector || null,
+          price: g(pr.regularMarketPrice), valuta: pr.currency || sd.currency || null,
+          marknad: pr.exchangeName || pr.fullExchangeName || null,
+          dag: chg != null ? +(chg*100).toFixed(2) : null,
+          ar52: w52 != null ? +(w52*100).toFixed(1) : null,
+          hi52: g(sd.fiftyTwoWeekHigh), lo52: g(sd.fiftyTwoWeekLow),
+          fpe: g(sd.forwardPE), pb: g(ks.priceToBook),
+          eps: g(ks.trailingEps), fwdeps: g(ks.forwardEps),
+          volym: g(sd.volume), avgvol: g(sd.averageVolume) };
       } catch(e){}
     }));
   }
@@ -4922,29 +4942,175 @@ function saveWatchlist(list) {
   try { localStorage.setItem('watchlist', JSON.stringify(list)); } catch(e){}
 }
 
-function renderWatchlist() {
+// ── Tabellen: portföljens periodväljare (PF_PERIODS) + aktiescreenerns kolumnuppsättning ──
+let wlPeriod = '1d';
+let wlSelected = null;                 // markerad rad → grafen nedanför tabellen
+let wlInfo = {}, wlSeries = {};        // fundamenta resp. 5-årsserier per ticker
+let wlLoading = false, wlChart = null;
+const wlPeriodLabel = () => (PF_PERIODS.find(p => p[0] === wlPeriod) || PF_PERIODS[0])[1];
+function setWlPeriod(p){ wlPeriod = p; paintWatchlist(); if(wlSelected) drawWatchlistChart(); }
+
+const wlTdNum = v => `<td style="text-align:right" class="td-mono">${v}</td>`;
+const wlTdPct = v => `<td style="text-align:right;color:${v==null?'var(--text3)':(v>=0?'var(--green)':'var(--red)')}" class="td-mono">${v!=null?(v>=0?'+':'')+v.toFixed(1)+'%':'–'}</td>`;
+const wlTdText = v => `<td style="color:var(--text2);font-size:12px">${escHtml(v||'–')}</td>`;
+
+const WL_COL_DEFS = {
+  marknad: { label:'Marknad', align:'left', cell:r=>wlTdText(r.marknad) },
+  valuta:  { label:'Valuta', align:'left', cell:r=>wlTdText(r.valuta) },
+  sektor:  { label:'Sektor', align:'left', cell:r=>wlTdText(r.sektor) },
+  kurs:    { label:'Kurs', cell:r=>wlTdNum(r.price!=null?fmtSekNum(r.price,2):'–') },
+  change:  { label:()=>wlPeriodLabel(), cell:r=>wlTdPct(r.ret) },
+  ytd:     { label:'ÅTD %', cell:r=>wlTdPct(r.ytd) },
+  dag:     { label:'Dag %', cell:r=>wlTdPct(r.dag) },
+  ar52:    { label:'52v %', cell:r=>wlTdPct(r.ar52) },
+  hi52:    { label:'52v hög', cell:r=>wlTdNum(r.hi52!=null?fmtSekNum(r.hi52,2):'–') },
+  lo52:    { label:'52v låg', cell:r=>wlTdNum(r.lo52!=null?fmtSekNum(r.lo52,2):'–') },
+  pe:      { label:'P/E', cell:r=>wlTdNum(r.pe!=null?r.pe.toFixed(1):'–') },
+  fpe:     { label:'Fwd P/E', cell:r=>wlTdNum(r.fpe!=null?r.fpe.toFixed(1):'–') },
+  pb:      { label:'P/B', cell:r=>wlTdNum(r.pb!=null?r.pb.toFixed(1):'–') },
+  eps:     { label:'EPS', cell:r=>wlTdNum(r.eps!=null?r.eps.toFixed(2):'–') },
+  fwdeps:  { label:'Fwd EPS', cell:r=>wlTdNum(r.fwdeps!=null?r.fwdeps.toFixed(2):'–') },
+  div:     { label:'Utd.%', cell:r=>wlTdNum(r.divy>0?r.divy.toFixed(1)+'%':'–') },
+  mcap:    { label:'Mkt cap', cell:r=>wlTdNum(r.mcap!=null?(r.mcap>=1000?(r.mcap/1000).toFixed(1)+'T':r.mcap+'B'):'–') },
+  volym:   { label:'Volym', cell:r=>wlTdNum(r.volym!=null?fmtVol(r.volym):'–') },
+  avgvol:  { label:'Snittvol.', cell:r=>wlTdNum(r.avgvol!=null?fmtVol(r.avgvol):'–') },
+  rating:  { label:'Analytiker', align:'left', cell:r=>{ if(!r.rec) return wlTdText(null); const t=r.rec.buy+r.rec.hold+r.rec.sell;
+    return `<td style="font-size:12px;white-space:nowrap"><span style="color:var(--green)">${r.rec.buy} köp</span> · ${r.rec.hold} håll · <span style="color:var(--red)">${r.rec.sell} sälj</span><div style="font-size:10px;color:var(--text3)">${t} analytiker</div></td>`; } },
+};
+const WL_COL_ORDER = ['marknad','valuta','sektor','kurs','change','ytd','dag','ar52','hi52','lo52','pe','fpe','pb','eps','fwdeps','div','mcap','volym','avgvol','rating'];
+const WL_DEFAULT_COLS = ['kurs','change','ytd','pe','div','mcap'];
+const wlColLabel = k => { const l = WL_COL_DEFS[k].label; return typeof l === 'function' ? l() : l; };
+function getWlCols(){ try { const s = JSON.parse(localStorage.getItem('wlCols')); if(Array.isArray(s) && s.length) return WL_COL_ORDER.filter(k => s.includes(k)); } catch(e){} return WL_DEFAULT_COLS.slice(); }
+let wlVisibleCols = getWlCols();
+function saveWlCols(){ try { localStorage.setItem('wlCols', JSON.stringify(wlVisibleCols)); } catch(e){} }
+function toggleWlColMenu(){ const m = document.getElementById('wl-col-menu'); const show = m.style.display === 'none'; m.style.display = show ? 'block' : 'none'; if(show) renderWlColMenu(); }
+function renderWlColMenu(){ document.getElementById('wl-col-menu').innerHTML = WL_COL_ORDER.map(k =>
+  `<label><input type="checkbox" ${wlVisibleCols.includes(k)?'checked':''} onchange="toggleWlCol('${k}')"> ${escHtml(wlColLabel(k))}</label>`).join(''); }
+function toggleWlCol(k){
+  if(wlVisibleCols.includes(k)){ if(wlVisibleCols.length <= 1) return; wlVisibleCols = wlVisibleCols.filter(x => x !== k); }
+  else wlVisibleCols = WL_COL_ORDER.filter(x => wlVisibleCols.includes(x) || x === k);
+  saveWlCols(); paintWatchlist(); renderWlColMenu();
+}
+
+// Slår ihop bevakat papper + live-kurs + fundamenta + periodavkastning till en tabellrad.
+function wlRow(w){
+  const lp = livePrices[w.id] || {}, inf = wlInfo[w.id] || {};
+  const ser = wlSeries[w.id];
+  const dag = lp.day != null ? lp.day : inf.dag;
+  // 1 dag kommer från kursanropet, längre perioder ur 5-årsserien (som i portföljen).
+  const ret = w.isFund ? null : (wlPeriod === '1d' ? dag : (ser ? pfReturn(ser, wlPeriod) : null));
+  return { id:w.id, name:w.name, label:w.label||w.id, isFund:!!w.isFund, ret, dag,
+    price: lp.price != null ? lp.price : inf.price,
+    ytd: lp.ytd != null ? lp.ytd : null,
+    valuta: inf.valuta || lp.currency || null,
+    ar52:inf.ar52, hi52:inf.hi52, lo52:inf.lo52, pe:inf.pe, fpe:inf.fpe, pb:inf.pb,
+    eps:inf.eps, fwdeps:inf.fwdeps, divy:inf.divy, mcap:inf.mcap, volym:inf.volym,
+    avgvol:inf.avgvol, marknad:inf.marknad, sektor:inf.sektor, rec:inf.rec };
+}
+
+function paintWatchlist(){
   const el = document.getElementById('watchlist-items');
   if(!el) return;
   const list = getWatchlist();
-  if(!list.length) {
+  if(!list.length){
     el.innerHTML = '<div class="muted" style="padding:16px;font-size:13px">Inga bevakade papper ännu. Öppna en aktie eller fond och klicka <b>+ Bevakningslista</b>.</div>';
+    const card = document.getElementById('wl-chart-card'); if(card) card.style.display = 'none';
     return;
   }
-  const rows = list.map(w => {
-    const click = w.isFund
-      ? `loadFund('${escQuote(w.id)}','${escQuote(w.name)}')`
-      : `loadStock('${escQuote(w.id)}','${escQuote(w.name)}')`;
-    return `<tr class="wl-row" data-id="${escHtml(w.id)}" onclick="${escHtml(click)}">
-      <td><div class="wl-name">${escHtml(w.name)}</div><div class="wl-ticker">${escHtml(w.label||w.id)}</div></td>
-      <td class="num wl-price muted">–</td>
-      <td class="num wl-ytd muted">–</td>
-      <td class="num"><button class="wl-remove" title="Ta bort från bevakning" onclick="event.stopPropagation();removeFromWatchlist('${escQuote(w.id)}')">×</button></td>
-    </tr>`;
+  const chips = PF_PERIODS.map(([p,lbl]) =>
+    `<div class="filter-chip${p===wlPeriod?' on':''}" onclick="setWlPeriod('${p}')">${lbl}</div>`).join('');
+  const head = wlVisibleCols.map(k =>
+    `<th style="text-align:${WL_COL_DEFS[k].align||'right'}">${escHtml(wlColLabel(k))}</th>`).join('');
+  const body = list.map(w => {
+    const r = wlRow(w);
+    const open = r.isFund ? `loadFund('${escQuote(r.id)}','${escQuote(r.name)}')` : `loadStock('${escQuote(r.id)}','${escQuote(r.name)}')`;
+    return `<tr class="wl-row${r.id===wlSelected?' sel':''}" data-id="${escHtml(r.id)}" onclick="selectWlRow('${escQuote(r.id)}')">
+      <td><div class="wl-name">${escHtml(r.name)}</div><div class="wl-ticker">${escHtml(r.label)}</div></td>
+      ${wlVisibleCols.map(k => WL_COL_DEFS[k].cell(r)).join('')}
+      <td style="text-align:right;white-space:nowrap">
+        <button class="wl-open" title="Öppna sidan" onclick="event.stopPropagation();${open}">↗</button>
+        <button class="wl-remove" title="Ta bort från bevakning" onclick="event.stopPropagation();removeFromWatchlist('${escQuote(r.id)}')">×</button>
+      </td></tr>`;
   }).join('');
-  el.innerHTML = `<div style="overflow-x:auto"><table class="wl-table">
-    <thead><tr><th>Namn</th><th class="num">Kurs</th><th class="num">I år</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
-  updateWatchlistPrices();
+  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div class="filter-row" style="margin:0;align-items:center"><span style="font-size:12px;color:var(--text3)">Utveckling:</span>${chips}</div>
+      <div style="position:relative">
+        <button class="filter-input" onclick="toggleWlColMenu()" style="width:auto;cursor:pointer">⚙ Kolumner</button>
+        <div id="wl-col-menu" class="col-menu" style="display:none;left:auto;right:0"></div>
+      </div>
+    </div>
+    <div style="overflow-x:auto"><table class="wl-table">
+      <thead><tr><th>Namn</th>${head}<th></th></tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>`;
+}
+
+// Klick på en rad markerar den och ritar grafen; klick igen avmarkerar.
+function selectWlRow(id){
+  wlSelected = wlSelected === id ? null : id;
+  paintWatchlist();
+  if(wlSelected) drawWatchlistChart();
+  else { const c = document.getElementById('wl-chart-card'); if(c) c.style.display = 'none'; }
+}
+
+// Grafens upplösning per period – 1 dag blir intradag, långa spann veckovis.
+const WL_CHART_RANGE = { '1d':['1d','5m'], '1w':['5d','30m'], '1mo':['1mo','1d'], 'ytd':['ytd','1d'], '1y':['1y','1d'], '2y':['2y','1wk'], '5y':['5y','1wk'] };
+
+async function drawWatchlistChart(){
+  const card = document.getElementById('wl-chart-card');
+  const item = getWatchlist().find(w => w.id === wlSelected);
+  if(!card || !item) return;
+  card.style.display = '';
+  document.getElementById('wl-chart-title').textContent = `${item.name} · ${wlPeriodLabel()}`;
+  const msg = document.getElementById('wl-chart-msg'), wrap = document.getElementById('wl-chart-wrap');
+  const fail = t => { msg.textContent = t; msg.style.display = ''; wrap.style.display = 'none'; if(wlChart){ wlChart.destroy(); wlChart = null; } };
+  if(item.isFund) return fail('Fonder saknar kursserie hos Yahoo – öppna fondens egen sida för utvecklingen.');
+  const [range, interval] = WL_CHART_RANGE[wlPeriod] || ['1y','1d'];
+  try {
+    const data = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(item.id)}?interval=${interval}&range=${range}`);
+    const r = data.chart.result[0];
+    const ts = r.timestamp || [];
+    const closes = (r.indicators.quote[0].close || []).map(v => v != null ? +v.toFixed(2) : null);
+    if(!ts.length) return fail('Ingen kursdata för den här perioden.');
+    const intraday = interval.endsWith('m');
+    const labels = ts.map(t => new Date(t*1000).toLocaleString('sv-SE', intraday
+      ? { hour:'2-digit', minute:'2-digit' }
+      : { year:'numeric', month:'short', day:'numeric' }));
+    const valid = closes.filter(v => v != null);
+    const up = valid.length ? valid[valid.length-1] >= valid[0] : true;
+    const color = up ? '#22c55e' : '#ef4444';
+    msg.style.display = 'none'; wrap.style.display = '';
+    if(wlChart) wlChart.destroy();
+    wlChart = new Chart(document.getElementById('wlChart').getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets: [{ data: closes, borderColor: color, borderWidth: 2, backgroundColor: color + '18', fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, spanGaps: true }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+        scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 }, maxTicksLimit: 8 } },
+          y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8b91a8', font: { size: 10 } } } } }
+    });
+  } catch(e){ fail('Kunde inte hämta kursdata just nu.'); }
+}
+
+// Fundamenta och 5-årshistorik hämtas en gång per papper (fonder hoppas över).
+async function loadWatchlistData(){
+  const tickers = getWatchlist().filter(w => !w.isFund).map(w => w.id);
+  const missing = tickers.filter(t => !wlInfo[t] || !wlSeries[t]);
+  if(!missing.length || wlLoading) return;
+  wlLoading = true;
+  try {
+    const [inf, ser] = await Promise.all([fetchHoldingInfo(missing), fetchSparkSeries(missing, '5y')]);
+    Object.assign(wlInfo, inf); Object.assign(wlSeries, ser);
+  } catch(e){ /* tabellen visar "–" för det som saknas */ }
+  wlLoading = false;
+  paintWatchlist();
+  setUpdatedStamp('stamp-watchlist');
+}
+
+// Ritar alltid om; hämtar fundamenta bara när sidan är framme, så att en
+// vanlig sidladdning inte drar igång ett anrop per bevakat papper i onödan.
+function renderWatchlist(){
+  paintWatchlist();
+  if(currentSection === 'watchlist') loadWatchlistData();
 }
 
 function addToWatchlist() {
