@@ -187,9 +187,20 @@ som inte fanns i den ursprungliga listan.
 
 | Källa | Vad den ger | Kod |
 |-------|-------------|-----|
-| **Yahoo Finance** (inofficiellt API) | Hela aktieuniversumet via screener, kurser, sektorer/industrier | `functions/api/screener.js`, `yahoo.js` |
+| **Yahoo Finance** (inofficiellt API) | Hela aktieuniversumet via screener, kurser, sektorer/industrier, fundamenta, insynshandel (SEC Form 4) | `functions/api/screener.js`, `yahoo.js`, `quote.js` |
 | **Avanza** (inofficiellt `_api`) | Svenska fonder: sök, fonddetaljer, graf | `functions/api/avanza.js` |
 | **Riksbank/Fed/ECB** | Styrräntor | `functions/api/rates.js` |
+| **Finansinspektionen** (insynsregistret, CSV-export) | Insynshandel i svensknoterade bolag | `functions/api/insider-se.js` |
+
+### Insynshandel: två källor, för att ingen täcker båda
+
+Yahoos `insiderTransactions` bygger på **SEC Form 4** och ger därför noll rader för allt
+utanför USA — uppmätt 2026-07-31 på VOLV-B.ST, ERIC-B.ST, NOVO-B.CO och ASML.AS.
+Svensknoterade bolag hämtas i stället från FI:s insynsregister (`marknadssok.fi.se`),
+vars CSV-export är UTF-16LE och söker på emittentnamn med substrängmatchning. Proxyn
+normaliserar bort bolagsform (`AB Volvo` → `volvo`) och kräver exakt likhet, annars
+hade `Volvo Car AB` följt med i träffen. Övriga marknader (Danmark, Norge, Finland,
+Nederländerna …) har egna register som vi inte läser — där säger kortet det rakt ut.
 
 ### Svaret på "var kommer Avanza-datan ifrån?"
 

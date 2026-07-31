@@ -41,7 +41,7 @@ functions/api/screener.js   → /api/screener
 functions/api/rates.js      → /api/rates
 ```
 
-*(Sedan migreringen har `quote.js`, `fred.js`, `scb.js` och `earnings.js` tillkommit — samma mönster.)*
+*(Sedan migreringen har `quote.js`, `fred.js`, `scb.js`, `earnings.js` och `insider-se.js` tillkommit — samma mönster.)*
 
 ## Frontend-ändringar
 
