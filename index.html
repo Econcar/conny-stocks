@@ -1777,6 +1777,21 @@ function insiderTyp(text) {
   if(/avyttring|sale|sold|disposal/.test(t)) return 'salj';
   return 'ovrigt';
 }
+// Räknar ihop köp/sälj i en lista insynsaffärer. Fungerar för båda källorna:
+// Yahoo har fritext i .text ("Sale at price …"), FI ett kodat fält i .karaktar.
+function insynSummering(lista, manader = 12){
+  const grans = new Date(Date.now() - manader*31*86400*1000).toISOString().slice(0,10);
+  let kop = 0, salj = 0, ovrigt = 0, senast = null;
+  for(const t of lista || []){
+    const d = (t.datum || '').slice(0,10);
+    if(d && d < grans) continue;
+    const typ = insiderTyp(t.karaktar || t.text || '');
+    if(typ === 'kop') kop++; else if(typ === 'salj') salj++; else ovrigt++;
+    if(d && (!senast || d > senast)) senast = d;
+  }
+  return (kop || salj || ovrigt) ? { kop, salj, ovrigt, senast } : null;
+}
+
 const INSIDER_FARG = { kop:'var(--green)', salj:'var(--red)', ovrigt:'var(--text2)' };
 const INSIDER_ETIKETT = { kop:'Köp', salj:'Sälj', ovrigt:'Övrigt' };
 
@@ -1810,8 +1825,12 @@ async function renderInsider(ticker, name, fund) {
   if(us.length){
     src.textContent = '· SEC Form 4 via Yahoo';
     const n = fund.insiderNetto;
+    // Yahoos egen sammanställning räknar även tilldelningar och optionslösen som
+    // "köpta" – därför kan den säga hundratusentals köpta aktier medan tabellen
+    // nedan (som klassar per transaktion) visar noll rena marknadsköp. Säg vems
+    // siffra det är, annars ser de två motsägelsefulla ut.
     net.innerHTML = (n && (n.kopta || n.salda))
-      ? `<div style="font-size:12.5px;color:var(--text2);margin-bottom:10px">Senaste ${escHtml(n.period || '6m')}:
+      ? `<div style="font-size:12.5px;color:var(--text2);margin-bottom:10px">Yahoos sammanställning, senaste ${escHtml(n.period || '6m')} (inkl. tilldelningar):
           <span style="color:var(--green)">${fmtSekNum(n.kopta||0,0)} köpta</span> (${n.kopAntal||0} affärer) ·
           <span style="color:var(--red)">${fmtSekNum(n.salda||0,0)} sålda</span> (${n.saljAntal||0} affärer) ·
           netto <span style="color:${(n.netto||0)>=0?'var(--green)':'var(--red)'}">${(n.netto||0)>=0?'+':''}${fmtSekNum(n.netto||0,0)}</span> aktier</div>`
@@ -2901,7 +2920,12 @@ async function fetchHoldingInfo(tickers){
         const mc = g(pr.marketCap) != null ? g(pr.marketCap) : g(sd.marketCap);
         const chg = g(pr.regularMarketChangePercent);
         const w52 = g(ks['52WeekChange']);
-        out[t] = { rec, pe: pe != null ? +pe.toFixed(1) : null, divy,
+        // Insynshandel följer med utan extra anrop – /api/quote begär redan modulen.
+        // Tomt för icke-US-bolag; de hämtas från FI i loadWatchlistInsyn().
+        const insyn = insynSummering((((res.insiderTransactions || {}).transactions) || [])
+          .map(x => ({ datum: (x.startDate && x.startDate.fmt) || null, text: x.transactionText || '' })));
+        out[t] = { rec, insyn, langtNamn: pr.longName || pr.shortName || null,
+          pe: pe != null ? +pe.toFixed(1) : null, divy,
           mcap: mc != null ? Math.round(mc/1e9) : null, sektor: ap.sector || null,
           price: g(pr.regularMarketPrice), valuta: pr.currency || sd.currency || null,
           marknad: pr.exchangeName || pr.fullExchangeName || null,
@@ -5133,11 +5157,30 @@ const WL_COL_DEFS = {
   avgvol:  { label:'Snittvol.', val:r=>r.avgvol, cell:r=>wlTdNum(r.avgvol!=null?fmtVol(r.avgvol):'–') },
   rating:  { label:'Analytiker', align:'left', val:r=>r.rec?r.rec.buy:null, cell:r=>{ if(!r.rec) return wlTdText(null); const t=r.rec.buy+r.rec.hold+r.rec.sell;
     return `<td style="font-size:12px;white-space:nowrap"><span style="color:var(--green)">${r.rec.buy} köp</span> · ${r.rec.hold} håll · <span style="color:var(--red)">${r.rec.sell} sälj</span><div style="font-size:10px;color:var(--text3)">${t} analytiker</div></td>`; } },
+  // Sorteras på nettot (köp − sälj): flest nettoköp överst.
+  insyn:   { label:'Insyn 12 mån', align:'left', val:r=>r.insyn?(r.insyn.kop - r.insyn.salj):null, cell:r=>{
+    const i = r.insyn;
+    if(!i) return `<td style="color:var(--text3);font-size:12px">${r.insynVantar ? '…' : '–'}</td>`;
+    return `<td style="font-size:12px;white-space:nowrap"><span style="color:var(--green)">${i.kop} köp</span> · <span style="color:var(--red)">${i.salj} sälj</span>${i.ovrigt?` <span style="color:var(--text3)">· ${i.ovrigt} övr</span>`:''}${i.senast?`<div style="font-size:10px;color:var(--text3)">senast ${escHtml(i.senast)}</div>`:''}</td>`; } },
 };
-const WL_COL_ORDER = ['marknad','valuta','sektor','kurs','change','ytd','dag','ar52','hi52','lo52','pe','fpe','pb','eps','fwdeps','div','mcap','volym','avgvol','rating'];
-const WL_DEFAULT_COLS = ['kurs','change','ytd','pe','div','mcap'];
+const WL_COL_ORDER = ['marknad','valuta','sektor','kurs','change','ytd','dag','ar52','hi52','lo52','pe','fpe','pb','eps','fwdeps','div','mcap','volym','avgvol','rating','insyn'];
+const WL_DEFAULT_COLS = ['kurs','change','ytd','pe','div','mcap','insyn'];
 const wlColLabel = k => { const l = WL_COL_DEFS[k].label; return typeof l === 'function' ? l() : l; };
-function getWlCols(){ try { const s = JSON.parse(localStorage.getItem('wlCols')); if(Array.isArray(s) && s.length) return WL_COL_ORDER.filter(k => s.includes(k)); } catch(e){} return WL_DEFAULT_COLS.slice(); }
+function getWlCols(){
+  try {
+    const s = JSON.parse(localStorage.getItem('wlCols'));
+    if(Array.isArray(s) && s.length){
+      // Engångspåfyllning: insynskolumnen är ny. Den som redan sparat ett kolumnval
+      // hade annars aldrig sett den utan att leta i ⚙-menyn.
+      if(!localStorage.getItem('wlColsInsyn')){
+        localStorage.setItem('wlColsInsyn', '1');
+        if(!s.includes('insyn')){ s.push('insyn'); localStorage.setItem('wlCols', JSON.stringify(s)); }
+      }
+      return WL_COL_ORDER.filter(k => s.includes(k));
+    }
+  } catch(e){}
+  return WL_DEFAULT_COLS.slice();
+}
 let wlVisibleCols = getWlCols();
 function saveWlCols(){ try { localStorage.setItem('wlCols', JSON.stringify(wlVisibleCols)); } catch(e){} }
 function toggleWlColMenu(){ const m = document.getElementById('wl-col-menu'); const show = m.style.display === 'none'; m.style.display = show ? 'block' : 'none'; if(show) renderWlColMenu(); }
@@ -5147,6 +5190,7 @@ function toggleWlCol(k){
   if(wlVisibleCols.includes(k)){ if(wlVisibleCols.length <= 1) return; wlVisibleCols = wlVisibleCols.filter(x => x !== k); }
   else wlVisibleCols = WL_COL_ORDER.filter(x => wlVisibleCols.includes(x) || x === k);
   saveWlCols(); paintWatchlist(); renderWlColMenu();
+  if(k === 'insyn') loadWatchlistInsyn(); // hämtas först när kolumnen slås på
 }
 
 // Slår ihop bevakat papper + live-kurs + fundamenta + periodavkastning till en tabellrad.
@@ -5156,7 +5200,11 @@ function wlRow(w){
   const dag = lp.day != null ? lp.day : inf.dag;
   // 1 dag kommer från kursanropet, längre perioder ur 5-årsserien (som i portföljen).
   const ret = w.isFund ? null : (wlPeriod === '1d' ? dag : (ser ? pfReturn(ser, wlPeriod) : null));
+  // Insyn: US-bolag kommer med i /api/quote-svaret, svenska hämtas separat från FI.
+  const svensk = !w.isFund && /\.ST$/i.test(w.id);
   return { id:w.id, name:w.name, label:w.label||w.id, isFund:!!w.isFund, ret, dag,
+    insyn: inf.insyn || wlInsynSe[w.id] || null,
+    insynVantar: svensk && !(w.id in wlInsynSe),
     price: lp.price != null ? lp.price : inf.price,
     ytd: lp.ytd != null ? lp.ytd : null,
     valuta: inf.valuta || lp.currency || null,
@@ -5294,19 +5342,46 @@ async function drawWatchlistChart(){
   wlChart = chart;
 }
 
+// Insynshandel för svensknoterade papper via Finansinspektionen. US-bolagen har
+// redan sin insyn med i /api/quote-svaret, så bara .ST-tickers kostar ett anrop –
+// och bara om kolumnen faktiskt visas. Delar cache med aktiesidans insynskort.
+let wlInsynSe = {};
+async function loadWatchlistInsyn(){
+  if(!wlVisibleCols.includes('insyn')) return;
+  const kvar = getWatchlist().filter(w => !w.isFund && /\.ST$/i.test(w.id) && !(w.id in wlInsynSe));
+  if(!kvar.length) return;
+  for(let i = 0; i < kvar.length; i += 4){
+    await Promise.all(kvar.slice(i, i + 4).map(async w => {
+      const namn = (wlInfo[w.id] && wlInfo[w.id].langtNamn) || w.name;
+      try {
+        let data = insiderSeCache[w.id];
+        if(!data){
+          const r = await fetch(`/api/insider-se?q=${encodeURIComponent(namn)}&months=12`);
+          data = await r.json();
+          insiderSeCache[w.id] = data;
+        }
+        wlInsynSe[w.id] = insynSummering(data.transaktioner);
+      } catch(e){ wlInsynSe[w.id] = null; } // markera som färdigförsökt
+    }));
+    paintWatchlist();
+  }
+}
+
 // Fundamenta och 5-årshistorik hämtas en gång per papper (fonder hoppas över).
 async function loadWatchlistData(){
   const tickers = getWatchlist().filter(w => !w.isFund).map(w => w.id);
   const missing = tickers.filter(t => !wlInfo[t] || !wlSeries[t]);
-  if(!missing.length || wlLoading) return;
-  wlLoading = true;
-  try {
-    const [inf, ser] = await Promise.all([fetchHoldingInfo(missing), fetchSparkSeries(missing, '5y')]);
-    Object.assign(wlInfo, inf); Object.assign(wlSeries, ser);
-  } catch(e){ /* tabellen visar "–" för det som saknas */ }
-  wlLoading = false;
-  paintWatchlist();
-  setUpdatedStamp('stamp-watchlist');
+  if(missing.length && !wlLoading){
+    wlLoading = true;
+    try {
+      const [inf, ser] = await Promise.all([fetchHoldingInfo(missing), fetchSparkSeries(missing, '5y')]);
+      Object.assign(wlInfo, inf); Object.assign(wlSeries, ser);
+    } catch(e){ /* tabellen visar "–" för det som saknas */ }
+    wlLoading = false;
+    paintWatchlist();
+    setUpdatedStamp('stamp-watchlist');
+  }
+  loadWatchlistInsyn(); // efter fundamenta: FI-sökningen behöver bolagets långa namn
 }
 
 // Ritar alltid om; hämtar fundamenta bara när sidan är framme, så att en

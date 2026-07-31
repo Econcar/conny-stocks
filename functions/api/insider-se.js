@@ -45,8 +45,12 @@ export async function onRequest(context) {
   const manader = Math.min(Math.max(parseInt(p.get('months') || '12', 10) || 12, 1), 60);
   if (!namn || namn.length > 80) return json({ error: 'Saknar eller ogiltig q-parameter' }, 400);
 
-  // Sök brett på det normaliserade namnet, filtrera exakt efteråt.
-  const sokterm = normalisera(namn) || namn;
+  // Sök brett på FÖRSTA ordet och filtrera exakt efteråt. Yahoos bolagsnamn stämmer
+  // inte alltid med FI:s (ERIC-B.ST saknar longName helt och ger "Ericsson, Telefonab.
+  // L M ser. B", medan FI säger "Telefonaktiebolaget LM Ericsson") – ett brett sökord
+  // plus exakt filtrering träffar rätt oftare än att söka på hela namnet.
+  const helaNamnet = normalisera(namn) || namn.toLowerCase();
+  const sokterm = helaNamnet.split(' ')[0] || helaNamnet;
   const from = new Date(Date.now() - manader * 31 * 86400 * 1000).toISOString().slice(0, 10);
   const url = `${BAS}?SearchFunctionType=Insyn&Utgivare=${encodeURIComponent(sokterm)}` +
     `&Transaktionsdatum.From=${from}&button=export`;
@@ -66,17 +70,16 @@ export async function onRequest(context) {
       iDatum = i('Transaktionsdatum'), iVolym = i('Volym'), iEnhet = i('Volymsenhet'),
       iPris = i('Pris'), iValuta = i('Valuta'), iStatus = i('Status'), iNarstaende = i('Närstående');
 
-    const traffar = [];
-    const emittenter = new Set();
-    const kandidater = new Set();   // alla bolag sökningen råkade träffa, för felmeddelandet
+    // Gruppera per emittent så vi kan skilja "AB Volvo" från "Volvo Car AB".
+    const grupper = new Map();        // normaliserat namn → { namn, rader: [] }
     for (const rad of rader.slice(1)) {
       const f = delaRad(rad);
       const emittent = (f[iEmittent] || '').trim();
-      if (emittent) kandidater.add(emittent);
-      if (normalisera(emittent) !== sokterm) continue;   // fel bolag (t.ex. Volvo Car)
+      if (!emittent) continue;
       if ((f[iStatus] || '').trim().toLowerCase() === 'makulerad') continue;
-      emittenter.add(emittent);
-      traffar.push({
+      const nyckel = normalisera(emittent);
+      if (!grupper.has(nyckel)) grupper.set(nyckel, { namn: emittent, rader: [] });
+      grupper.get(nyckel).rader.push({
         datum: (f[iDatum] || '').trim().slice(0, 10),    // FI skickar med tidsdel
         person: (f[iPerson] || '').trim(),
         befattning: (f[iBefattning] || '').trim(),
@@ -91,11 +94,18 @@ export async function onRequest(context) {
       });
     }
 
+    // 1) Exakt namnmatchning. 2) Annars: om sökordet bara gav ETT bolag är svaret
+    //    entydigt och vi tar det (räddar bolag vars namn vi stavar annorlunda).
+    //    Är det flera (Volvo → AB Volvo + Volvo Car AB) vägrar vi gissa.
+    let vald = grupper.get(helaNamnet) || null;
+    if (!vald && grupper.size === 1) vald = [...grupper.values()][0];
+
+    const traffar = vald ? vald.rader : [];
     traffar.sort((a, b) => (a.datum < b.datum ? 1 : a.datum > b.datum ? -1 : 0));
     return json({
-      emittent: [...emittenter][0] || null,
+      emittent: vald ? vald.namn : null,
       // Tomt resultat trots träffar i registret = namnet stavas annorlunda hos FI.
-      kandidater: traffar.length ? [] : [...kandidater].slice(0, 6),
+      kandidater: vald ? [] : [...grupper.values()].map(g => g.namn).slice(0, 6),
       sokterm, from,
       totalt: traffar.length,          // så klienten vet om listan är kapad
       transaktioner: traffar.slice(0, 200)
