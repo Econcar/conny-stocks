@@ -516,6 +516,20 @@
             <div id="d-facts" style="font-size:12px;line-height:2;color:var(--text2)"></div>
           </div>
         </div>
+        <div class="card" id="d-insider-card" style="margin-bottom:14px;display:none">
+          <div class="card-title">Insynshandel <span class="muted" id="d-insider-src" style="text-transform:none;letter-spacing:0;font-weight:400"></span></div>
+          <div id="d-insider-net"></div>
+          <div id="d-insider-body"></div>
+          <details style="margin-top:12px">
+            <summary style="cursor:pointer;color:var(--accent);font-size:12px;user-select:none">Hur tolkar du insynshandel? ▾</summary>
+            <div style="font-size:12px;line-height:1.7;color:var(--text2);margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+              <b style="color:var(--green)">Köp</b> av personer i ledande ställning är den mer intressanta signalen – en insider köper i regel bara av ett skäl, att hen tror kursen ska upp.<br>
+              <b style="color:var(--red)">Försäljningar</b> säger mindre: de sker ofta av privata skäl (skatt, bostadsköp, diversifiering) och behöver inte spegla någon syn på bolaget.<br>
+              <b>Tilldelning, gåva och aktieprogram</b> är inte marknadsköp utan ersättning – väg dem lätt.<br>
+              Titta hellre på <b>mönster</b> (flera personer köper under samma period) än på en enskild transaktion. Insynsaffärer rapporteras i efterhand, så informationen är aldrig färsk.
+            </div>
+          </details>
+        </div>
         <div class="card" id="d-fund-card" style="margin-bottom:14px;display:none">
           <div class="card-title">Nyckeltal <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· live från Yahoo</span></div>
           <div id="d-fundamentals" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
@@ -1486,6 +1500,7 @@ async function loadFund(orderBookId, name) {
   compareSyms = [];
   aiStockDetail = '';
   const _cc = document.getElementById('chart-controls'); if(_cc) _cc.style.display = 'none'; // jämförelse stöds ej för fonder
+  { const c = document.getElementById('d-insider-card'); if(c) c.style.display = 'none'; }   // insynshandel gäller bolag, inte fonder
   document.getElementById('nav-detail').style.display = 'flex';
   document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
   showSection('detail');
@@ -1652,6 +1667,7 @@ async function loadStock(ticker, name) {
   currentFundId = null;
   currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Aktie', flag:'', r:'' };
   renderFundamentals(null);
+  { const c = document.getElementById('d-insider-card'); if(c) c.style.display = 'none'; } // föregående bolags rader ska inte ligga kvar
   compareSyms = [];
   aiStockDetail = '';
   const _cc = document.getElementById('chart-controls'); if(_cc) _cc.style.display = 'flex';
@@ -1727,9 +1743,127 @@ async function fetchFundamentals(ticker) {
       numAnalysts: raw(fd.numberOfAnalystOpinions),
       sector: ap.sector || null,
       industry: ap.industry || null,
-      description: ap.longBusinessSummary || null
+      description: ap.longBusinessSummary || null,
+      // Insynshandel (SEC Form 4) – tom lista för icke-US-noterade bolag.
+      insider: ((res.insiderTransactions || {}).transactions || []).map(t => ({
+        datum: (t.startDate && t.startDate.fmt) || null,
+        person: t.filerName || '',
+        befattning: t.filerRelation || '',
+        text: t.transactionText || '',
+        volym: raw(t.shares),
+        varde: raw(t.value)
+      })),
+      insiderNetto: (() => {
+        const n = res.netSharePurchaseActivity;
+        if(!n) return null;
+        return { period: n.period || null, kopta: raw(n.buyInfoShares), salda: raw(n.sellInfoShares),
+                 netto: raw(n.netInfoShares), kopAntal: raw(n.buyInfoCount), saljAntal: raw(n.sellInfoCount) };
+      })()
     };
   } catch(e) { return null; }
+}
+
+// ══════════ INSYNSHANDEL ══════════
+// Två källor: Yahoo (SEC Form 4 → bara US-noterade bolag) och Finansinspektionens
+// insynsregister via /api/insider-se (svensknoterade). Resten av världen saknar
+// vi källa för – då säger kortet det rakt ut i stället för att se tomt ut.
+const insiderSeCache = {};
+
+// Klassar en transaktion som köp/sälj/övrigt. Yahoo skriver fritext ("Sale at
+// price ..."), FI har ett kodat fält (Förvärv/Avyttring/Tilldelning/…).
+function insiderTyp(text) {
+  const t = (text || '').toLowerCase();
+  if(/förvärv|teckning|purchase|\bbuy\b/.test(t)) return 'kop';
+  if(/avyttring|sale|sold|disposal/.test(t)) return 'salj';
+  return 'ovrigt';
+}
+const INSIDER_FARG = { kop:'var(--green)', salj:'var(--red)', ovrigt:'var(--text2)' };
+const INSIDER_ETIKETT = { kop:'Köp', salj:'Sälj', ovrigt:'Övrigt' };
+
+function insiderRad({ datum, person, befattning, typ, textLang, volym, belopp, valuta }) {
+  const f = INSIDER_FARG[typ];
+  return `<tr>
+    <td style="white-space:nowrap;color:var(--text2);font-size:12px">${escHtml(datum || '–')}</td>
+    <td><div style="font-size:12.5px">${escHtml(person || '–')}</div>${befattning ? `<div style="font-size:10px;color:var(--text3)">${escHtml(befattning)}</div>` : ''}</td>
+    <td style="color:${f};font-size:12px;white-space:nowrap">${INSIDER_ETIKETT[typ]}${textLang ? `<div style="font-size:10px;color:var(--text3)">${escHtml(textLang)}</div>` : ''}</td>
+    <td style="text-align:right" class="td-mono">${volym != null ? fmtSekNum(volym, 0) : '–'}</td>
+    <td style="text-align:right" class="td-mono">${belopp != null ? fmtSekNum(belopp, 0) + (valuta ? ' ' + escHtml(valuta) : '') : '–'}</td>
+  </tr>`;
+}
+
+function insiderTabell(rader) {
+  return `<div style="overflow-x:auto"><table class="wl-table">
+    <thead><tr><th>Datum</th><th>Person</th><th>Typ</th><th style="text-align:right">Volym</th><th style="text-align:right">Belopp</th></tr></thead>
+    <tbody>${rader.join('')}</tbody></table></div>`;
+}
+
+async function renderInsider(ticker, name, fund) {
+  const card = document.getElementById('d-insider-card');
+  if(!card) return;
+  const src = document.getElementById('d-insider-src');
+  const net = document.getElementById('d-insider-net');
+  const body = document.getElementById('d-insider-body');
+  const tom = t => { card.style.display = ''; net.innerHTML = ''; body.innerHTML = `<div class="muted" style="font-size:13px;padding:6px 2px">${t}</div>`; };
+
+  // 1) Yahoo/SEC – finns bara för US-noterade bolag.
+  const us = (fund && fund.insider) || [];
+  if(us.length){
+    src.textContent = '· SEC Form 4 via Yahoo';
+    const n = fund.insiderNetto;
+    net.innerHTML = (n && (n.kopta || n.salda))
+      ? `<div style="font-size:12.5px;color:var(--text2);margin-bottom:10px">Senaste ${escHtml(n.period || '6m')}:
+          <span style="color:var(--green)">${fmtSekNum(n.kopta||0,0)} köpta</span> (${n.kopAntal||0} affärer) ·
+          <span style="color:var(--red)">${fmtSekNum(n.salda||0,0)} sålda</span> (${n.saljAntal||0} affärer) ·
+          netto <span style="color:${(n.netto||0)>=0?'var(--green)':'var(--red)'}">${(n.netto||0)>=0?'+':''}${fmtSekNum(n.netto||0,0)}</span> aktier</div>`
+      : '';
+    body.innerHTML = insiderTabell(us.slice(0, 25).map(t => insiderRad({
+      datum: t.datum, person: t.person, befattning: t.befattning,
+      typ: insiderTyp(t.text), textLang: (t.text || '').replace(/ at price.*/i, '').trim() || null,
+      volym: t.volym, belopp: t.varde || null, valuta: fund.currency
+    })));
+    card.style.display = '';
+    return;
+  }
+
+  // 2) Finansinspektionen – svensknoterade bolag.
+  if(/\.ST$/i.test(ticker)){
+    src.textContent = '· Finansinspektionens insynsregister';
+    const q = name || ticker.replace(/\.ST$/i, '');
+    try {
+      let data = insiderSeCache[ticker];
+      if(!data){
+        tom('Hämtar insynshandel från Finansinspektionen…'); // bara vid första hämtningen,
+        const r = await fetch(`/api/insider-se?q=${encodeURIComponent(q)}&months=12`);
+        data = await r.json();                               // annars blinkar den var 30:e sekund
+        insiderSeCache[ticker] = data;
+      }
+      const tx = (data && data.transaktioner) || [];
+      if(!tx.length){
+        const k = (data && data.kandidater) || [];
+        return tom(k.length
+          ? `Hittade inga affärer för <b>${escHtml(q)}</b>. Registret har däremot träffar för: ${k.map(escHtml).join(', ')}.`
+          : 'Inga rapporterade insynsaffärer de senaste 12 månaderna.');
+      }
+      src.textContent = `· Finansinspektionen${data.emittent ? ' · ' + data.emittent : ''}`;
+      const kop = tx.filter(t => insiderTyp(t.karaktar) === 'kop').length;
+      const salj = tx.filter(t => insiderTyp(t.karaktar) === 'salj').length;
+      // Räknarna gäller raderna vi faktiskt fått – säg det om listan är kapad.
+      const kapad = data.totalt != null && data.totalt > tx.length;
+      net.innerHTML = `<div style="font-size:12.5px;color:var(--text2);margin-bottom:10px">${kapad ? `Senaste ${tx.length} av ${data.totalt} affärer` : 'Senaste 12 månaderna'}:
+        <span style="color:var(--green)">${kop} köp</span> · <span style="color:var(--red)">${salj} försäljningar</span> ·
+        ${tx.length - kop - salj} övriga (tilldelning, gåva m.m.)</div>`;
+      body.innerHTML = insiderTabell(tx.slice(0, 25).map(t => insiderRad({
+        datum: t.datum, person: t.person, befattning: t.befattning,
+        typ: insiderTyp(t.karaktar), textLang: t.karaktar + (t.narstaende ? ' · närstående' : ''),
+        volym: t.volym, belopp: (t.volym != null && t.pris) ? t.volym * t.pris : null, valuta: t.valuta
+      })));
+    } catch(e){ tom('Kunde inte hämta insynshandel från Finansinspektionen just nu.'); }
+    return;
+  }
+
+  // 3) Övriga marknader – ingen källa.
+  src.textContent = '';
+  tom('Insynshandel visas för US-noterade bolag (SEC Form 4) och svensknoterade (Finansinspektionen). För den här marknaden saknar vi källa.');
 }
 
 function fmtMcap(v, cur) {
@@ -1882,6 +2016,7 @@ async function loadStockQuote(ticker, name) {
       desc, industry: fund?.industry || null, fund
     };
     renderFundamentals(fund, currency);
+    renderInsider(ticker, meta.longName || name, fund); // fyller på i bakgrunden, blockerar inte sidan
     refreshStockAIContext(ticker, name); // ge chatten full data (nyckeltal + kurs + nyheter)
     document.getElementById('d-name').textContent = name;
     document.getElementById('d-fullname').textContent = meta.longName || meta.shortName || '';

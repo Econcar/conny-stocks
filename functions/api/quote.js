@@ -26,7 +26,10 @@ export async function onRequest(context) {
   if (!symbol || !/^[A-Za-z0-9.^=\-]{1,25}$/.test(symbol)) {
     return json({ error: 'Ogiltig symbol' }, 400);
   }
-  const modules = 'price,summaryDetail,assetProfile,defaultKeyStatistics,financialData,recommendationTrend';
+  // insiderTransactions/netSharePurchaseActivity = insynshandel (SEC Form 4, dvs.
+  // bara US-noterade bolag). Svenska bolag hämtas i stället från /api/insider-se.
+  const modules = 'price,summaryDetail,assetProfile,defaultKeyStatistics,financialData,' +
+    'recommendationTrend,insiderTransactions,netSharePurchaseActivity';
 
   async function run(auth) {
     const url =
