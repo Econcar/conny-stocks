@@ -64,7 +64,10 @@ async function runRiskAnalysis() {
     'långsiktig svensk investerare? Håll det till 4–6 meningar och avsluta med en tydlig ' +
     'endagsslutsats på egen rad i formatet "Läget: <kort omdöme>".';
 
-  const { text, model } = await synthesize(prompt, { maxTokens: 1024, context: 'engine-risk' });
+  // 1024 räckte inte: på Sonnet 5 tänker modellen inom max_tokens, så tänkandet åt
+  // upp taket och texten kapades mitt i en mening varje dag. 4096 ger gott om rum,
+  // och effort "medium" håller tankebudgeten nere för en så här kort sammanfattning.
+  const { text, model } = await synthesize(prompt, { maxTokens: 4096, effort: 'medium', context: 'engine-risk' });
   const date = new Date().toISOString().slice(0, 10);
   await upsertRiskAnalysis({ date, analysis: text, snapshot: bySym, model });
   return { date, model, indicators: Object.keys(bySym).length };

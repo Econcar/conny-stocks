@@ -131,6 +131,7 @@ async function runAnalysis(doc, { model, system, tool, maxTokens, context }) {
 
   const data = await res.json();
   await logUsage(context || 'engine', model, data.usage);
+  varnaOmKapat(context || 'engine', model, data, maxTokens);
   const toolUse = (data.content || []).find((b) => b.type === 'tool_use');
   if (!toolUse) {
     throw new Error(`Inget tool_use-svar för ${doc.source}/${doc.external_id}`);
@@ -149,17 +150,35 @@ function deepAnalyze(doc) {
 }
 
 // Fri textsyntes (utan verktyg) – för t.ex. daglig riskbarometer-sammanvägning.
+// Varnar när ett svar kapats av max_tokens. Värt en egen kontroll: på Sonnet 5 är
+// adaptivt tänkande PÅ som standard när thinking utelämnas (till skillnad från
+// Sonnet 4.6), och max_tokens är ett tak på tänkande + svarstext TILLSAMMANS.
+// Tankeblocken returneras dessutom tomma (display defaultar till "omitted"), så
+// ett kapat svar syns bara som en text som slutar mitt i en mening.
+function varnaOmKapat(context, model, data, maxTokens) {
+  if (data && data.stop_reason === 'max_tokens') {
+    console.error(`[${context}] ⚠ svaret kapades av max_tokens (${maxTokens}, ${model} förbrukade ` +
+      `${(data.usage && data.usage.output_tokens) || '?'} utdata-tokens varav tänkandet inte syns). Höj taket.`);
+  }
+}
+
 async function synthesize(prompt, opts = {}) {
   if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY i miljön');
   const model = opts.model || process.env.ENGINE_RISK_MODEL || DEEP_MODEL;
+  const maxTokens = opts.maxTokens || 1024;
+  const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] };
+  // effort styr hur djupt modellen tänker (låg/medel/hög). Utan den ligger Sonnet 5
+  // på "high", vilket är onödigt djupt för en kort sammanfattning.
+  if (opts.effort) body.output_config = { effort: opts.effort };
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model, max_tokens: opts.maxTokens || 1024, messages: [{ role: 'user', content: prompt }] })
+    body: JSON.stringify(body)
   });
   if (!res.ok) throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${await res.text()}`);
   const data = await res.json();
   await logUsage(opts.context || 'engine-synthesize', model, data.usage);
+  varnaOmKapat(opts.context || 'engine-synthesize', model, data, maxTokens);
   const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
   return { text, model };
 }
@@ -180,6 +199,7 @@ async function extract(prompt, tool, opts = {}) {
   if (!res.ok) throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${await res.text()}`);
   const data = await res.json();
   await logUsage(opts.context || 'engine-extract', model, data.usage);
+  varnaOmKapat(opts.context || 'engine-extract', model, data, opts.maxTokens || 1024);
   const toolUse = (data.content || []).find(b => b.type === 'tool_use');
   if (!toolUse) throw new Error('Inget tool_use-svar');
   return { input: toolUse.input, model };
