@@ -25,7 +25,7 @@ function jsFiles(dir) {
 }
 
 console.log('1) Syntaxkoll (node --check) på all JS');
-const files = [...jsFiles('engine'), ...jsFiles('functions'), 'server.js', 'verify.mjs'];
+const files = [...jsFiles('engine'), ...jsFiles('functions'), ...jsFiles('shared'), 'server.js', 'verify.mjs'];
 for (const f of files) {
   step(f, () => execSync(`node --check "${f}"`, { stdio: 'pipe' }));
 }

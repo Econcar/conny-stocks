@@ -167,6 +167,7 @@ async function synthesize(prompt, opts = {}) {
   const model = opts.model || process.env.ENGINE_RISK_MODEL || DEEP_MODEL;
   const maxTokens = opts.maxTokens || 1024;
   const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] };
+  if (opts.system) body.system = opts.system;
   // effort styr hur djupt modellen tänker (låg/medel/hög). Utan den ligger Sonnet 5
   // på "high", vilket är onödigt djupt för en kort sammanfattning.
   if (opts.effort) body.output_config = { effort: opts.effort };

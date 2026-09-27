@@ -23,10 +23,11 @@ const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.6);
 const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 10);
 
 function parseArgs(argv) {
-  const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false, discover: false, fundsOnly: false, earningsOnly: false };
+  const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false, discover: false, fundsOnly: false, earningsOnly: false, cioOnly: false };
   for (const a of argv.slice(2)) {
     if (a === '--demo') args.demo = true;
     else if (a === '--dry') args.dry = true;
+    else if (a === '--cio-only') args.cioOnly = true;
     else if (a === '--earnings-only') args.earningsOnly = true;
     else if (a === '--risk-only') args.riskOnly = true;
     else if (a === '--trends-only') args.trendsOnly = true;
@@ -72,6 +73,17 @@ async function runDailyRisk() {
   }
 }
 
+// Daglig CIO-analys (taktisk allokering) – körs efter megatrenderna så den får dagens teman.
+async function runDailyCio() {
+  try {
+    const { runCioAnalysis } = require('./lib/cio');
+    const info = await runCioAnalysis();
+    console.log(`CIO-analys sparad för ${info.date} (${info.model}, ${info.symbols} marknadsserier, ${info.headlines} rubriker).`);
+  } catch (err) {
+    console.error(`CIO-analys misslyckades: ${err.message}`);
+  }
+}
+
 // Schemalagd omvärdering av AI-fonder (körs på servern enligt varje fonds intervall).
 async function runDailyAIFunds() {
   try {
@@ -112,6 +124,11 @@ async function main() {
   if (args.discover) {
     console.log('Kör endast trendspaningen.');
     await runDiscovery();
+    return;
+  }
+  if (args.cioOnly) {
+    console.log('Kör endast CIO-analysen.');
+    await runDailyCio();
     return;
   }
   if (args.fundsOnly) {
@@ -237,6 +254,7 @@ async function main() {
     await runEarnings(false);
     await runDailyRisk();
     await runDailyTrends();
+    await runDailyCio();
     await runDailyAIFunds();
     // Trendspaning körs veckovis (måndagar UTC) för att hålla nere brus/kostnad.
     if (new Date().getUTCDay() === 1) await runDiscovery();
