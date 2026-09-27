@@ -484,12 +484,12 @@
         <span style="font-size:11px;color:var(--text3)">Klicka på en rubrik för att sortera ▲▼ &nbsp;·&nbsp; <span class="sort-page">·</span> = endast sidan</span>
       </div>
       <div class="filter-row" id="triage-row" style="align-items:center;gap:8px;font-size:12px;color:var(--text2)">
-        <button class="action-btn" id="triage-btn" onclick="runTriage()" title="AI:n läser upp till 50 bolag som matchar filtren och väljer de bästa givet senaste CIO-analysen">✦ Kör AI-triage</button>
+        <button class="action-btn" id="triage-btn" onclick="runTriage()" title="AI:n läser alla bolag som matchar filtren (max 150) och väljer de bästa givet senaste CIO-analysen">✦ Kör AI-triage</button>
         <span>vaska fram</span>
         <select id="triage-count" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:5px 8px">
           <option value="3">3</option><option value="5" selected>5</option><option value="10">10</option><option value="15">15</option>
         </select>
-        <span>bolag ur bruttolistan (upp till 50 som matchar filtren) mot senaste CIO-analysen</span>
+        <span>bolag ur bruttolistan (alla som matchar filtren, max 150) mot senaste CIO-analysen</span>
       </div>
       <div id="triage-out"></div>
       <div class="card" id="screener-table-card" style="padding:0">
@@ -1725,12 +1725,14 @@ function analyzeSelected() {
 }
 
 // ══════════ AI-TRIAGE (Aktiescreenern) ══════════
-// Steg mellan screenern och djupanalysen: AI:n läser bruttolistan (upp till 50 bolag
-// som matchar filtren, berikade med ROE, EV/EBITDA och FCF) och vaskar fram exakt
+// Steg mellan screenern och djupanalysen: AI:n läser bruttolistan (alla bolag som
+// matchar filtren, max 150, berikade med ROE, EV/EBITDA och FCF) och vaskar fram exakt
 // `targetCount` bolag givet senaste CIO-analysen. Svaret är maskinläsbart
 // (<triage_result>) och blir kort med knapp vidare till Institutionell djupanalys.
 const SCR_TRIAGE_MODEL = 'claude-sonnet-5';
-const SCR_TRIAGE_GROSS = 50;
+// Tak för bruttolistan: alla bolag som matchar filtren, men högst så här många
+// (~130 tokens och ett nyckeltalsanrop per bolag). Proxyn ger max 50 per sida.
+const SCR_TRIAGE_GROSS = 150;
 const triageSystemPrompt = targetCount => `Du är en obarmhärtig aktieanalytiker och 'stock picker' på en institutionell fond.
 Din uppgift är att sålla marknadens brus. Du kommer att ta emot en JSON-lista med
 aktier som passerat fondens kvantitativa grundkrav (Screenern), samt vår CIO:s aktuella
@@ -1777,17 +1779,28 @@ function screenerFilterText() {
   return parts.join(' · ');
 }
 
-// Bruttolistan: första 50 bolagen som matchar filtren (i vald sortering), berikade
-// med nyckeltalen prompten kräver – screenerns egna rader saknar ROE, EV/EBITDA och FCF.
-async function triageGrossList() {
-  const res = await fetch(`/api/screener?${screenerParams(0, SCR_TRIAGE_GROSS)}`);
-  const data = await res.json();
-  const quotes = ((data && data.finance && data.finance.result && data.finance.result[0]) || {}).quotes || [];
+// Bruttolistan: alla bolag som matchar filtren (i vald sortering, högst
+// SCR_TRIAGE_GROSS), berikade med nyckeltalen prompten kräver – screenerns egna rader
+// saknar ROE, EV/EBITDA och FCF. Returnerar { list, total } (total = hur många som matchar).
+async function triageGrossList(onProgress) {
+  const byTicker = new Map();
+  let total = 0;
+  for(let offset = 0; offset < SCR_TRIAGE_GROSS; offset += 50) {
+    const res = await fetch(`/api/screener?${screenerParams(offset, 50)}`);
+    const data = await res.json();
+    const r = (data && data.finance && data.finance.result && data.finance.result[0]) || {};
+    total = r.total || total;
+    const page = r.quotes || [];
+    page.forEach(q => { if(q.symbol && !byTicker.has(q.symbol)) byTicker.set(q.symbol, q); });
+    if(page.length < 50) break; // sista sidan (proxyns total är bara en uppskattning)
+  }
+  const quotes = [...byTicker.values()].slice(0, SCR_TRIAGE_GROSS);
+  if(onProgress) onProgress(quotes.length, total);
   const fund = {};
   for(let i = 0; i < quotes.length; i += 8) {
     await Promise.all(quotes.slice(i, i + 8).map(async q => { fund[q.symbol] = await fetchFundamentals(q.symbol); }));
   }
-  return quotes.map(q => {
+  return { total: Math.max(total, quotes.length), list: quotes.map(q => {
     const f = fund[q.symbol] || {};
     const cur = q.currency || f.currency || null;
     const netDebt = (f.debt != null && f.cash != null) ? f.debt - f.cash : null;
@@ -1803,7 +1816,7 @@ async function triageGrossList() {
       net_debt_to_ebitda: (netDebt != null && f.ebitda > 0) ? deepR2(netDebt / f.ebitda) : null,
       dividend_yield_pct: deepR2(f.div), chg_52w_pct: deepR1(q.fiftyTwoWeekChangePercent)
     };
-  });
+  }) };
 }
 
 function parseTriageResult(text) {
@@ -1878,13 +1891,19 @@ async function runTriage() {
   const fail = msg => { if(live()) { out.innerHTML = `<div class="error-msg">${msg}</div>`; btn.disabled = false; btn.textContent = '✦ Kör AI-triage'; } };
   btn.disabled = true; btn.textContent = '✦ Vaskar…';
 
-  status(`Hämtar bruttolistan (upp till ${SCR_TRIAGE_GROSS} bolag som matchar filtren) med ROE, EV/EBITDA och FCF…`);
-  let gross, cio;
-  try { [gross, cio] = await Promise.all([triageGrossList(), latestCioDirective()]); }
-  catch(e) { return fail('Kunde inte hämta bruttolistan: ' + escHtml(e.message)); }
+  status('Hämtar bruttolistan – alla bolag som matchar filtren…');
+  let grossRes, cio;
+  try {
+    [grossRes, cio] = await Promise.all([
+      triageGrossList((n, total) => status(`Hämtar ROE, EV/EBITDA och FCF för ${n} bolag${total > n ? ` (de ${n} första av ≈${total} som matchar – taket är ${SCR_TRIAGE_GROSS})` : ''}…`)),
+      latestCioDirective()
+    ]);
+  } catch(e) { return fail('Kunde inte hämta bruttolistan: ' + escHtml(e.message)); }
+  const gross = grossRes.list;
   if(!gross.length) return fail('Inga bolag matchar filtren – vidga urvalet och försök igen.');
+  const capped = grossRes.total > gross.length;
   const target = Math.min(targetCount, gross.length);
-  status(`AI:n vaskar fram ${target} av ${gross.length} bolag ${cio ? 'mot CIO-direktivet' : '(ingen CIO-analys hittades – kör den på Översikt för ett skarpare urval)'} – modellen tänker innan den svarar…`);
+  status(`AI:n vaskar fram ${target} av ${gross.length} bolag${capped ? ` (≈${grossRes.total} matchar, de ${gross.length} första i vald sortering tas med)` : ''} ${cio ? 'mot CIO-direktivet' : '(ingen CIO-analys hittades – kör den på Översikt för ett skarpare urval)'} – modellen tänker innan den svarar…`);
 
   const today = new Date().toLocaleDateString('sv-SE', { year:'numeric', month:'long', day:'numeric' });
   const user = `Dagens datum: ${today}. Screenerns filter: ${filters}.
