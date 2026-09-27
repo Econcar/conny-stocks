@@ -4490,7 +4490,7 @@ function screenerPanelHtml(text, key) {
   if(r.num.posFcf) parts.push('positivt fritt kassaflöde');
   return `<div class="info-msg" style="margin:14px 0 0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
     <span><b>Screener-filter från genomlysningen:</b> ${escHtml(parts.join(' · '))}${r.unknown.length ? `<br><span style="color:var(--text3)">Finns inte i screenern, hoppas över: ${escHtml(r.unknown.join(', '))}</span>` : ''}</span>
-    <button class="action-btn" onclick="event.stopPropagation();applyScreenerCfg('${escQuote(key)}')">▸ Öppna i Aktiescreenern</button>
+    <button class="action-btn" onclick="event.stopPropagation();applyScreenerCfg('${escQuote(key)}')">⚡ Applicera AI:ns filter i Screenern</button>
   </div>`;
 }
 
