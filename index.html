@@ -262,6 +262,7 @@
   .memo th { background: var(--surface2); font-weight: 600; }
   .memo .memo-src { color: var(--amber); font-size: 12px; white-space: nowrap; }
   .deep-status { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 8px; }
+  .memo-box:not(:empty) { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; margin-bottom: 14px; }
   .cio-more summary { cursor: pointer; color: var(--accent); font-size: 12.5px; margin: 4px 0 12px; user-select: none; }
   .deep-meta { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text3); font-family: var(--mono); }
 
@@ -1214,7 +1215,7 @@ async function runCioNow() {
   const stamp = new Date().toLocaleString('sv-SE', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
   sub.innerHTML = `Din körning · ${escHtml(stamp)} · <span class="card-link" style="float:none;margin-left:0" onclick="showCioDaily()">visa motorns dagliga</span>`;
   const doneBtn = label => { if(live()) { btn.disabled = false; btn.textContent = label; } };
-  const status = txt => { if(live()) out.innerHTML = `<div class="deep-status"><span class="spinner"></span>${txt}</div>`; };
+  const status = txt => { if(live()) memoStatus(out, txt); };
   btn.disabled = true; btn.textContent = '✦ Analyserar…';
 
   status('Samlar underlag: räntor, inflation, valutor, råvaror, riskindikatorer, megatrender och nyhetsrubriker…');
@@ -1232,30 +1233,11 @@ async function runCioNow() {
   }
   status('CIO:n läser av regimen – modellen tänker innan den skriver, det kan ta en minut…');
 
-  let latest = '', queued = false, memoEl = null, streaming = true;
-  const paint = () => {
-    queued = false;
-    if(!streaming || !live()) return;
-    if(!memoEl || !memoEl.isConnected) { out.innerHTML = '<div class="memo"></div>'; memoEl = out.firstChild; }
-    memoEl.innerHTML = formatMemo(latest);
-  };
   const body = { model: CIO_MODEL, max_tokens: 32000, system: CIO_SYSTEM_PROMPT,
     output_config: { effort: 'high' }, messages: [{ role: 'user', content: cioUserMessage(ctx) }] };
-  const result = await callClaudeStream(body, partial => { latest = partial; if(!queued) { queued = true; requestAnimationFrame(paint); } });
-  streaming = false;
-
-  let text = (result.text || '').trim();
-  if(result.error) {
-    if(live()) out.innerHTML = (text ? cioHtml(text) : '') +
-      `<div class="error-msg" style="margin-top:12px">API-fel: ${escHtml(result.error.message || result.error.type || 'okänt fel')}</div>`;
-    return doneBtn('↻ Försök igen');
-  }
-  if(!text) {
-    if(live()) out.innerHTML = `<div class="error-msg">Tomt svar från modellen${result.stop_reason ? ' (' + escHtml(result.stop_reason) + ')' : ''}. Försök igen.</div>`;
-    return doneBtn('↻ Försök igen');
-  }
-  if(result.stop_reason === 'max_tokens') text += '\n\n_…analysen nådde längdgränsen och kapades._';
-  else if(result.stop_reason === 'refusal') text += '\n\n_…modellen avbröt svaret._';
+  const result = await streamMemo(body, { getOut: () => out, live, html: cioHtml });
+  if(result.error) return doneBtn('↻ Försök igen');
+  const text = result.text;
 
   const costMeta = estimateCostText(CIO_MODEL, result.usage);
   recordAiUsage('cio', CIO_MODEL, result.usage);
@@ -2877,6 +2859,43 @@ function formatMemo(md) {
   return html;
 }
 
+// Strömmar ett Claude-svar som promemoria in i en container – delas av djupanalysen,
+// CIO-analysen och portföljgenomlysningen. getOut() slås upp vid varje ritning (vyn
+// kan ha ritats om under tiden); live() = false när användaren bytt vy eller startat
+// en ny körning, då ritas inget mer. Fel och tomma svar ritas här. Returnerar
+// { text, usage } (text med ev. kapningsnot) eller { error }.
+async function streamMemo(body, { getOut, live, html = t => `<div class="memo">${formatMemo(t)}</div>` }) {
+  let latest = '', queued = false, streaming = true;
+  const paint = () => {
+    queued = false;
+    const out = getOut();
+    if(!streaming || !live() || !out) return; // en sen bildruta får inte skriva över slutvyn
+    let el = out.querySelector(':scope > .memo-live');
+    if(!el) { out.innerHTML = '<div class="memo memo-live"></div>'; el = out.firstChild; }
+    el.innerHTML = formatMemo(latest); // texten ritas om högst en gång per bildruta
+  };
+  const result = await callClaudeStream(body, partial => { latest = partial; if(!queued) { queued = true; requestAnimationFrame(paint); } });
+  streaming = false;
+
+  const out = getOut(), show = live() && out;
+  let text = (result.text || '').trim();
+  if(result.error) {
+    if(show) out.innerHTML = (text ? html(text) : '') +
+      `<div class="error-msg" style="margin-top:12px">API-fel: ${escHtml(result.error.message || result.error.type || 'okänt fel')}</div>`;
+    return { error: result.error };
+  }
+  if(!text) {
+    if(show) out.innerHTML = `<div class="error-msg">Tomt svar från modellen${result.stop_reason ? ' (' + escHtml(result.stop_reason) + ')' : ''}. Försök igen.</div>`;
+    return { error: { message: 'tomt svar' } };
+  }
+  if(result.stop_reason === 'max_tokens') text += '\n\n_…svaret nådde längdgränsen och kapades._';
+  else if(result.stop_reason === 'refusal') text += '\n\n_…modellen avbröt svaret._';
+  return { text, usage: result.usage };
+}
+
+// Statusrad med spinner medan underlaget samlas / modellen tänker.
+const memoStatus = (out, txt) => { if(out) out.innerHTML = `<div class="deep-status"><span class="spinner"></span>${txt}</div>`; };
+
 // Körnings-id: byter man aktie mitt i en analys slutar den gamla att skriva i vyn,
 // men den körs klart och sparas ändå i Sparade analyser.
 let deepRunId = 0;
@@ -2898,7 +2917,7 @@ async function runDeepAnalysis() {
   const id = ++deepRunId, live = () => id === deepRunId;
   const ticker = currentTicker, name = currentStockName || ticker;
   const doneBtn = label => { if(live()) { btn.disabled = false; btn.textContent = label; } };
-  const status = txt => { if(live()) out.innerHTML = `<div class="deep-status"><span class="spinner"></span>${txt}</div>`; };
+  const status = txt => { if(live()) memoStatus(out, txt); };
   btn.disabled = true; btn.textContent = '✦ Analyserar…';
 
   status('Samlar underlag: nyckeltal, bokslutshistorik, makro, riskregim, megatrender och nyheter…');
@@ -2910,31 +2929,11 @@ async function runDeepAnalysis() {
   }
   status('Analytikern går igenom underlaget – modellen tänker innan den skriver, det kan ta en minut…');
 
-  // Strömmande: texten ritas om högst en gång per bildruta.
-  let latest = '', queued = false, memoEl = null, streaming = true;
-  const paint = () => {
-    queued = false;
-    if(!streaming || !live()) return; // en sen bildruta får inte skriva över slutvyn
-    if(!memoEl || !memoEl.isConnected) { out.innerHTML = '<div class="memo"></div>'; memoEl = out.firstChild; }
-    memoEl.innerHTML = formatMemo(latest);
-  };
   const body = { model: DEEP_MODEL, max_tokens: 32000, system: DEEP_SYSTEM_PROMPT,
     output_config: { effort: 'high' }, messages: [{ role: 'user', content: deepUserMessage(ctx) }] };
-  const result = await callClaudeStream(body, partial => { latest = partial; if(!queued) { queued = true; requestAnimationFrame(paint); } });
-  streaming = false;
-
-  let text = (result.text || '').trim();
-  if(result.error) {
-    if(live()) out.innerHTML = (text ? `<div class="memo">${formatMemo(text)}</div>` : '') +
-      `<div class="error-msg" style="margin-top:12px">API-fel: ${escHtml(result.error.message || result.error.type || 'okänt fel')}</div>`;
-    return doneBtn('↻ Försök igen');
-  }
-  if(!text) {
-    if(live()) out.innerHTML = `<div class="error-msg">Tomt svar från modellen${result.stop_reason ? ' (' + escHtml(result.stop_reason) + ')' : ''}. Försök igen.</div>`;
-    return doneBtn('↻ Försök igen');
-  }
-  if(result.stop_reason === 'max_tokens') text += '\n\n_…promemorian nådde längdgränsen och kapades._';
-  else if(result.stop_reason === 'refusal') text += '\n\n_…modellen avbröt svaret._';
+  const result = await streamMemo(body, { getOut: () => out, live });
+  if(result.error) return doneBtn('↻ Försök igen');
+  const text = result.text;
 
   const costMeta = estimateCostText(DEEP_MODEL, result.usage);
   recordAiUsage('deep_analysis', DEEP_MODEL, result.usage);
@@ -3873,7 +3872,11 @@ async function renderPortfolio(){
       ${totalGain != null ? `<div class="kpi-card"><div class="kpi-label">Utveckling vs GAV</div><div class="kpi-value" style="color:${totalGain>=0?'var(--green)':'var(--red)'}">${fmtSekPct(totalGain)}</div></div>` : ''}
       <div class="kpi-card"><div class="kpi-label">Antal innehav</div><div class="kpi-value">${portfolio.length}</div></div>
     </div>
-    <div style="margin-bottom:12px"><button class="action-btn" onclick="analyzePortfolioAI()">✦ Analysera min portfölj med AI</button></div>
+    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="action-btn" id="pf-review-btn" onclick="runPortfolioReview('portfolio')" title="Portfolio Manager: stresstestar innehaven mot senaste CIO-analysen och riskbarometern">✦ Kör Portföljgenomlysning</button>
+      <button class="ghost-btn" onclick="analyzePortfolioAI()">✦ Analysera min portfölj med AI</button>
+    </div>
+    <div id="pf-review-out" class="memo-box"></div>
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:8px">
         <div class="card-title" style="margin:0">Portföljens utveckling <span id="pf-chart-change" style="font-weight:400;font-size:12px"></span></div>
@@ -4038,11 +4041,11 @@ async function renderPortfolioChart(){
 // analyser", filtrerat på titeln "Portföljanalys"). Klick fäller ut hela texten.
 async function renderPortfolioAnalyses(){
   const el = document.getElementById('pf-analyses'); if(!el) return;
-  let list = aiAnalyses.filter(a => (a.title||'') === 'Portföljanalys');
+  let list = aiAnalyses.filter(a => PF_ANALYSIS_TITLES.includes(a.title||''));
   if(sb && currentUser){
     try {
       const { data } = await sb.from('analyses').select('id,created_at,title,model,answer')
-        .eq('title', 'Portföljanalys').order('created_at', { ascending: false }).limit(50);
+        .in('title', PF_ANALYSIS_TITLES).order('created_at', { ascending: false }).limit(50);
       if(data) list = data.map(r => ({ id:r.id, ts:new Date(r.created_at).getTime(), title:r.title, model:r.model, answer:r.answer, cloud:true }));
     } catch(e){}
   }
@@ -4055,7 +4058,7 @@ async function renderPortfolioAnalyses(){
         <div><div style="font-weight:600">✦ ${escHtml(a.title||'Portföljanalys')}</div><div style="font-size:11px;color:var(--text3)">${d} · ${escHtml((a.model||'').replace('claude-',''))}</div></div>
         <span style="font-size:11px;color:var(--accent)">Visa ▾</span>
       </div>
-      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13px;line-height:1.55">${formatAIText(a.answer||'')}</div>
+      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13px;line-height:1.55"><div class="memo">${formatMemo(a.answer||'')}</div></div>
     </div>`;
   }).join('');
   el.innerHTML = `<div style="font-weight:600;margin:18px 0 8px">Tidigare AI-analyser av portföljen <span class="muted" style="font-weight:400">· sparas automatiskt</span></div>${items}`;
@@ -4093,6 +4096,241 @@ async function analyzePortfolioAI(){
   }).join('\n');
   const cashLine = portfolioCash ? `\nLikvida medel (kontanter): ${fmtSekNum(portfolioCash,0)} kr.` : '';
   stageAnalysis(`Här är min aktieportfölj (importerad från Avanza). Alla värden är redan omräknade till SEK av appen – använd dem rakt av, räkna INTE om valutor själv:\n${lines}${cashLine}\n\nTotalt portföljvärde: ${fmtSekNum(total,0)} kr (varav värdepapper ${fmtSekNum(totalSek,0)} kr).\n\nGör en genomlysning: fördelning och koncentration (sektorer, regioner, valutaexponering), de största riskerna, hur väl diversifierad den är, samt konkreta förslag på förbättringar. Lyft fram vilka innehav som ser starka respektive svaga ut just nu.${webSearchOn ? ' Sök gärna på nätet om du behöver aktuell information om enskilda bolag.' : ''}`, 'Portföljanalys');
+}
+
+// ══════════ PORTFÖLJGENOMLYSNING (Min portfölj + AI-fond) ══════════
+// Sista steget i tratten: en Portfolio Manager som inte tar in rådata själv utan
+// bygger på slutsatserna från de tidigare stegen – senaste CIO-analysen och
+// riskbarometern – och ställer dem mot innehaven (vikt, sektor, valuta, utveckling).
+const PM_MODEL = 'claude-sonnet-5';
+const PM_TITLE_PORTFOLIO = 'Portföljgenomlysning · Min portfölj';
+const PF_ANALYSIS_TITLES = ['Portföljanalys', PM_TITLE_PORTFOLIO]; // visas även i portföljvyn
+const PM_SYSTEM_PROMPT = `Du är Lead Portfolio Manager för en global, absolutavkastande fond. Din uppgift är att
+skydda kapitalet i nedgång och maximera riskjusterad avkastning i uppgång. Du är helt
+befriad från emotionell anknytning till enskilda aktier; om ett bolag inte passar i
+den aktuella makroregimen ska det säljas, oavsett historisk avkastning.
+
+TEKNISKA REGLER:
+Du har tillgång till en inskickad portföljstruktur, aktuell riskbarometer och fondens
+senaste makro-direktiv (CIO-analysen).
+
+REGEL 1: DU SKALL ALLTID GE SVARET FÖRST OCH SEDAN ANALYSEN.
+Börja alltid med skarpa, exekverbara handelsbeslut (Köp/Sälj/Öka/Minska).
+
+Strukturera analysen strikt enligt följande rubriker:
+
+### 1. Portföljåtgärder & Transaktioner (SVARET FÖRST)
+- Lista exakta åtgärder i punktform:
+  * SÄLJ: [Ticker] - [Kort motivering]
+  * MINSKA EXPONERING: [Ticker] från [X]% till [Y]% vikt.
+  * KÖP/ÖKA: [Sektor eller Ticker om cash finns]
+  * BEHÅLL: (och låt vinsterna löpa)
+- Ange målnivå för kassa (Cash-position) i rådande marknadsklimat.
+
+### 2. Makro-Alignment (Stresstest mot CIO-vyn)
+- Utvärdera portföljen mot den bifogade CIO-analysen.
+- Om CIO-analysen skriker "Risk-av och inflation" men portföljen består av 80% räntekänslig
+  förhoppningstech, måste du peka ut denna diskrepans med brutal tydlighet.
+- Linjerar den nuvarande sektorallokeringen med de strukturella megatrenderna?
+
+### 3. Koncentrationsrisk & Sårbarhet
+- Sektorexponering: Är portföljen för tungt viktad mot en enskild faktor (t.ex. för svag krona,
+  Kina-export eller enbart halvledare)?
+- Riskbarometern: Givet nuvarande VIX och SKEW, hur stor drawdown (värdetapp) riskerar denna
+  portfölj vid en plötslig marknadschock?
+
+### 4. Slakten av "Value Traps" (Döda darlings)
+- Identifiera eventuella "losers" i portföljen (innehav med negativ avkastning över tid som
+  saknar strukturell medvind).
+- Investerare lider av "sunk cost fallacy" och vill ogärna sälja med förlust. Ge det
+  rationella argumentet för varför kapitalet ska frigöras och allokeras till bättre risk/reward.
+
+### 5. Strategisk Vägledning (För Screenern)
+- Vilka exakta parametrar bör investeraren ställa in i plattformens 'Aktiescreener' idag
+  för att hitta bolag som balanserar upp portföljens nuvarande brister?
+  (Ge konkreta förslag: t.ex. "Sök efter: Hälsovård, EV/EBITDA < 12, FCF-marginal > 10%, USA-baserat").
+
+Ton och format:
+- Extremt krasst, institutionellt och handlingsorienterat.
+- Inget beröm för tidigare vinster; marknaden bryr sig bara om morgondagen.`;
+
+const pmR = (v, dec = 1) => (v == null || !isFinite(v)) ? null : Math.round(v * 10 ** dec) / 10 ** dec;
+
+// Slutsatserna ur en CIO-analys: 1 (allokering & regim), 4 (megatrender & geopolitik),
+// 5 (sektorallokering), 6 (svart svan). 2–3 är resonemanget bakom och skickas inte med.
+function cioConclusions(text) {
+  const parts = (text || '').replace(/\r/g, '').split(/\n(?=#{1,3}\s)/);
+  const keep = parts.filter(p => /^#{1,3}\s*[1456][.)]?\s/.test(p.trim()));
+  return (keep.length ? keep.join('\n\n') : text || '').trim();
+}
+
+// Senaste CIO-analysen – motorns dagliga eller din egen knappkörning, den nyaste vinner.
+async function latestCioDirective() {
+  const cands = [];
+  if(cloudEnabled && sb) {
+    try {
+      const { data } = await sb.from('cio_analysis').select('date,analysis,created_at').order('date', { ascending: false }).limit(1);
+      if(data && data[0]) cands.push({ source: 'motorns dagliga CIO-analys', ts: new Date(data[0].created_at || data[0].date).getTime(), text: data[0].analysis });
+    } catch(e) {}
+    if(currentUser) {
+      try {
+        const { data } = await sb.from('analyses').select('created_at,answer').like('title', 'CIO-analys%').order('created_at', { ascending: false }).limit(1);
+        if(data && data[0]) cands.push({ source: 'din senaste CIO-körning', ts: new Date(data[0].created_at).getTime(), text: data[0].answer });
+      } catch(e) {}
+    }
+  }
+  const local = aiAnalyses.find(a => (a.title || '').startsWith('CIO-analys'));
+  if(local) cands.push({ source: 'din senaste CIO-körning', ts: local.ts, text: local.answer });
+  const best = cands.filter(c => c.text).sort((a, b) => b.ts - a.ts)[0];
+  if(!best) return null;
+  return { source: best.source, date: new Date(best.ts).toISOString().slice(0, 10),
+    age_days: Math.floor((Date.now() - best.ts) / 86400000), conclusions: cioConclusions(best.text) };
+}
+
+// Riskbarometern: VIX, SKEW och guldets trend (samma uträkning som CIO-underlaget).
+async function pmRiskBarometer() {
+  let s = {};
+  try { s = await fetchSparkData(['^VIX', '^SKEW', 'GC=F'], '6mo', '1d'); } catch(e) {}
+  const withBand = (d, band) => { const t = cioTrend(d); return t && band ? { ...t, regime: band(d.price).text } : t; };
+  return { vix: withBand(s['^VIX'], vixBand), skew: withBand(s['^SKEW'], skewBand), gold_usd_oz: withBand(s['GC=F'], null) };
+}
+
+// Vad plattformens Aktiescreener faktiskt kan – läst ur sidan, så att förslagen i
+// avsnitt 5 går att ställa in.
+function screenerCapabilities() {
+  const labels = sel => [...document.querySelectorAll(sel)]
+    .map(e => e.textContent.replace(/[^\p{L}\s-]/gu, '').trim()).filter(t => t && !/^Alla/.test(t));
+  return {
+    countries: labels('#section-screener [data-r]'),
+    sectors: labels('#section-screener [data-s]'),
+    sortable_columns: Object.values(COL_DEFS).map(d => d.label).filter(l => !['Marknad', 'Sektor', 'Kurs', 'Valuta'].includes(l)),
+    how_it_works: 'Filtrerar på land och sektor (flera kan kombineras) och sorterar på en kolumn i taget. Inga numeriska gränsvärden.'
+  };
+}
+
+// Innehav → portföljstruktur med vikter (inkl. kassa) samt sektor- och valutafördelning.
+function pmStructure(holdings, cashSek) {
+  const secSek = holdings.reduce((s, h) => s + (h.value_sek || 0), 0);
+  const total = secSek + (cashSek || 0);
+  const pct = v => total ? pmR(v / total * 100) : null;
+  const sumBy = key => {
+    const m = {};
+    for(const h of holdings) if(h.value_sek != null) { const k = h[key] || 'okänd'; m[k] = (m[k] || 0) + h.value_sek; }
+    return Object.fromEntries(Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, pct(v)]));
+  };
+  return {
+    total_value_sek: Math.round(total), securities_value_sek: Math.round(secSek),
+    cash_sek: Math.round(cashSek || 0), cash_pct: pct(cashSek || 0),
+    sector_weights_pct: sumBy('sector'), currency_weights_pct: sumBy('currency'),
+    holdings: holdings.map(h => ({ ...h, weight_pct: h.value_sek != null ? pct(h.value_sek) : null,
+      value_sek: h.value_sek != null ? Math.round(h.value_sek) : null }))
+      .sort((a, b) => (b.weight_pct || 0) - (a.weight_pct || 0))
+  };
+}
+
+// Min portfölj: bygger på pfEnriched (redan prissatt och SEK-omräknat av portföljvyn).
+function pmPortfolioStructure() {
+  const holdings = pfEnriched.map(e => ({
+    ticker: e.h.ticker, name: e.h.name || e.h.ticker, sector: e.sektor || null, currency: e.priceCcy || null,
+    value_sek: e.valSek, gav: e.h.gav != null ? e.h.gav : null, price: pmR(e.price, 2),
+    return_vs_gav_pct: pmR(e.gain), return_1y_pct: pmR(e.rets && e.rets['1y'])
+  }));
+  const cost = pfEnriched.reduce((s, e) => s + (e.plSek != null ? e.valSek - e.plSek : 0), 0);
+  const pl = pfEnriched.reduce((s, e) => s + (e.plSek != null ? e.plSek : 0), 0);
+  return { name: 'Min portfölj (Avanza)', ...pmStructure(holdings, portfolioCash),
+    total_return_vs_cost_pct: cost > 0 ? pmR(pl / cost * 100) : null };
+}
+
+// AI-fond: prissätter innehaven nu och hämtar sektor per ticker. Fonden är fullinvesterad.
+async function pmFundStructure(f) {
+  const tickers = f.holdings.map(h => h.ticker);
+  const [q, fx, info] = await Promise.all([
+    fetchQuotesChunked(tickers), getFxRates([...new Set(f.holdings.map(h => h.currency))]), fetchHoldingInfo(tickers)
+  ]);
+  const holdings = f.holdings.map(h => {
+    const d = q[h.ticker], pc = d && d.currency ? normPriceCurrency(d.currency) : null;
+    const price = d && d.price != null ? (pc ? d.price / pc.div : d.price) : null;
+    const rate = fx[(h.currency || 'SEK').toUpperCase()];
+    return { ticker: h.ticker, name: h.name || h.ticker, sector: (info[h.ticker] || {}).sektor || null, currency: h.currency || null,
+      value_sek: (price != null && rate != null) ? price * h.shares * rate : null,
+      purchase_price: h.buyPrice, price: pmR(price, 2),
+      return_since_purchase_pct: (price != null && h.buyPrice) ? pmR((price - h.buyPrice) / h.buyPrice * 100) : null,
+      rationale: h.rationale || null };
+  });
+  const s = pmStructure(holdings, 0);
+  return { name: `AI-fond: ${f.name}`, ...s,
+    mandate: { instructions: f.instructions || null, strategy: f.strategy || null },
+    start_value_sek: f.startValueSek || null, started: (f.createdAt || '').slice(0, 10) || null,
+    return_since_start_pct: f.startValueSek ? pmR((s.securities_value_sek - f.startValueSek) / f.startValueSek * 100) : null };
+}
+
+function pmUserMessage(ctx) {
+  const today = new Date().toLocaleDateString('sv-SE', { year:'numeric', month:'long', day:'numeric' });
+  return `Dagens datum: ${today}. Genomlys portföljen nedan mot fondens senaste makro-direktiv och riskbarometern.
+
+Om underlaget:
+- Alla belopp är i SEK, redan omräknade av plattformen. weight_pct är andel av portföljens totala värde inklusive kassa; sector_weights_pct och currency_weights_pct summerar innehaven på samma sätt.
+- return_vs_gav_pct / return_since_purchase_pct = kursutveckling mot anskaffningskursen i aktiens egen valuta (valutaeffekten ingår inte). return_1y_pct = kursutveckling senaste året.
+- cio_directive är slutsatserna ur den senaste CIO-analysen (allokering & regim, megatrender & geopolitik, sektorallokering, systemisk risk); age_days = hur gammal den är. Är den null finns ingen CIO-analys – säg det och utgå från riskbarometern.
+- risk_barometer: värde, förändring 1/3/6 månader och läge mot 50-dagarssnitt.${ctx.portfolio.mandate ? '\n- mandate är fondens förvaltningsmandat (ägarens instruktioner). Håll åtgärderna inom mandatet eller motivera uttryckligen varför det bör ändras.' : ''}
+- screener_capabilities beskriver vad plattformens Aktiescreener faktiskt kan. Den saknar numeriska gränsvärden, så formulera avsnitt 5 som land- och sektorval plus vilken kolumn att sortera på och vilka nivåer att leta efter i listan. Nyckeltal som EV/EBITDA och FCF kontrolleras sedan per bolag i Aktiedetalj (Institutionell djupanalys).
+- null eller saknade fält betyder att datan inte gick att hämta. Hitta inte på siffror för dem.
+
+<underlag>
+${JSON.stringify(ctx, null, 1)}
+</underlag>`;
+}
+
+let pmRunId = 0;
+async function runPortfolioReview(kind, fundId) {
+  const outId = kind === 'fund' ? 'aif-review-out' : 'pf-review-out';
+  const btnId = kind === 'fund' ? 'aif-review-btn' : 'pf-review-btn';
+  const getOut = () => document.getElementById(outId);
+  if(!getApiKey()) {
+    const out = getOut();
+    if(out) out.innerHTML = '<div class="error-msg" style="margin:0">Ingen API-nyckel. Klistra in din Anthropic-nyckel i AI-panelen (✦ AI-analys) först.</div>';
+    return;
+  }
+  const fund = kind === 'fund' ? aiFunds.find(f => f.id === fundId) : null;
+  if(kind === 'fund' ? !fund : !pfEnriched.length) return;
+  const id = ++pmRunId, live = () => id === pmRunId;
+  const setBtn = (disabled, label) => { const b = document.getElementById(btnId); if(b && live()) { b.disabled = disabled; b.textContent = label; } };
+  const status = txt => { if(live()) memoStatus(getOut(), txt); };
+  setBtn(true, '✦ Genomlyser…');
+
+  status('Samlar underlag: innehav och vikter, senaste CIO-direktivet och riskbarometern…');
+  let ctx;
+  try {
+    const [portfolio, cio, risk] = await Promise.all([
+      kind === 'fund' ? pmFundStructure(fund) : pmPortfolioStructure(), latestCioDirective(), pmRiskBarometer()
+    ]);
+    ctx = { as_of: new Date().toISOString().slice(0, 10), portfolio, cio_directive: cio, risk_barometer: risk,
+            screener_capabilities: screenerCapabilities() };
+  } catch(e) {
+    const out = getOut();
+    if(live() && out) out.innerHTML = `<div class="error-msg" style="margin:0">Kunde inte samla underlaget: ${escHtml(e.message)}</div>`;
+    return setBtn(false, '↻ Försök igen');
+  }
+  status(ctx.cio_directive
+    ? `Portföljförvaltaren stresstestar portföljen mot CIO-direktivet (${escHtml(ctx.cio_directive.source)}, ${ctx.cio_directive.date}) – modellen tänker innan den skriver…`
+    : 'Ingen CIO-analys hittades – genomlysningen körs mot riskbarometern. Kör CIO-analysen på Översikt först för ett skarpare direktiv. Modellen tänker…');
+
+  const body = { model: PM_MODEL, max_tokens: 32000, system: PM_SYSTEM_PROMPT,
+    output_config: { effort: 'high' }, messages: [{ role: 'user', content: pmUserMessage(ctx) }] };
+  const result = await streamMemo(body, { getOut, live });
+  if(result.error) return setBtn(false, '↻ Försök igen');
+
+  const costMeta = estimateCostText(PM_MODEL, result.usage);
+  recordAiUsage('portfolio_review', PM_MODEL, result.usage);
+  const title = kind === 'fund' ? `Portföljgenomlysning · AI-fond: ${fund.name}` : PM_TITLE_PORTFOLIO;
+  saveAnalysis({ ts: Date.now(), title, model: PM_MODEL, answer: result.text, cost: costMeta });
+  const out = getOut();
+  if(live() && out) {
+    const cio = ctx.cio_directive ? `CIO-direktiv: ${ctx.cio_directive.source} (${ctx.cio_directive.date})` : 'utan CIO-direktiv';
+    out.innerHTML = `<div class="memo">${formatMemo(result.text)}</div>
+      <div class="deep-meta">Sparad i Sparade analyser · ${escHtml(cio)} · ${escHtml(costMeta)}${currentUser ? '' : ' · logga in för att kostnaden ska synas i AI-kostnader'}</div>`;
+  }
+  setBtn(false, '↻ Kör ny genomlysning');
 }
 
 async function avanzaGet(path) {
@@ -4329,7 +4567,7 @@ async function saveAnalysis(entry){
   }
   if(currentSection === 'analyses') renderAnalyses();
   // Portföljanalyser visas även i portföljvyn – uppdatera den om man står där.
-  if(currentSection === 'portfolio' && (entry.title||'') === 'Portföljanalys') renderPortfolioAnalyses();
+  if(currentSection === 'portfolio' && PF_ANALYSIS_TITLES.includes(entry.title||'')) renderPortfolioAnalyses();
 }
 
 async function renderAnalyses(){
@@ -4351,7 +4589,7 @@ async function renderAnalyses(){
         <div><div style="font-weight:600">${escHtml(a.title||'Analys')}</div><div style="font-size:11px;color:var(--text3)">${d} · ${escHtml((a.model||'').replace('claude-',''))}</div></div>
         <button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();deleteAnalysis('${key}')" style="opacity:.6">×</button>
       </div>
-      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13px;line-height:1.55">${formatAIText(a.answer||'')}</div>
+      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"><div class="memo">${formatMemo(a.answer||'')}</div></div>
     </div>`;
   }).join('');
 }
@@ -4643,6 +4881,7 @@ const AICOST_CONTEXTS = {
   'analysis':          { label: 'Du · aktieanalys', bg: false },
   'deep_analysis':     { label: 'Du · institutionell djupanalys', bg: false },
   'cio':               { label: 'Du · CIO-analys', bg: false },
+  'portfolio_review':  { label: 'Du · portföljgenomlysning', bg: false },
   'engine-cio':        { label: 'Motor · CIO-analys', bg: true },
   'aifund':            { label: 'Du · AI-fond', bg: false }
 };
@@ -5095,7 +5334,7 @@ async function renderFundDetail(f, view){
     <div style="margin-bottom:12px"><button class="ghost-btn" onclick="backToFundList()">← Alla AI-fonder</button></div>
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
       <div><div style="font-size:18px;font-weight:600">${escHtml(f.name)}</div><div style="font-size:12px;color:var(--text3)">${escHtml(f.model.replace('claude-',''))} · ${f.web?'webbsök på':'utan webbsök'} · skapad ${created}${f.lastReevalAt ? ' · omvärderad ' + new Date(f.lastReevalAt).toLocaleDateString('sv-SE') : ''}</div></div>
-      <div style="display:flex;gap:8px"><button class="action-btn" id="aif-reeval-btn" onclick="reevalAIFund('${escQuote(f.id)}')">↻ Låt AI omvärdera</button><button class="ghost-btn" onclick="deleteAIFund('${escQuote(f.id)}')">Ta bort</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="action-btn" id="aif-review-btn" onclick="runPortfolioReview('fund','${escQuote(f.id)}')" title="Portfolio Manager: stresstestar fonden mot senaste CIO-analysen och riskbarometern">✦ Kör Portföljgenomlysning</button><button class="action-btn" id="aif-reeval-btn" onclick="reevalAIFund('${escQuote(f.id)}')">↻ Låt AI omvärdera</button><button class="ghost-btn" onclick="deleteAIFund('${escQuote(f.id)}')">Ta bort</button></div>
     </div>
     <div class="pf-card" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px">
       <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Omvärdering:
@@ -5112,6 +5351,7 @@ async function renderFundDetail(f, view){
       <div class="kpi-card"><div class="kpi-label">Startbelopp</div><div class="kpi-value">${fmtSekNum(f.startValueSek,0)} kr</div></div>
       ${totalCost ? `<div class="kpi-card"><div class="kpi-label">AI-kostnad hittills</div><div class="kpi-value">$${totalCost.toFixed(3)}</div><div class="kpi-sub muted">≈ ${fmtSekNum(totalCost*10.5,0)} kr · ${nReeval} körning${nReeval===1?'':'ar'}</div></div>` : ''}
     </div>
+    <div id="aif-review-out" class="memo-box"></div>
     ${f.lastReevalError ? `<div class="info-msg" style="margin-bottom:14px;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">⚠ Senaste omvärdering misslyckades (${new Date(f.lastReevalError.date).toLocaleString('sv-SE')}): ${escHtml(f.lastReevalError.message)}</div>` : ''}
     ${f.strategy ? `<div class="info-msg" style="margin-bottom:14px"><b>Strategi:</b> ${escHtml(f.strategy)}</div>` : ''}
     <div class="pf-card"><div style="font-weight:600;margin-bottom:8px">Utveckling vs index (sedan ${created})</div><div style="height:260px"><canvas id="aifundChart"></canvas></div></div>
