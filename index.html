@@ -467,6 +467,7 @@
         <span class="card-link" style="float:none" onclick="clearNumFilters()">Rensa</span>
       </div>
       <div id="screener-origin"></div>
+      <div class="ai-guide" data-here="screener" style="margin:-6px 0 10px"></div>
       <div class="filter-row" style="margin-top:-4px">
         <span style="font-size:11px;color:var(--text3)" id="filter-hint">Tips: håll <b>Ctrl</b> (⌘ på Mac) för att välja flera länder eller sektorer samtidigt.</span>
       </div>
@@ -1162,8 +1163,8 @@ let cioMode = 'daily';   // 'daily' = motorns analys visas · 'mine' = din körn
 let cioDailyAt = 0;      // senaste hämtningen – Översikt ritas om var 60:e sek, analysen bara var 10:e min
 let cioRunId = 0;
 
-// Utfällbar guide till de tre AI-analyserna (tratten CIO → portfölj → enskilt bolag).
-// Visas vid varje knapp; `here` markerar steget man står på: 'cio' | 'pm' | 'deep'.
+// Utfällbar guide till AI-flödet (tratten CIO → portfölj → screener → enskilt bolag).
+// Visas vid varje steg; `here` markerar steget man står på: 'cio' | 'pm' | 'screener' | 'deep'.
 function aiGuideHtml(here) {
   const link = (s, txt) => `<span class="card-link" style="float:none;font-size:12px" onclick="showSection('${s}')">${txt}</span>`;
   const step = (key, n, title, where, what) => `
@@ -1174,17 +1175,24 @@ function aiGuideHtml(here) {
   return `<details style="margin-top:12px">
     <summary style="cursor:pointer;color:var(--accent);font-size:12px;user-select:none">Så kör du AI-analyserna ▾</summary>
     <div style="font-size:12px;line-height:1.7;color:var(--text2);margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-      Tre analyser som bygger på varandra – kör dem i den här ordningen:
+      <b style="color:var(--text)">Innan du börjar</b> (en gång):
+      <div style="padding-left:12px">
+        · Din Anthropic-nyckel i AI-panelen (✦ AI-analys) och krediter på kontot (console.anthropic.com → Billing).<br>
+        · Logga in med Google – då sparas analyserna i molnet och kostnaden syns i ${link('aicost', 'AI-kostnader')}.<br>
+        · En portfölj att genomlysa: klistra in dina innehav från Avanza i ${link('portfolio', 'Min portfölj')}, eller skapa en ${link('aifund', 'AI-fond')}.
+      </div>
+      <div style="margin-top:10px"><b style="color:var(--text)">Flödet</b> – varje steg bygger på det förra:</div>
       ${step('cio', 1, '✦ Kör CIO-analys', link('dashboard', 'Översikt'),
-        'Makrobilden: vilken regim vi är i, hur aktier, räntor, guld och kassa ska viktas, och vilka sektorer som ska över- respektive underviktas. Körs automatiskt varje morgon (06:00 UTC) – knappen ger en färsk.')}
+        'Makrobilden: vilken regim vi är i, hur aktier, räntor, guld och kassa ska viktas, och vilka sektorer som ska över- respektive underviktas. Körs automatiskt varje morgon (06:00 UTC) – finns dagens redan kan du hoppa över knappen.')}
       ${step('pm', 2, '✦ Kör Portföljgenomlysning', `${link('portfolio', 'Min portfölj')} eller inne i en ${link('aifund', 'AI-fond')}`,
-        'Ställer innehaven mot senaste CIO-analysen och riskbarometern: vad som ska säljas, minskas, köpas och behållas, målnivå för kassan och vilka filter du ska använda i Aktiescreenern.')}
-      ${step('deep', 3, '✦ Kör Institutionell Djupanalys', `Aktiedetalj – klicka på en aktie, t.ex. i ${link('screener', 'Aktiescreenern')}`,
-        'Granskar ett enskilt bolag: vallgrav, kassaflöden, värdering mot 4–5 års historik och djävulens advokat. Använd den på bolag som genomlysningen eller screenern pekat ut.')}
+        'Ställer innehaven mot senaste CIO-analysen och riskbarometern: vad som ska säljas, minskas, köpas och behållas, målnivå för kassan och vilka bolag portföljen behöver.')}
+      ${step('screener', 3, '⚡ Applicera AI:ns filter i Screenern', 'knappen under genomlysningen',
+        `Öppnar ${link('screener', 'Aktiescreenern')} med sektorer, marknader och nyckeltalsfilter (P/E, EV/EBITDA, ROE, fritt kassaflöde) ifyllda – listan visar kandidaterna som fyller portföljens luckor.`)}
+      ${step('deep', 4, '✦ Kör Institutionell Djupanalys', 'Aktiedetalj – klicka på ett bolag i screenerlistan',
+        'Granskar kandidaten på djupet innan du agerar: vallgrav, kassaflöden, värdering mot 4–5 års historik och djävulens advokat.')}
       <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
-        <b style="color:var(--text)">Bra att veta:</b> kräver din Anthropic-nyckel i AI-panelen (✦ AI-analys) och krediter på kontot.
-        En körning tar 1–2 minuter och kostar ungefär $0,10–0,30. Allt sparas i ${link('analyses', 'Sparade analyser')} och kostnaden syns i
-        ${link('aicost', 'AI-kostnader')} (när du är inloggad). Analyserna är beslutsunderlag, inte personlig finansiell rådgivning.
+        <b style="color:var(--text)">Bra att veta:</b> varje AI-steg tar 1–2 minuter och kostar ungefär $0,10–0,30. Allt sparas i
+        ${link('analyses', 'Sparade analyser')} – där finns ⚡-knappen även för äldre genomlysningar. Analyserna är beslutsunderlag, inte personlig finansiell rådgivning.
       </div>
     </div>
   </details>`;
