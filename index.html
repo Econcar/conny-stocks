@@ -385,6 +385,7 @@
           </div>
           <button class="action-btn" id="cio-btn" onclick="runCioNow()">✦ Kör CIO-analys</button>
         </div>
+        <div class="ai-guide" data-here="cio"></div>
         <div id="cio-out" style="margin-top:14px"></div>
       </div>
       <div class="card" style="margin-bottom:14px">
@@ -553,6 +554,7 @@
             </div>
             <button class="action-btn" id="d-deep-btn" onclick="runDeepAnalysis()">✦ Kör Institutionell Djupanalys</button>
           </div>
+          <div class="ai-guide" data-here="deep"></div>
           <div id="d-deep-out" style="display:none;margin-top:16px"></div>
         </div>
         <div class="card" id="d-insider-card" style="margin-bottom:14px;display:none">
@@ -1148,6 +1150,34 @@ function renderDashboard() {
 let cioMode = 'daily';   // 'daily' = motorns analys visas · 'mine' = din körning (pågående eller klar)
 let cioDailyAt = 0;      // senaste hämtningen – Översikt ritas om var 60:e sek, analysen bara var 10:e min
 let cioRunId = 0;
+
+// Utfällbar guide till de tre AI-analyserna (tratten CIO → portfölj → enskilt bolag).
+// Visas vid varje knapp; `here` markerar steget man står på: 'cio' | 'pm' | 'deep'.
+function aiGuideHtml(here) {
+  const link = (s, txt) => `<span class="card-link" style="float:none;font-size:12px" onclick="showSection('${s}')">${txt}</span>`;
+  const step = (key, n, title, where, what) => `
+    <div style="display:flex;gap:10px;margin:8px 0${key === here ? ';color:var(--text)' : ''}">
+      <div style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:${key === here ? 'var(--accent)' : 'var(--surface2)'};color:${key === here ? '#fff' : 'var(--text2)'};font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">${n}</div>
+      <div><b style="color:var(--text)">${title}</b> <span class="muted">· ${where}</span>${key === here ? ' <span style="color:var(--accent);font-weight:600">← du är här</span>' : ''}<br>${what}</div>
+    </div>`;
+  return `<details style="margin-top:12px">
+    <summary style="cursor:pointer;color:var(--accent);font-size:12px;user-select:none">Så kör du AI-analyserna ▾</summary>
+    <div style="font-size:12px;line-height:1.7;color:var(--text2);margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      Tre analyser som bygger på varandra – kör dem i den här ordningen:
+      ${step('cio', 1, '✦ Kör CIO-analys', link('dashboard', 'Översikt'),
+        'Makrobilden: vilken regim vi är i, hur aktier, räntor, guld och kassa ska viktas, och vilka sektorer som ska över- respektive underviktas. Körs automatiskt varje morgon (06:00 UTC) – knappen ger en färsk.')}
+      ${step('pm', 2, '✦ Kör Portföljgenomlysning', `${link('portfolio', 'Min portfölj')} eller inne i en ${link('aifund', 'AI-fond')}`,
+        'Ställer innehaven mot senaste CIO-analysen och riskbarometern: vad som ska säljas, minskas, köpas och behållas, målnivå för kassan och vilka filter du ska använda i Aktiescreenern.')}
+      ${step('deep', 3, '✦ Kör Institutionell Djupanalys', `Aktiedetalj – klicka på en aktie, t.ex. i ${link('screener', 'Aktiescreenern')}`,
+        'Granskar ett enskilt bolag: vallgrav, kassaflöden, värdering mot 4–5 års historik och djävulens advokat. Använd den på bolag som genomlysningen eller screenern pekat ut.')}
+      <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
+        <b style="color:var(--text)">Bra att veta:</b> kräver din Anthropic-nyckel i AI-panelen (✦ AI-analys) och krediter på kontot.
+        En körning tar 1–2 minuter och kostar ungefär $0,10–0,30. Allt sparas i ${link('analyses', 'Sparade analyser')} och kostnaden syns i
+        ${link('aicost', 'AI-kostnader')} (när du är inloggad). Analyserna är beslutsunderlag, inte personlig finansiell rådgivning.
+      </div>
+    </div>
+  </details>`;
+}
 
 // Sektion 1 (allokeringen) syns direkt, resten fälls ut på begäran.
 function cioHtml(text) {
@@ -3876,6 +3906,7 @@ async function renderPortfolio(){
       <button class="action-btn" id="pf-review-btn" onclick="runPortfolioReview('portfolio')" title="Portfolio Manager: stresstestar innehaven mot senaste CIO-analysen och riskbarometern">✦ Kör Portföljgenomlysning</button>
       <button class="ghost-btn" onclick="analyzePortfolioAI()">✦ Analysera min portfölj med AI</button>
     </div>
+    <div style="margin:-6px 0 12px">${aiGuideHtml('pm')}</div>
     <div id="pf-review-out" class="memo-box"></div>
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:8px">
@@ -5351,6 +5382,7 @@ async function renderFundDetail(f, view){
       <div class="kpi-card"><div class="kpi-label">Startbelopp</div><div class="kpi-value">${fmtSekNum(f.startValueSek,0)} kr</div></div>
       ${totalCost ? `<div class="kpi-card"><div class="kpi-label">AI-kostnad hittills</div><div class="kpi-value">$${totalCost.toFixed(3)}</div><div class="kpi-sub muted">≈ ${fmtSekNum(totalCost*10.5,0)} kr · ${nReeval} körning${nReeval===1?'':'ar'}</div></div>` : ''}
     </div>
+    <div style="margin:-6px 0 12px">${aiGuideHtml('pm')}</div>
     <div id="aif-review-out" class="memo-box"></div>
     ${f.lastReevalError ? `<div class="info-msg" style="margin-bottom:14px;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">⚠ Senaste omvärdering misslyckades (${new Date(f.lastReevalError.date).toLocaleString('sv-SE')}): ${escHtml(f.lastReevalError.message)}</div>` : ''}
     ${f.strategy ? `<div class="info-msg" style="margin-bottom:14px"><b>Strategi:</b> ${escHtml(f.strategy)}</div>` : ''}
@@ -6259,6 +6291,7 @@ function removeFromWatchlist(id) {
 }
 
 // ══════════ INIT ══════════
+document.querySelectorAll('.ai-guide[data-here]').forEach(el => el.innerHTML = aiGuideHtml(el.dataset.here));
 renderDashboard();
 renderWatchlist();
 initAuth();
