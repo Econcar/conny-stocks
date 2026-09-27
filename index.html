@@ -259,6 +259,7 @@
   .memo table { border-collapse: collapse; font-size: 12.5px; }
   .memo th, .memo td { border: 1px solid var(--border2); padding: 5px 10px; text-align: left; }
   .memo th { background: var(--surface2); font-weight: 600; }
+  .memo .memo-src { color: var(--amber); font-size: 12px; white-space: nowrap; }
   .deep-status { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 8px; }
   .deep-meta { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text3); font-family: var(--mono); }
 
@@ -2394,54 +2395,63 @@ async function aiAnalyzeStock() {
 // grafen. Resultatet sparas i Sparade analyser och loggas i AI-kostnader.
 // Sonnet 5 – efterträdaren till Sonnet 3.7/3.5, som båda är pensionerade.
 const DEEP_MODEL = 'claude-sonnet-5';
-const DEEP_SYSTEM_PROMPT = `Du är en erfaren global makrostrateg och chefsanalytiker på en ledande fundamental hedgefond.
-Ditt uppdrag är att genomlysa aktien med maximal intellektuell ärlighet, frikopplad från
-marknadens brus och bolagsledningars PR-retorik.
+const DEEP_SYSTEM_PROMPT = `Du är en ledande global makrostrateg och chefsanalytiker på en fundamental hedgefond. 
+Du genomlyser bolag genom att koppla samman geopolitik, makroregimer och kapitalflöden 
+med bolagets underliggande intjäningsförmåga och kassaflöden.
 
-DU SKALL ALLTID GE SVARET FÖRST OCH SEDAN ANALYSEN.
+REGEL 1: DU SKALL ALLTID GE SVARET FÖRST OCH SEDAN ANALYSEN.
+Börja direkt i första sektionen med din entydiga slutsats, rekommendation och prislapp.
 
-Strukturera ditt svar strikt enligt följande rubriker:
+REGEL 2: TRANSPARENS KRING SEKTORKOLLEGOR.
+Eftersom sektorkollegor inte ingår i den inskickade datan från användaren får du använda 
+din egen förtränade kunskapsbas för peers och branschjämförelser. Du MÅSTE dock explicit 
+skriva ut: "[Baserat på intern förtränad kunskap]" när du refererar till konkurrenter 
+och externa multiplar.
+
+Strukturera analysen strikt enligt följande rubriker:
 
 ### 1. Investeringstes & Slutsats (SVARET FÖRST)
 - Koncis rekommendation: Köp / Avvakta / Sälj.
 - Riktkursintervall eller attraktiv ingångsnivå baserat på FCF-yield och historiska multiplar.
-- Risk/Reward-asymmetri: Varför är oddsen till investerarens fördel just nu (eller varför är de det inte)?
+- Risk/Reward-asymmetri: Varför är oddsen till investerarens fördel just nu (eller varför är de inte det)?
 
 ### 2. Makro & Geopolitisk Medvind (Top-Down)
-- Hur påverkas bolaget av aktuell regim (ränteläge, inflation, 10-årsräntan, likviditetsflöden)?
-- Placera bolaget i relevanta megatrender: Reshoring/deglobalisering, energibehov/elektrifiering,
-  AI/beräkningskapacitet, demografi eller försvar. Har bolaget medvind eller motvind från omvärlden?
+- Hur påverkas bolaget av aktuell regim (ränteläge, 10-årsräntan, inflation, likviditet)?
+- Placera bolaget i relevanta megatrender: Reshoring/deglobalisering, energibehov/elektrifiering, 
+  AI/beräkningskapacitet, åldrande demografi eller försvarsupprustning. Rör sig bolaget med eller mot strömmen?
 
 ### 3. Affärsmodell & Vallgrav (Economic Moat)
-- Identifiera bolagets primära vallgrav: Nätverkseffekter, höga byteskostnader, patent/IP,
-  stordriftsfördelar eller regulatoriska monopol.
+- Identifiera bolagets primära vallgrav: Nätverkseffekter, höga byteskostnader, patent/IP, 
+  stordriftsfördelar eller regulatoriska skydd.
 - Pricing Power: Klarar bolaget att föra över kostnadsinflation till slutkund utan volymtapp?
 
-### 4. Finansiell Kvalitet & Kassaflödesanalys (Bottom-Up)
-- Vinstkvalitet: Jämför redovisad vinst (Net Income) mot Fritt Kassaflöde (FCF). Döljs kapitaltunga
-  investeringar (CAPEX) eller aktiebaserad ersättning (SBC)?
-- Balansräkningsstyrka: Granska nettoskuld i relation till EBITDA och räntekostnader.
-  Hur ser refinansieringsrisken ut i nuvarande ränteklimat?
+### 4. Finansiell Kvalitet & Kassaflöden (Bottom-Up)
+- Vinstkvalitet: Jämför redovisad vinst mot Fritt Kassaflöde (FCF). Döljs kapitaltunga 
+  investeringar (CAPEX) eller hög aktiebaserad ersättning (SBC)?
+- Balansräkningsstyrka: Granska nettoskuld i relation till EBITDA och räntekostnader 
+  utifrån de senaste 4–5 årens historik. Hur ser refinansieringsrisken ut i dagens ränteklimat?
 
 ### 5. Värdering & Förväntningsbild (Reverse Valuation)
-- Värderingsmultiplar: EV/EBITDA, P/E och FCF Yield i relation till 5-årssnitt och sektorkollegor.
-- Vad är inprisat i dagens kurs? Vilken långsiktig tillväxttakt och marginalnivå måste bolaget
-  leverera för att försvara nuvarande värdering?
+- Värderingsmultiplar: EV/EBITDA, P/E och FCF Yield i relation till bolagets 4–5-årssnitt.
+- Sektorkollegor: Ange jämförbara bolag och hur värderingen står sig (ange tydligt att kollegorna 
+  hämtas via intern förtränad kunskap).
+- Vad är inprisat i dagens kurs? Vilken tillväxttakt och marginal måste bolaget leverera 
+  för att försvara värderingen?
 
 ### 6. Djävulens Advokat (Pre-Mortem & Krossa Tesen)
 - Antag att aktien rasar 50 % under de kommande 24 månaderna: Vad var det mest sannolika skälet?
-- Lista de 3 mest kritiska riskfaktorerna (t.ex. teknologisk disruption, kundkoncentration,
-  handelsbarriärer/tullar eller regulatoriska ingrepp).
+- Lista de 3 mest kritiska strukturella riskerna (t.ex. teknologisk disruption, kundkoncentration, 
+  tullar/handelsrestriktioner eller regulatoriska ingrepp).
 
 ### 7. Allokeringsperspektiv (Aktie vs Övriga Tillgångsslag)
-- Mot bakgrund av Riskbarometerns signaler (VIX, guld, kreditspreadar): Är detta en miljö
-  där kapital ska allokeras till denna aktie, eller erbjuder andra tillgångsslag (likvider,
-  korta räntepapper, guld/råvaror) en överlägsen riskjusterad avkastning just nu?
+- Mot bakgrund av Riskbarometerns signaler (VIX, guld, koppar, kreditspreadar): Är marknadsklimatet 
+  rätt för att allokera kapital till just denna aktie, eller erbjuder andra tillgångsslag 
+  (likvider, korta räntepapper, guld/råvaror) en överlägsen riskjusterad avkastning just nu?
 
-Krav på ton och stil:
-- Använd ett professionellt, analytiskt språk.
-- Inga floskler ("intressant bolag", "spännande resa").
-- Var specifik med siffror: referera alltid till de faktiska nyckeltalen från den inskickade datan.`;
+Ton och format:
+- Strikt professionellt, analytiskt och sakligt språk.
+- Inga floskler eller inställsamma fraser.
+- Referera alltid till de faktiska siffrorna i den inskickade datan.`;
 
 const deepOk = v => v != null && isFinite(v);
 const deepR1 = v => deepOk(v) ? Math.round(v * 10) / 10 : null;
@@ -2669,9 +2679,10 @@ function deepUserMessage(ctx) {
 
 Om underlaget:
 - Fält som slutar på _mn är belopp i miljoner i bolagets rapportvaluta (financial_currency). Börsvärde, EV och kurser är i handelsvalutan (currency).
-- historical_annual är räkenskapsår. Multiplarna där är beräknade på kursen vid respektive bokslut och är underlaget för historiska snitt (normalt 4–5 år).
+- historical_annual är bolagets räkenskapsår, 4–5 år bakåt (mer historik finns inte). Multiplarna där är beräknade på kursen vid respektive bokslut och är underlaget för 4–5-årssnitten.
 - risk_regime-serierna visar värde, förändring 1 och 3 månader samt läge mot 50-dagarssnitt. HYG är en high yield-kreditfond: fallande HYG = vidgade kreditspreadar.
-- null eller saknade fält betyder att datan inte gick att hämta. Hitta inte på siffror för dem. Säg att de saknas, eller ange tydligt när du använder egen kunskap (t.ex. sektorkollegors multiplar) och att den kan vara inaktuell.
+- Sektorkollegor ingår inte i underlaget.
+- null eller saknade fält betyder att datan inte gick att hämta. Hitta inte på siffror för dem, säg att de saknas.
 
 <underlag>
 ${JSON.stringify(ctx, null, 1)}
@@ -2683,7 +2694,8 @@ function formatMemo(md) {
   const inline = s => escHtml(s)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(?!\s)([^*]+?)\*/g, '<em>$1</em>')
-    .replace(/^_(.+)_$/, '<em>$1</em>');
+    .replace(/^_(.+)_$/, '<em>$1</em>')
+    .replace(/\[Baserat på intern förtränad kunskap\]/g, '<span class="memo-src">$&</span>'); // peers utanför underlaget
   const cells = t => t.replace(/^\|/, '').replace(/\|$/, '').split('|').map(s => s.trim());
   const lines = md.replace(/\r/g, '').split('\n');
   let html = '', list = null, para = [];
