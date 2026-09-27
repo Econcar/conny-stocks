@@ -458,6 +458,15 @@
         <div class="filter-chip" data-s="Konsument" onclick="setFilter(this,'sector',event)">Konsument</div>
         <div class="filter-chip" data-s="Försvar" onclick="setFilter(this,'sector',event)">Försvar</div>
       </div>
+      <div class="filter-row" id="num-filters" style="align-items:center;gap:10px;font-size:12px;color:var(--text2)">
+        <span style="font-size:11px;color:var(--text3)">Nyckeltal:</span>
+        <label>P/E ≤ <input class="filter-input" id="nf-maxPe" type="number" min="0" step="1" style="width:64px" onchange="setNumFilters()"></label>
+        <label>EV/EBITDA ≤ <input class="filter-input" id="nf-maxEvEbitda" type="number" min="0" step="1" style="width:64px" onchange="setNumFilters()"></label>
+        <label>ROE ≥ <input class="filter-input" id="nf-minRoe" type="number" step="1" style="width:64px" onchange="setNumFilters()"> %</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="nf-posFcf" onchange="setNumFilters()"> Positivt fritt kassaflöde</label>
+        <span class="card-link" style="float:none" onclick="clearNumFilters()">Rensa</span>
+      </div>
+      <div id="screener-origin"></div>
       <div class="filter-row" style="margin-top:-4px">
         <span style="font-size:11px;color:var(--text3)" id="filter-hint">Tips: håll <b>Ctrl</b> (⌘ på Mac) för att välja flera länder eller sektorer samtidigt.</span>
       </div>
@@ -867,6 +876,8 @@ let detailRefreshTimer = null;
 let sectorChartInstance = null;
 let activeRegions = new Set(['se']);   // tomt = alla Avanza-marknader
 let activeSectors = new Set();         // tomt = alla sektorer
+// Nyckeltalsfilter (null/false = av). Filtreras av Yahoo på serversidan – se /api/screener.
+let numFilters = { maxPe: null, maxEvEbitda: null, minRoe: null, posFcf: false };
 let aiOpen = false;
 let aiContext = '';
 let aiHistory = [];
@@ -1479,6 +1490,25 @@ function paintFilterChips(){
     : 'Tips: håll <b>Ctrl</b> (⌘ på Mac) för att välja flera länder eller sektorer samtidigt.';
 }
 
+function paintNumFilters(){
+  for(const k of ['maxPe', 'maxEvEbitda', 'minRoe']){ const el = document.getElementById('nf-' + k); if(el) el.value = numFilters[k] != null ? numFilters[k] : ''; }
+  const f = document.getElementById('nf-posFcf'); if(f) f.checked = !!numFilters.posFcf;
+}
+function setNumFilters(){
+  const val = id => { const v = parseFloat((document.getElementById(id) || {}).value); return isFinite(v) ? v : null; };
+  numFilters = { maxPe: val('nf-maxPe'), maxEvEbitda: val('nf-maxEvEbitda'), minRoe: val('nf-minRoe'),
+                 posFcf: !!(document.getElementById('nf-posFcf') || {}).checked };
+  screenerPage = 0;
+  loadScreener();
+}
+function clearNumFilters(){
+  numFilters = { maxPe: null, maxEvEbitda: null, minRoe: null, posFcf: false };
+  paintNumFilters();
+  const o = document.getElementById('screener-origin'); if(o) o.innerHTML = '';
+  screenerPage = 0;
+  loadScreener();
+}
+
 // Hämta YTD + senaste kurs för en lista tickers via spark (chunkat, Yahoo klarar ~20/anrop).
 async function fetchSparkPrices(symbols) {
   const out = {};
@@ -1504,8 +1534,9 @@ async function fetchSparkPrices(symbols) {
   return out;
 }
 
+let screenerReload = false; // filter ändrades medan en hämtning pågick → hämta igen efteråt
 async function loadScreener() {
-  if(screenerLoading) return;
+  if(screenerLoading) { screenerReload = true; return; }
   screenerLoading = true;
   renderScreenerHead();
   const tbody = document.getElementById('screener-tbody');
@@ -1521,6 +1552,8 @@ async function loadScreener() {
     if(sectorList.length) params.set('sector', sectorList.join(','));
     if(industryList.length) params.set('industry', industryList.join(','));
     if(activeRegions.size) params.set('region', [...activeRegions].join(','));
+    for(const k of ['maxPe', 'maxEvEbitda', 'minRoe']) if(numFilters[k] != null) params.set(k, numFilters[k]);
+    if(numFilters.posFcf) params.set('posFcf', '1');
     params.set('tradable', '1');  // bara börser Avanza handlar på, en rad per bolag
     params.set('sortField', screenerSortField);
     params.set('sortType', screenerSortType);
@@ -1581,6 +1614,7 @@ async function loadScreener() {
     tbody.innerHTML = `<tr><td colspan="${colspan()}" style="text-align:center;padding:28px;color:var(--red)">Kunde inte hämta aktier just nu. Försök igen.</td></tr>`;
   } finally {
     screenerLoading = false;
+    if(screenerReload) { screenerReload = false; loadScreener(); }
   }
 }
 
@@ -2843,6 +2877,9 @@ ${JSON.stringify(ctx, null, 1)}
 
 // Enkel markdown → HTML för promemorian (rubriker, listor, tabeller, fetstil). Escapar först.
 function formatMemo(md) {
+  // Maskinläsbara block (portföljgenomlysningens <screener_config>) visas inte som text –
+  // även ett halvfärdigt block under strömningen döljs.
+  md = md.replace(/<screener_config>[\s\S]*?(<\/screener_config>|$)/g, '').trimEnd();
   const inline = s => escHtml(s)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(?!\s)([^*]+?)\*/g, '<em>$1</em>')
@@ -4089,7 +4126,7 @@ async function renderPortfolioAnalyses(){
         <div><div style="font-weight:600">✦ ${escHtml(a.title||'Portföljanalys')}</div><div style="font-size:11px;color:var(--text3)">${d} · ${escHtml((a.model||'').replace('claude-',''))}</div></div>
         <span style="font-size:11px;color:var(--accent)">Visa ▾</span>
       </div>
-      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13px;line-height:1.55"><div class="memo">${formatMemo(a.answer||'')}</div></div>
+      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13px;line-height:1.55"><div class="memo">${formatMemo(a.answer||'')}</div>${screenerPanelHtml(a.answer||'', key)}</div>
     </div>`;
   }).join('');
   el.innerHTML = `<div style="font-weight:600;margin:18px 0 8px">Tidigare AI-analyser av portföljen <span class="muted" style="font-weight:400">· sparas automatiskt</span></div>${items}`;
@@ -4181,6 +4218,31 @@ Strukturera analysen strikt enligt följande rubriker:
   för att hitta bolag som balanserar upp portföljens nuvarande brister?
   (Ge konkreta förslag: t.ex. "Sök efter: Hälsovård, EV/EBITDA < 12, FCF-marginal > 10%, USA-baserat").
 
+### 6. Maskinläsbar Screener-konfiguration
+Du MÅSTE avsluta hela ditt svar med ett strikt JSON-objekt omgivet av taggarna
+<screener_config> och </screener_config>. Denna JSON ska översätta din strategiska
+vägledning i punkt 5 till exakta filter för appens aktiescreener.
+
+Använd ENDAST följande nycklar i din JSON (sätt null om filtret inte ska användas):
+- "sectors": [array av strängar, t.ex. "Försvar", "Industri", "Hälsovård"]
+- "regions": [array av strängar, t.ex. "USA", "Sverige", "Norden"]
+- "max_pe": nummer eller null
+- "max_ev_ebitda": nummer eller null
+- "min_roe": nummer (i procent, t.ex. 15) eller null
+- "require_positive_fcf": boolean (true/false)
+
+Exempel på output i slutet av din text:
+<screener_config>
+{
+  "sectors": ["Hälsovård", "Försvar"],
+  "regions": ["USA", "Sverige"],
+  "max_pe": 20,
+  "max_ev_ebitda": 12,
+  "min_roe": 15,
+  "require_positive_fcf": true
+}
+</screener_config>
+
 Ton och format:
 - Extremt krasst, institutionellt och handlingsorienterat.
 - Inget beröm för tidigare vinster; marknaden bryr sig bara om morgondagen.`;
@@ -4235,7 +4297,8 @@ function screenerCapabilities() {
     countries: labels('#section-screener [data-r]'),
     sectors: labels('#section-screener [data-s]'),
     sortable_columns: Object.values(COL_DEFS).map(d => d.label).filter(l => !['Marknad', 'Sektor', 'Kurs', 'Valuta'].includes(l)),
-    how_it_works: 'Filtrerar på land och sektor (flera kan kombineras) och sorterar på en kolumn i taget. Inga numeriska gränsvärden.'
+    numeric_filters: ['max_pe', 'max_ev_ebitda', 'min_roe', 'require_positive_fcf'],
+    how_it_works: 'Filtrerar på land och sektor (flera kan kombineras) samt P/E-tak, EV/EBITDA-tak, lägsta ROE och positivt fritt kassaflöde. Sorterar på en kolumn i taget.'
   };
 }
 
@@ -4304,7 +4367,7 @@ Om underlaget:
 - return_vs_gav_pct / return_since_purchase_pct = kursutveckling mot anskaffningskursen i aktiens egen valuta (valutaeffekten ingår inte). return_1y_pct = kursutveckling senaste året.
 - cio_directive är slutsatserna ur den senaste CIO-analysen (allokering & regim, megatrender & geopolitik, sektorallokering, systemisk risk); age_days = hur gammal den är. Är den null finns ingen CIO-analys – säg det och utgå från riskbarometern.
 - risk_barometer: värde, förändring 1/3/6 månader och läge mot 50-dagarssnitt.${ctx.portfolio.mandate ? '\n- mandate är fondens förvaltningsmandat (ägarens instruktioner). Håll åtgärderna inom mandatet eller motivera uttryckligen varför det bör ändras.' : ''}
-- screener_capabilities beskriver vad plattformens Aktiescreener faktiskt kan. Den saknar numeriska gränsvärden, så formulera avsnitt 5 som land- och sektorval plus vilken kolumn att sortera på och vilka nivåer att leta efter i listan. Nyckeltal som EV/EBITDA och FCF kontrolleras sedan per bolag i Aktiedetalj (Institutionell djupanalys).
+- screener_capabilities beskriver vad plattformens Aktiescreener faktiskt kan. Använd i screener_config bara sektor- och landnamn som står i dess listor (stavade exakt så). Filter den saknar, t.ex. FCF-marginal, kan du nämna i avsnitt 5 som något att kontrollera per bolag i Aktiedetalj (Institutionell djupanalys).
 - null eller saknade fält betyder att datan inte gick att hämta. Hitta inte på siffror för dem.
 
 <underlag>
@@ -4359,9 +4422,92 @@ async function runPortfolioReview(kind, fundId) {
   if(live() && out) {
     const cio = ctx.cio_directive ? `CIO-direktiv: ${ctx.cio_directive.source} (${ctx.cio_directive.date})` : 'utan CIO-direktiv';
     out.innerHTML = `<div class="memo">${formatMemo(result.text)}</div>
+      ${screenerPanelHtml(result.text, 'pm-live') || '<div class="deep-meta" style="border:none">Modellen skickade ingen giltig screener-konfiguration.</div>'}
       <div class="deep-meta">Sparad i Sparade analyser · ${escHtml(cio)} · ${escHtml(costMeta)}${currentUser ? '' : ' · logga in för att kostnaden ska synas i AI-kostnader'}</div>`;
   }
   setBtn(false, '↻ Kör ny genomlysning');
+}
+
+// ── <screener_config> → Aktiescreenern ──
+// Genomlysningen avslutar med ett JSON-block (avsnitt 6). Vi tolkar det, matchar
+// sektor- och landnamnen mot screenerns egna chips och fyller i filtren på knapptryck.
+function parseScreenerConfig(text) {
+  const m = (text || '').match(/<screener_config>\s*([\s\S]*?)\s*<\/screener_config>/);
+  if(!m) return null;
+  try {
+    const j = JSON.parse(m[1].replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, ''));
+    return (j && typeof j === 'object' && !Array.isArray(j)) ? j : null;
+  } catch(e) { return null; }
+}
+
+// Engelska/alternativa namn som modellen kan tänkas använda → screenerns sektorchips.
+const SCREENER_SECTOR_ALIAS = { technology: 'Teknik', tech: 'Teknik', semiconductors: 'Halvledare', healthcare: 'Hälsovård',
+  financials: 'Finans', financialservices: 'Finans', industrials: 'Industri', energy: 'Energi',
+  consumer: 'Konsument', consumercyclical: 'Konsument', defense: 'Försvar', aerospacedefense: 'Försvar' };
+
+function resolveScreenerConfig(cfg) {
+  const norm = s => String(s || '').toLowerCase().replace(/[^\p{L}]/gu, '');
+  const chipMap = (sel, key) => {
+    const m = {};
+    document.querySelectorAll(sel).forEach(c => { const v = c.dataset[key]; if(v && v !== 'alla') { m[norm(c.textContent)] = v; m[norm(v)] = v; } });
+    return m;
+  };
+  const regionMap = chipMap('#region-filters [data-r]', 'r');
+  const sectorMap = chipMap('#sector-filters [data-s]', 's');
+  const regionLabel = code => { const c = document.querySelector(`#region-filters [data-r="${code}"]`); return c ? c.textContent.replace(/[^\p{L}\s-]/gu, '').trim() : code; };
+  const unknown = [];
+  const pick = (list, map, alias) => [...new Set((Array.isArray(list) ? list : []).map(x => {
+    const hit = map[norm(x)] || (alias && alias[norm(x)]);
+    if(!hit) unknown.push(String(x));
+    return hit;
+  }).filter(Boolean))];
+  const regions = pick(cfg.regions, regionMap);
+  const posNum = v => (typeof v === 'number' && isFinite(v) && v > 0) ? v : null;
+  return {
+    regions, regionLabels: regions.map(regionLabel), sectors: pick(cfg.sectors, sectorMap, SCREENER_SECTOR_ALIAS),
+    num: { maxPe: posNum(cfg.max_pe), maxEvEbitda: posNum(cfg.max_ev_ebitda),
+           minRoe: (typeof cfg.min_roe === 'number' && isFinite(cfg.min_roe)) ? cfg.min_roe : null,
+           posFcf: cfg.require_positive_fcf === true },
+    unknown
+  };
+}
+
+// Knapp-panel under en genomlysning (live eller i en sparad lista). `key` skiljer
+// panelerna åt när flera visas samtidigt.
+const screenerCfgs = {};
+function screenerPanelHtml(text, key) {
+  const cfg = parseScreenerConfig(text);
+  if(!cfg) return '';
+  const r = resolveScreenerConfig(cfg);
+  screenerCfgs[key] = r;
+  const parts = [
+    'Sektorer: ' + (r.sectors.length ? r.sectors.join(', ') : 'alla'),
+    'Marknader: ' + (r.regionLabels.length ? r.regionLabels.join(', ') : 'alla')
+  ];
+  if(r.num.maxPe != null) parts.push('P/E ≤ ' + r.num.maxPe);
+  if(r.num.maxEvEbitda != null) parts.push('EV/EBITDA ≤ ' + r.num.maxEvEbitda);
+  if(r.num.minRoe != null) parts.push('ROE ≥ ' + r.num.minRoe + ' %');
+  if(r.num.posFcf) parts.push('positivt fritt kassaflöde');
+  return `<div class="info-msg" style="margin:14px 0 0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <span><b>Screener-filter från genomlysningen:</b> ${escHtml(parts.join(' · '))}${r.unknown.length ? `<br><span style="color:var(--text3)">Finns inte i screenern, hoppas över: ${escHtml(r.unknown.join(', '))}</span>` : ''}</span>
+    <button class="action-btn" onclick="event.stopPropagation();applyScreenerCfg('${escQuote(key)}')">▸ Öppna i Aktiescreenern</button>
+  </div>`;
+}
+
+function applyScreenerCfg(key) {
+  const r = screenerCfgs[key];
+  if(!r) return;
+  activeRegions = new Set(r.regions);
+  activeSectors = new Set(r.sectors);
+  numFilters = { ...r.num };
+  screenerPage = 0;
+  paintFilterChips();
+  paintNumFilters();
+  const o = document.getElementById('screener-origin');
+  if(o) o.innerHTML = `<div class="info-msg" style="display:flex;justify-content:space-between;gap:10px">
+    <span>✦ Filtren är ifyllda från Portföljgenomlysningen. Djupanalysera kandidaterna i Aktiedetalj innan du agerar.</span>
+    <span style="cursor:pointer" onclick="document.getElementById('screener-origin').innerHTML=''">×</span></div>`;
+  showSection('screener'); // → loadScreener() med de nya filtren
 }
 
 async function avanzaGet(path) {
@@ -4620,7 +4766,7 @@ async function renderAnalyses(){
         <div><div style="font-weight:600">${escHtml(a.title||'Analys')}</div><div style="font-size:11px;color:var(--text3)">${d} · ${escHtml((a.model||'').replace('claude-',''))}</div></div>
         <button class="wl-remove" title="Ta bort" onclick="event.stopPropagation();deleteAnalysis('${key}')" style="opacity:.6">×</button>
       </div>
-      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"><div class="memo">${formatMemo(a.answer||'')}</div></div>
+      <div id="an-${key}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"><div class="memo">${formatMemo(a.answer||'')}</div>${screenerPanelHtml(a.answer||'', key)}</div>
     </div>`;
   }).join('');
 }

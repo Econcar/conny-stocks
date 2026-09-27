@@ -90,7 +90,7 @@ Det är bara jag som ska använda den. Jag är vad vid aktier och teknik. Jag vi
 | Önskemål | Status | Var / vad som saknas |
 |---|---|---|
 | Daglig sammanfattning av världshändelser | 🟡 | Sidan **Nyheter** + motorn (`engine/`, kör 06:00 UTC dagligen: RSS, GDELT, SEC EDGAR, insider). Notis till mobilen saknas. |
-| Lista aktier globalt + svenska fonder, kurser & nyckeltal | ✅ | **Aktiescreener** (sektor/industri/region), sök, **Aktiedetalj**, fonder via Avanza. |
+| Lista aktier globalt + svenska fonder, kurser & nyckeltal | ✅ | **Aktiescreener** (sektor/industri/region + nyckeltalsfilter P/E, EV/EBITDA, ROE, positivt FCF – kan fyllas i direkt från Portföljgenomlysningen), sök, **Aktiedetalj**, fonder via Avanza. |
 | Favoritlista | ✅ | **Bevakningslista** i sidopanelen, Supabase-synkad mellan enheter. |
 | Larm när något händer (t.ex. kurs över nivå) | ⬜ | Inte byggt. Kräver server-side utvärdering + notiskanal (Telegram var det tänkta valet). |
 | Räntor och växelkurser | 🟡 | Räntor klart (**Makro**: centralbanksräntor via `/api/rates` + FRED). Växelkurser används bara internt för att räkna om portföljinnehav till SEK — ingen egen vy. |

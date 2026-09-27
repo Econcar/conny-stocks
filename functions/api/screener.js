@@ -109,6 +109,15 @@ export async function onRequest(context) {
   if (catOps.length === 1) operands.push(catOps[0]);
   else if (catOps.length) operands.push({ operator: 'OR', operands: catOps });
 
+  // Nyckeltalsfilter (Yahoo filtrerar på serversidan, över hela universumet).
+  // P/E och EV/EBITDA kräver även > 0 – annars räknas förlustbolag (negativ kvot) som "billiga".
+  const num = name => { const v = parseFloat(p.get(name)); return isFinite(v) ? v : null; };
+  const maxPe = num('maxPe'), maxEvEbitda = num('maxEvEbitda'), minRoe = num('minRoe');
+  if (maxPe != null) operands.push({ operator: 'BTWN', operands: ['peratio.lasttwelvemonths', 0, maxPe] });
+  if (maxEvEbitda != null) operands.push({ operator: 'BTWN', operands: ['lastclosetevebitda.lasttwelvemonths', 0, maxEvEbitda] });
+  if (minRoe != null) operands.push({ operator: 'GT', operands: ['returnonequity.lasttwelvemonths', minRoe] });
+  if (p.get('posFcf') === '1') operands.push({ operator: 'GT', operands: ['leveredfreecashflow.lasttwelvemonths', 0] });
+
   if (regions.length) operands.push(anyOf('region', regions));
   // Utan vald region: begränsa till Avanzas marknader i stället för hela världen, annars
   // fylls toppen av CEDEAR:er och andra korsnoteringar av amerikanska jättar.
