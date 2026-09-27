@@ -246,6 +246,21 @@
   @keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
   .error-msg { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fca5a5; margin-bottom: 12px; }
   .info-msg { background: rgba(79,142,247,0.08); border: 1px solid rgba(79,142,247,0.2); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--accent); margin-bottom: 12px; }
+  /* Institutionell djupanalys – läsvänlig promemoria */
+  .memo { font-size: 14px; line-height: 1.7; color: var(--text); max-width: 860px; overflow-wrap: anywhere; }
+  .memo h3 { font-size: 15px; font-weight: 600; color: var(--accent); margin: 22px 0 8px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .memo h3:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+  .memo h4 { font-size: 13.5px; font-weight: 600; margin: 14px 0 6px; }
+  .memo p { margin: 0 0 10px; }
+  .memo ul, .memo ol { margin: 0 0 10px; padding-left: 22px; }
+  .memo li { margin: 3px 0; }
+  .memo hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+  .memo .memo-table { overflow-x: auto; margin: 0 0 12px; }
+  .memo table { border-collapse: collapse; font-size: 12.5px; }
+  .memo th, .memo td { border: 1px solid var(--border2); padding: 5px 10px; text-align: left; }
+  .memo th { background: var(--surface2); font-weight: 600; }
+  .deep-status { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 8px; }
+  .deep-meta { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text3); font-family: var(--mono); }
 
   /* ── Signaler / Nyheter ── */
   .signal-item { display: flex; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--text3); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; }
@@ -515,6 +530,16 @@
             <div class="card-title">Bolagsfakta</div>
             <div id="d-facts" style="font-size:12px;line-height:2;color:var(--text2)"></div>
           </div>
+        </div>
+        <div class="card" id="d-deep-card" style="margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div>
+              <div class="card-title" style="margin-bottom:4px">Institutionell djupanalys</div>
+              <div style="font-size:12px;color:var(--text3)">Top-down (makro, riskregim, megatrender) + bottom-up (vallgrav, kassaflöden, värdering, djävulens advokat) · Sonnet 5 · sparas i Sparade analyser</div>
+            </div>
+            <button class="action-btn" id="d-deep-btn" onclick="runDeepAnalysis()">✦ Kör Institutionell Djupanalys</button>
+          </div>
+          <div id="d-deep-out" style="display:none;margin-top:16px"></div>
         </div>
         <div class="card" id="d-insider-card" style="margin-bottom:14px;display:none">
           <div class="card-title">Insynshandel <span class="muted" id="d-insider-src" style="text-transform:none;letter-spacing:0;font-weight:400"></span></div>
@@ -1501,6 +1526,7 @@ async function loadFund(orderBookId, name) {
   aiStockDetail = '';
   const _cc = document.getElementById('chart-controls'); if(_cc) _cc.style.display = 'none'; // jämförelse stöds ej för fonder
   { const c = document.getElementById('d-insider-card'); if(c) c.style.display = 'none'; }   // insynshandel gäller bolag, inte fonder
+  resetDeepAnalysis(false); // djupanalysen bygger på bolagsnyckeltal – finns inte för fonder
   document.getElementById('nav-detail').style.display = 'flex';
   document.getElementById('nav-detail-name').textContent = name.length > 12 ? name.slice(0,12)+'…' : name;
   showSection('detail');
@@ -1668,6 +1694,7 @@ async function loadStock(ticker, name) {
   currentStockMeta = { kurs:'–', ytd:null, pe:null, div:null, mcap:null, sektor:'Aktie', flag:'', r:'' };
   renderFundamentals(null);
   { const c = document.getElementById('d-insider-card'); if(c) c.style.display = 'none'; } // föregående bolags rader ska inte ligga kvar
+  resetDeepAnalysis(true);
   compareSyms = [];
   aiStockDetail = '';
   const _cc = document.getElementById('chart-controls'); if(_cc) _cc.style.display = 'flex';
@@ -1736,6 +1763,13 @@ async function fetchFundamentals(ticker) {
       debtToEquity: raw(fd.debtToEquity),
       currentRatio: raw(fd.currentRatio),
       fcf: raw(fd.freeCashflow),
+      ebitda: raw(fd.ebitda),
+      opCashflow: raw(fd.operatingCashflow),
+      netIncome: raw(ks.netIncomeToCommon),
+      sharesOut: raw(ks.sharesOutstanding),
+      // Rapportvalutan kan skilja sig från handelsvalutan (t.ex. USD-rapporterande
+      // bolag på Stockholmsbörsen) – då går FCF/börsvärde inte att dela rakt av.
+      finCurrency: fd.financialCurrency || null,
       targetMean: raw(fd.targetMeanPrice),
       targetHigh: raw(fd.targetHighPrice),
       targetLow: raw(fd.targetLowPrice),
@@ -2353,6 +2387,416 @@ async function aiAnalyzeStock() {
   stageAnalysis(`Gör en djupgående analys av ${currentStockName} (${currentTicker}). ${ctx}${desc}${perf}${news} Inkludera: affärsmodell, styrkor, risker, värdering och en sammanfattande rekommendation. Om frågan gäller en specifik kursrörelse, använd kursutvecklingen och nyheterna ovan för att förklara den. Om du fortfarande saknar tillförlitlig information, säg det tydligt istället för att gissa.`, 'Aktieanalys: ' + currentStockName);
 }
 
+// ══════════ INSTITUTIONELL DJUPANALYS ══════════
+// Knappen på aktiesidan samlar ett strukturerat JSON-underlag ur appens egna källor
+// (Yahoo-nyckeltal + 4–5 års bokslutshistorik, makro, riskbarometer, megatrender,
+// nyhetsflöde) och strömmar en investeringspromemoria från Claude direkt under
+// grafen. Resultatet sparas i Sparade analyser och loggas i AI-kostnader.
+// Sonnet 5 – efterträdaren till Sonnet 3.7/3.5, som båda är pensionerade.
+const DEEP_MODEL = 'claude-sonnet-5';
+const DEEP_SYSTEM_PROMPT = `Du är en erfaren global makrostrateg och chefsanalytiker på en ledande fundamental hedgefond.
+Ditt uppdrag är att genomlysa aktien med maximal intellektuell ärlighet, frikopplad från
+marknadens brus och bolagsledningars PR-retorik.
+
+DU SKALL ALLTID GE SVARET FÖRST OCH SEDAN ANALYSEN.
+
+Strukturera ditt svar strikt enligt följande rubriker:
+
+### 1. Investeringstes & Slutsats (SVARET FÖRST)
+- Koncis rekommendation: Köp / Avvakta / Sälj.
+- Riktkursintervall eller attraktiv ingångsnivå baserat på FCF-yield och historiska multiplar.
+- Risk/Reward-asymmetri: Varför är oddsen till investerarens fördel just nu (eller varför är de det inte)?
+
+### 2. Makro & Geopolitisk Medvind (Top-Down)
+- Hur påverkas bolaget av aktuell regim (ränteläge, inflation, 10-årsräntan, likviditetsflöden)?
+- Placera bolaget i relevanta megatrender: Reshoring/deglobalisering, energibehov/elektrifiering,
+  AI/beräkningskapacitet, demografi eller försvar. Har bolaget medvind eller motvind från omvärlden?
+
+### 3. Affärsmodell & Vallgrav (Economic Moat)
+- Identifiera bolagets primära vallgrav: Nätverkseffekter, höga byteskostnader, patent/IP,
+  stordriftsfördelar eller regulatoriska monopol.
+- Pricing Power: Klarar bolaget att föra över kostnadsinflation till slutkund utan volymtapp?
+
+### 4. Finansiell Kvalitet & Kassaflödesanalys (Bottom-Up)
+- Vinstkvalitet: Jämför redovisad vinst (Net Income) mot Fritt Kassaflöde (FCF). Döljs kapitaltunga
+  investeringar (CAPEX) eller aktiebaserad ersättning (SBC)?
+- Balansräkningsstyrka: Granska nettoskuld i relation till EBITDA och räntekostnader.
+  Hur ser refinansieringsrisken ut i nuvarande ränteklimat?
+
+### 5. Värdering & Förväntningsbild (Reverse Valuation)
+- Värderingsmultiplar: EV/EBITDA, P/E och FCF Yield i relation till 5-årssnitt och sektorkollegor.
+- Vad är inprisat i dagens kurs? Vilken långsiktig tillväxttakt och marginalnivå måste bolaget
+  leverera för att försvara nuvarande värdering?
+
+### 6. Djävulens Advokat (Pre-Mortem & Krossa Tesen)
+- Antag att aktien rasar 50 % under de kommande 24 månaderna: Vad var det mest sannolika skälet?
+- Lista de 3 mest kritiska riskfaktorerna (t.ex. teknologisk disruption, kundkoncentration,
+  handelsbarriärer/tullar eller regulatoriska ingrepp).
+
+### 7. Allokeringsperspektiv (Aktie vs Övriga Tillgångsslag)
+- Mot bakgrund av Riskbarometerns signaler (VIX, guld, kreditspreadar): Är detta en miljö
+  där kapital ska allokeras till denna aktie, eller erbjuder andra tillgångsslag (likvider,
+  korta räntepapper, guld/råvaror) en överlägsen riskjusterad avkastning just nu?
+
+Krav på ton och stil:
+- Använd ett professionellt, analytiskt språk.
+- Inga floskler ("intressant bolag", "spännande resa").
+- Var specifik med siffror: referera alltid till de faktiska nyckeltalen från den inskickade datan.`;
+
+const deepOk = v => v != null && isFinite(v);
+const deepR1 = v => deepOk(v) ? Math.round(v * 10) / 10 : null;
+const deepR2 = v => deepOk(v) ? Math.round(v * 100) / 100 : null;
+const deepMn = v => deepOk(v) ? Math.round(v / 1e6) : null; // belopp i miljoner
+
+// Pris, 1/3-månadersförändring och läge mot 50-dagarssnitt ur en spark-serie (3 mån dagsdata).
+function deepTrend(d, dec = 2) {
+  if(!d || d.price == null) return null;
+  const c = d.closes || [], n = c.length;
+  const pct = past => past ? deepR1((d.price - past) / past * 100) : null;
+  const last50 = c.slice(-50);
+  const sma50 = last50.length >= 20 ? last50.reduce((a, b) => a + b, 0) / last50.length : null;
+  return { value: +d.price.toFixed(dec), chg_1m_pct: n > 21 ? pct(c[n-22]) : null,
+           chg_3m_pct: n ? pct(c[0]) : null, vs_50d_avg_pct: sma50 ? pct(sma50) : null };
+}
+
+// Årsbokslut (4–5 år) ur Yahoos fundamentals-timeseries – underlaget för
+// vinstkvalitet (FCF vs nettoresultat, capex, SBC) och historiska multiplar.
+const DEEP_TS_TYPES = ['TotalRevenue','NetIncome','FreeCashFlow','CapitalExpenditure','StockBasedCompensation',
+  'EBITDA','NetDebt','InterestExpense','DilutedEPS','DilutedAverageShares'];
+async function fetchAnnualFundamentals(ticker) {
+  const p2 = Math.floor(Date.now() / 1000) + 86400;
+  const url = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(ticker)}` +
+    `?type=${DEEP_TS_TYPES.map(t => 'annual' + t).join(',')}&period1=${p2 - 7*365*86400}&period2=${p2}`;
+  const j = await fetchYahoo(url);
+  const byPeriod = {};
+  let currency = null;
+  for(const r of (j && j.timeseries && j.timeseries.result) || []) {
+    const type = r.meta && r.meta.type && r.meta.type[0];
+    for(const x of (type && r[type]) || []) {
+      if(!x || !x.asOfDate || !x.reportedValue) continue;
+      (byPeriod[x.asOfDate] ||= { period: x.asOfDate })[type.replace(/^annual/, '')] = x.reportedValue.raw;
+      if(x.currencyCode) currency = x.currencyCode;
+    }
+  }
+  return { currency, rows: Object.values(byPeriod).sort((a, b) => a.period.localeCompare(b.period)) };
+}
+
+// Multiplar per räkenskapsår, räknade på kursen vid bokslutsmånadens slut. Bara när
+// rapport- och handelsvaluta är samma – annars blir kvoterna meningslösa.
+function deepHistory(ann, monthClose, priceCur) {
+  if(!ann || !ann.rows.length) return null;
+  const same = !!(ann.currency && priceCur && ann.currency === priceCur);
+  return ann.rows.map(r => {
+    const px = same ? monthClose[r.period.slice(0, 7)] : null;
+    const mcap = (px != null && r.DilutedAverageShares) ? px * r.DilutedAverageShares : null;
+    const ev = (mcap != null && r.NetDebt != null) ? mcap + r.NetDebt : null;
+    return {
+      fiscal_year_end: r.period,
+      revenue_mn: deepMn(r.TotalRevenue), net_income_mn: deepMn(r.NetIncome), fcf_mn: deepMn(r.FreeCashFlow),
+      capex_mn: deepMn(r.CapitalExpenditure), sbc_mn: deepMn(r.StockBasedCompensation), ebitda_mn: deepMn(r.EBITDA),
+      net_debt_mn: deepMn(r.NetDebt), interest_expense_mn: deepMn(r.InterestExpense), eps_diluted: deepR2(r.DilutedEPS),
+      fcf_to_net_income_pct: (r.FreeCashFlow != null && r.NetIncome > 0) ? deepR1(r.FreeCashFlow / r.NetIncome * 100) : null,
+      price_at_fy_end: deepR2(px),
+      pe: (px != null && r.DilutedEPS > 0) ? deepR1(px / r.DilutedEPS) : null,
+      fcf_yield_pct: (mcap && r.FreeCashFlow != null) ? deepR1(r.FreeCashFlow / mcap * 100) : null,
+      ev_ebitda: (ev != null && r.EBITDA > 0) ? deepR1(ev / r.EBITDA) : null
+    };
+  });
+}
+
+// Insynshandel: SEC Form 4 (US, redan i fund) eller Finansinspektionen (.ST, delar cache med kortet).
+async function deepInsider(ticker, name, f) {
+  if(f && ((f.insider && f.insider.length) || f.insiderNetto)) {
+    return { source: 'SEC Form 4 via Yahoo', net_activity_6m: f.insiderNetto || null,
+      recent: (f.insider || []).slice(0, 10).map(t => ({ date: t.datum, person: t.person, role: t.befattning,
+        transaction: t.text, shares: t.volym, value: t.varde })) };
+  }
+  if(!/\.ST$/i.test(ticker)) return null;
+  let data = insiderSeCache[ticker];
+  if(!data) {
+    try {
+      const q = name || ticker.replace(/\.ST$/i, '');
+      data = await (await fetch(`/api/insider-se?q=${encodeURIComponent(q)}&months=12`)).json();
+      insiderSeCache[ticker] = data;
+    } catch(e) { return null; }
+  }
+  const tx = (data && data.transaktioner) || [];
+  if(!tx.length) return { source: 'Finansinspektionen', note: 'Inga rapporterade insynsaffärer senaste 12 månaderna' };
+  const kop = tx.filter(t => insiderTyp(t.karaktar) === 'kop').length;
+  const salj = tx.filter(t => insiderTyp(t.karaktar) === 'salj').length;
+  return { source: 'Finansinspektionen, senaste 12 mån', buys: kop, sells: salj, other: tx.length - kop - salj,
+    recent: tx.slice(0, 10).map(t => ({ date: t.datum, person: t.person, role: t.befattning, transaction: t.karaktar,
+      volume: t.volym, price: t.pris, currency: t.valuta })) };
+}
+
+// Megatrender: motorns senaste temaanalyser – teman där bolaget nämns + alla aktiva teman.
+async function deepMegatrends(ticker, name) {
+  if(!cloudEnabled || !sb) return null;
+  try {
+    const { data, error } = await sb.from('megatrends').select('date,name,analysis,companies')
+      .order('date', { ascending: false }).limit(30);
+    if(error || !data || !data.length) return null;
+    const rows = data.filter(r => r.date === data[0].date);
+    const base = s => (s || '').toUpperCase().replace(/\.[A-Z]+$/, '');
+    const norm = s => (s || '').toLowerCase().replace(/\b(ab|publ|inc|corp|corporation|ltd|plc|asa|oyj|sa|nv|ag|se|co|holding|group|class [ab]|ser [ab])\b/g, '').replace(/[^a-z0-9åäö]/g, '');
+    const nm = norm(name);
+    const linked = [];
+    for(const r of rows) {
+      for(const c of Array.isArray(r.companies) ? r.companies : []) {
+        const byTicker = c.ticker && base(c.ticker) === base(ticker);
+        const cn = norm(c.name);
+        const byName = nm.length >= 4 && cn.length >= 4 && (cn === nm || cn.startsWith(nm) || nm.startsWith(cn));
+        if(byTicker || byName) linked.push({ theme: r.name, direction: c.direction || null, reason: c.reason || null,
+          theme_summary: (r.analysis || '').slice(0, 600) });
+      }
+    }
+    return { analysis_date: data[0].date, linked_themes: linked, all_active_themes: rows.map(r => r.name) };
+  } catch(e) { return null; }
+}
+
+// Nyheter: Yahoo-rubriker för tickern + motorns nyhetsflöde (signals), de 5 senaste.
+async function deepNews(ticker) {
+  const items = [];
+  try {
+    const j = await fetchYahoo(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=0&newsCount=8`);
+    for(const n of (j && j.news) || []) {
+      const ts = (n.providerPublishTime || 0) * 1000;
+      items.push({ ts, date: ts ? new Date(ts).toISOString().slice(0, 10) : null, headline: n.title, source: n.publisher || 'Yahoo' });
+    }
+  } catch(e) {}
+  try {
+    const up = ticker.toUpperCase();
+    for(const g of (await loadSignals(false)) || []) {
+      if(!g.tickers.some(t => (t || '').toUpperCase() === up)) continue;
+      const ts = g.published_at ? new Date(g.published_at).getTime() : 0;
+      items.push({ ts, date: g.published_at ? g.published_at.slice(0, 10) : null, headline: g.summary, source: g.source,
+        sentiment: g.sentiment || null, impact_score: g.impact_score != null ? g.impact_score : null });
+    }
+  } catch(e) {}
+  const seen = new Set();
+  return items.filter(x => x.headline && !seen.has(x.headline.toLowerCase()) && seen.add(x.headline.toLowerCase()))
+    .sort((a, b) => b.ts - a.ts).slice(0, 5).map(({ ts, ...rest }) => rest);
+}
+
+// Context Aggregator: ett strukturerat JSON-underlag inför anropet.
+async function buildDeepAnalysisContext(ticker, name) {
+  const f = (currentStockMeta && currentStockMeta.fund) || await fetchFundamentals(ticker) || {};
+  const [chart, ann, perf, insider, spark, rates, kpif, cpiUs, riskDaily, mega, news] = await Promise.all([
+    fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1mo&range=10y`).catch(() => null),
+    fetchAnnualFundamentals(ticker).catch(() => null),
+    buildPerfContext(ticker),
+    deepInsider(ticker, name, f),
+    fetchSparkData(['^TNX','BZ=F','SEK=X','^VIX','^VXN','^SKEW','GC=F','HG=F','HYG'], '3mo', '1d').catch(() => ({})),
+    fetch('/api/rates').then(r => r.json()).catch(() => ({})),
+    fetchScbKpif(),
+    fetchFred('CPIAUCSL', 'pc1'),
+    (cloudEnabled && sb) ? sb.from('risk_analysis').select('date,analysis').order('date', { ascending: false }).limit(1)
+      .then(r => (r.data && r.data[0]) || null, () => null) : null,
+    deepMegatrends(ticker, name),
+    deepNews(ticker)
+  ]);
+
+  // Kurs + månadsstängningar (för multiplar vid varje bokslut).
+  const cr = chart && chart.chart && chart.chart.result && chart.chart.result[0];
+  const meta = (cr && cr.meta) || {};
+  const cur = meta.currency || f.currency || null;
+  const price = meta.regularMarketPrice != null ? meta.regularMarketPrice : null;
+  const monthClose = {};
+  if(cr) {
+    const ts = cr.timestamp || [], cl = (cr.indicators.quote[0].close || []), off = meta.gmtoffset || 0;
+    ts.forEach((t, i) => { if(cl[i] != null) monthClose[new Date((t + off) * 1000).toISOString().slice(0, 7)] = cl[i]; });
+  }
+
+  const sameCur = !!(f.finCurrency && cur && f.finCurrency === cur);
+  const netDebt = (f.debt != null && f.cash != null) ? f.debt - f.cash : null;
+  const withBand = (d, band, dec) => { const t = deepTrend(d, dec); return t && band ? { ...t, regime: band(d.price).text } : t; };
+  const tnx = spark['^TNX'];
+
+  return {
+    as_of: new Date().toISOString().slice(0, 10),
+    company: {
+      ticker, name, full_name: meta.longName || null, exchange: meta.exchangeName || null,
+      currency: cur, financial_currency: f.finCurrency || null, price: deepR2(price),
+      sector: f.sector || null, industry: f.industry || null,
+      market_cap_mn: deepMn(f.mcap), enterprise_value_mn: deepMn(f.ev),
+      ev_ebitda: deepR1(f.evEbitda), pe_ttm: deepR1(f.pe), pe_forward: deepR1(f.forwardPe), ps_ttm: deepR2(f.ps),
+      pb: deepR2(f.pb), peg: deepR2(f.peg), roe_pct: deepR1(f.roe),
+      gross_margin_pct: deepR1(f.grossMargin), operating_margin_pct: deepR1(f.opMargin), profit_margin_pct: deepR1(f.profitMargin),
+      revenue_growth_pct: deepR1(f.revenueGrowth), revenue_ttm_mn: deepMn(f.revenue), ebitda_ttm_mn: deepMn(f.ebitda),
+      net_income_ttm_mn: deepMn(f.netIncome), operating_cashflow_ttm_mn: deepMn(f.opCashflow), fcf_ttm_mn: deepMn(f.fcf),
+      fcf_yield_pct: (sameCur && f.fcf != null && f.mcap) ? deepR1(f.fcf / f.mcap * 100) : null,
+      cash_mn: deepMn(f.cash), total_debt_mn: deepMn(f.debt), net_debt_mn: deepMn(netDebt),
+      net_debt_to_ebitda: (netDebt != null && f.ebitda > 0) ? deepR2(netDebt / f.ebitda) : null,
+      debt_to_equity_pct: deepR1(f.debtToEquity), current_ratio: deepR2(f.currentRatio),
+      dividend_yield_pct: deepR2(f.div), payout_ratio_pct: deepR1(f.payout), beta: deepR2(f.beta),
+      week52_low: deepR2(meta.fiftyTwoWeekLow), week52_high: deepR2(meta.fiftyTwoWeekHigh),
+      price_performance: (perf || '').replace(/^\s*Kursutveckling:\s*/, '').trim() || null,
+      analysts: { target_mean: deepR2(f.targetMean), target_low: deepR2(f.targetLow), target_high: deepR2(f.targetHigh),
+                  count: f.numAnalysts || null, recommendation: f.recommendation || null },
+      description: f.description ? f.description.slice(0, 1500) : null
+    },
+    historical_annual: deepHistory(ann, monthClose, cur),
+    historical_note: ann && ann.currency && cur && ann.currency !== cur
+      ? `Rapportvaluta ${ann.currency} skiljer sig från handelsvaluta ${cur} – historiska multiplar ej beräknade.` : null,
+    insider_trading: insider,
+    macro: {
+      us_10y_yield_pct: tnx ? { value: deepR2(tnx.price), value_3m_ago: deepR2((tnx.closes || [])[0]) } : null,
+      fed_funds_target_pct: rates.fed ? { low: rates.fed.low, high: rates.fed.high, effr: rates.fed.effr, as_of: rates.fed.date || null } : null,
+      riksbank_policy_rate_pct: rates.riksbank ? { value: rates.riksbank.rate, as_of: rates.riksbank.date || null } : null,
+      ecb_main_rate_pct: rates.ecb ? { value: rates.ecb.rate, as_of: rates.ecb.date || null } : null,
+      se_kpif_yoy_pct: kpif ? { value: deepR1(kpif.value), period: kpif.period } : null,
+      us_cpi_yoy_pct: cpiUs ? { value: deepR1(cpiUs.value), as_of: cpiUs.date || null } : null,
+      brent_usd: deepTrend(spark['BZ=F']),
+      usdsek: deepTrend(spark['SEK=X'], 3)
+    },
+    risk_regime: {
+      vix: withBand(spark['^VIX'], vixBand, 1),
+      vxn: withBand(spark['^VXN'], null, 1),
+      skew: withBand(spark['^SKEW'], skewBand, 0),
+      gold_usd_oz: deepTrend(spark['GC=F'], 0),
+      copper_usd_lb: deepTrend(spark['HG=F']),
+      hyg_high_yield_etf: deepTrend(spark['HYG']),
+      engine_daily_assessment: riskDaily ? { date: riskDaily.date, text: (riskDaily.analysis || '').slice(0, 1500) } : null
+    },
+    megatrends: mega,
+    news
+  };
+}
+
+function deepUserMessage(ctx) {
+  const today = new Date().toLocaleDateString('sv-SE', { year:'numeric', month:'long', day:'numeric' });
+  return `Dagens datum: ${today}. Genomlys ${ctx.company.name} (${ctx.company.ticker}) utifrån underlaget nedan, sammanställt automatiskt ur plattformens datakällor (Yahoo Finance, Fed/Riksbanken/ECB, SCB, FRED, riskbarometern, megatrendanalyser och nyhetsflödet).
+
+Om underlaget:
+- Fält som slutar på _mn är belopp i miljoner i bolagets rapportvaluta (financial_currency). Börsvärde, EV och kurser är i handelsvalutan (currency).
+- historical_annual är räkenskapsår. Multiplarna där är beräknade på kursen vid respektive bokslut och är underlaget för historiska snitt (normalt 4–5 år).
+- risk_regime-serierna visar värde, förändring 1 och 3 månader samt läge mot 50-dagarssnitt. HYG är en high yield-kreditfond: fallande HYG = vidgade kreditspreadar.
+- null eller saknade fält betyder att datan inte gick att hämta. Hitta inte på siffror för dem. Säg att de saknas, eller ange tydligt när du använder egen kunskap (t.ex. sektorkollegors multiplar) och att den kan vara inaktuell.
+
+<underlag>
+${JSON.stringify(ctx, null, 1)}
+</underlag>`;
+}
+
+// Enkel markdown → HTML för promemorian (rubriker, listor, tabeller, fetstil). Escapar först.
+function formatMemo(md) {
+  const inline = s => escHtml(s)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(?!\s)([^*]+?)\*/g, '<em>$1</em>')
+    .replace(/^_(.+)_$/, '<em>$1</em>');
+  const cells = t => t.replace(/^\|/, '').replace(/\|$/, '').split('|').map(s => s.trim());
+  const lines = md.replace(/\r/g, '').split('\n');
+  let html = '', list = null, para = [];
+  const flushPara = () => { if(para.length) { html += `<p>${para.map(inline).join('<br>')}</p>`; para = []; } };
+  const closeList = () => { if(list) { html += `</${list}>`; list = null; } };
+  for(let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    let m;
+    if(!t) { flushPara(); closeList(); continue; }
+    if((m = t.match(/^(#{1,6})\s+(.+?)\s*#*$/))) {
+      flushPara(); closeList();
+      const tag = m[1].length <= 3 ? 'h3' : 'h4';
+      html += `<${tag}>${inline(m[2])}</${tag}>`; continue;
+    }
+    if(/^(-{3,}|\*{3,}|_{3,})$/.test(t)) { flushPara(); closeList(); html += '<hr>'; continue; }
+    if(t.startsWith('|') && i + 1 < lines.length && /^\|?\s*:?-{2,}/.test(lines[i+1].trim())) {
+      flushPara(); closeList();
+      const head = cells(t); i += 2;
+      const body = [];
+      while(i < lines.length && lines[i].trim().startsWith('|')) { body.push(cells(lines[i].trim())); i++; }
+      i--;
+      html += `<div class="memo-table"><table><thead><tr>${head.map(c => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>` +
+        body.map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join('')}</tr>`).join('') + '</tbody></table></div>';
+      continue;
+    }
+    if((m = t.match(/^[-*•]\s+(.+)$/))) {
+      flushPara();
+      if(list !== 'ul') { closeList(); html += '<ul>'; list = 'ul'; }
+      html += `<li>${inline(m[1])}</li>`; continue;
+    }
+    if((m = t.match(/^(\d+)[.)]\s+(.+)$/))) {
+      flushPara();
+      if(list !== 'ol') { closeList(); html += `<ol start="${m[1]}">`; list = 'ol'; }
+      html += `<li>${inline(m[2])}</li>`; continue;
+    }
+    closeList(); para.push(t);
+  }
+  flushPara(); closeList();
+  return html;
+}
+
+// Körnings-id: byter man aktie mitt i en analys slutar den gamla att skriva i vyn,
+// men den körs klart och sparas ändå i Sparade analyser.
+let deepRunId = 0;
+function resetDeepAnalysis(show) {
+  deepRunId++;
+  const card = document.getElementById('d-deep-card'); if(card) card.style.display = show ? '' : 'none';
+  const out = document.getElementById('d-deep-out'); if(out) { out.style.display = 'none'; out.innerHTML = ''; }
+  const btn = document.getElementById('d-deep-btn'); if(btn) { btn.disabled = false; btn.textContent = '✦ Kör Institutionell Djupanalys'; }
+}
+
+async function runDeepAnalysis() {
+  if(currentIsFund || !currentTicker) return;
+  const out = document.getElementById('d-deep-out'), btn = document.getElementById('d-deep-btn');
+  out.style.display = '';
+  if(!getApiKey()) {
+    out.innerHTML = '<div class="error-msg">Ingen API-nyckel. Klistra in din Anthropic-nyckel i AI-panelen (✦ AI-analys) först.</div>';
+    return;
+  }
+  const id = ++deepRunId, live = () => id === deepRunId;
+  const ticker = currentTicker, name = currentStockName || ticker;
+  const doneBtn = label => { if(live()) { btn.disabled = false; btn.textContent = label; } };
+  const status = txt => { if(live()) out.innerHTML = `<div class="deep-status"><span class="spinner"></span>${txt}</div>`; };
+  btn.disabled = true; btn.textContent = '✦ Analyserar…';
+
+  status('Samlar underlag: nyckeltal, bokslutshistorik, makro, riskregim, megatrender och nyheter…');
+  let ctx;
+  try { ctx = await buildDeepAnalysisContext(ticker, name); }
+  catch(e) {
+    if(live()) out.innerHTML = `<div class="error-msg">Kunde inte samla underlaget: ${escHtml(e.message)}</div>`;
+    return doneBtn('✦ Kör Institutionell Djupanalys');
+  }
+  status('Analytikern går igenom underlaget – modellen tänker innan den skriver, det kan ta en minut…');
+
+  // Strömmande: texten ritas om högst en gång per bildruta.
+  let latest = '', queued = false, memoEl = null, streaming = true;
+  const paint = () => {
+    queued = false;
+    if(!streaming || !live()) return; // en sen bildruta får inte skriva över slutvyn
+    if(!memoEl || !memoEl.isConnected) { out.innerHTML = '<div class="memo"></div>'; memoEl = out.firstChild; }
+    memoEl.innerHTML = formatMemo(latest);
+  };
+  const body = { model: DEEP_MODEL, max_tokens: 32000, system: DEEP_SYSTEM_PROMPT,
+    output_config: { effort: 'high' }, messages: [{ role: 'user', content: deepUserMessage(ctx) }] };
+  const result = await callClaudeStream(body, partial => { latest = partial; if(!queued) { queued = true; requestAnimationFrame(paint); } });
+  streaming = false;
+
+  let text = (result.text || '').trim();
+  if(result.error) {
+    if(live()) out.innerHTML = (text ? `<div class="memo">${formatMemo(text)}</div>` : '') +
+      `<div class="error-msg" style="margin-top:12px">API-fel: ${escHtml(result.error.message || result.error.type || 'okänt fel')}</div>`;
+    return doneBtn('↻ Försök igen');
+  }
+  if(!text) {
+    if(live()) out.innerHTML = `<div class="error-msg">Tomt svar från modellen${result.stop_reason ? ' (' + escHtml(result.stop_reason) + ')' : ''}. Försök igen.</div>`;
+    return doneBtn('↻ Försök igen');
+  }
+  if(result.stop_reason === 'max_tokens') text += '\n\n_…promemorian nådde längdgränsen och kapades._';
+  else if(result.stop_reason === 'refusal') text += '\n\n_…modellen avbröt svaret._';
+
+  const costMeta = estimateCostText(DEEP_MODEL, result.usage);
+  recordAiUsage('deep_analysis', DEEP_MODEL, result.usage);
+  const c = ctx.company;
+  const kurs = c.price != null ? `${fmtSekNum(c.price, 2)} ${c.currency || ''}`.trim() : 'kurs okänd';
+  saveAnalysis({ ts: Date.now(), title: `Institutionell djupanalys: ${name} (${ticker}) @ ${kurs}`, model: DEEP_MODEL, answer: text, cost: costMeta });
+
+  if(live()) {
+    out.innerHTML = `<div class="memo">${formatMemo(text)}</div>
+      <div class="deep-meta">Sparad i Sparade analyser · kurs vid analys ${escHtml(kurs)} · ${escHtml(costMeta)}${currentUser ? '' : ' · logga in för att kostnaden ska synas i AI-kostnader'}</div>`;
+  }
+  doneBtn('↻ Kör ny djupanalys');
+}
+
 // ══════════ MACRO CHART ══════════
 // MSCI EM/EAFE saknar rena index-tickers hos Yahoo – ETF:erna EEM/EFA följer dem.
 const MACRO_INDICES = [
@@ -2660,10 +3104,8 @@ async function fillFred(id, series, units, dec) {
     : '–';
 }
 
-// Svensk KPIF (12-månadersförändring) live från SCB.
-async function fillScbKpif(id) {
-  const el = document.getElementById(id);
-  if(!el) return;
+// Svensk KPIF (12-månadersförändring) live från SCB. {value, period} eller null.
+async function fetchScbKpif() {
   try {
     const params = new URLSearchParams({
       path: 'tables/TAB6445/data', lang: 'sv', outputFormat: 'json-stat2',
@@ -2672,9 +3114,15 @@ async function fillScbKpif(id) {
     const j = await (await fetch('/api/scb?' + params)).json();
     const val = j && j.value && j.value[0];
     const tidLab = j && j.dimension && j.dimension.Tid && j.dimension.Tid.category.label;
-    const period = tidLab ? Object.values(tidLab).pop() : '';
-    el.textContent = (val != null) ? val.toFixed(1) + '%' + (period ? ' (' + period.replace('M', '-') + ')' : '') : '–';
-  } catch(e) { el.textContent = '–'; }
+    const period = tidLab ? Object.values(tidLab).pop().replace('M', '-') : '';
+    return val != null ? { value: val, period } : null;
+  } catch(e) { return null; }
+}
+async function fillScbKpif(id) {
+  const el = document.getElementById(id);
+  if(!el) return;
+  const d = await fetchScbKpif();
+  el.textContent = d ? d.value.toFixed(1) + '%' + (d.period ? ' (' + d.period + ')' : '') : '–';
 }
 
 async function renderMacro() {
@@ -4041,6 +4489,7 @@ const AICOST_CONTEXTS = {
   'engine-extract':    { label: 'Motor · extraktion', bg: true },
   'chat':              { label: 'Du · AI-chatt', bg: false },
   'analysis':          { label: 'Du · aktieanalys', bg: false },
+  'deep_analysis':     { label: 'Du · institutionell djupanalys', bg: false },
   'aifund':            { label: 'Du · AI-fond', bg: false }
 };
 const aiCtxLabel = c => (AICOST_CONTEXTS[c] && AICOST_CONTEXTS[c].label) || c;

@@ -187,7 +187,7 @@ som inte fanns i den ursprungliga listan.
 
 | Källa | Vad den ger | Kod |
 |-------|-------------|-----|
-| **Yahoo Finance** (inofficiellt API) | Hela aktieuniversumet via screener, kurser, sektorer/industrier, fundamenta, insynshandel (SEC Form 4) | `functions/api/screener.js`, `yahoo.js`, `quote.js` |
+| **Yahoo Finance** (inofficiellt API) | Hela aktieuniversumet via screener, kurser, sektorer/industrier, fundamenta, insynshandel (SEC Form 4), årsbokslut 4–5 år bakåt (`ws/fundamentals-timeseries`: FCF, nettoresultat, capex, SBC, EBITDA, nettoskuld, EPS – underlag för Institutionell djupanalys) | `functions/api/screener.js`, `yahoo.js`, `quote.js` |
 | **Avanza** (inofficiellt `_api`) | Svenska fonder: sök, fonddetaljer, graf | `functions/api/avanza.js` |
 | **Riksbank/Fed/ECB** | Styrräntor | `functions/api/rates.js` |
 | **Finansinspektionen** (insynsregistret, CSV-export) | Insynshandel i svensknoterade bolag | `functions/api/insider-se.js` |
