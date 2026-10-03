@@ -171,17 +171,45 @@ async function synthesize(prompt, opts = {}) {
   // effort styr hur djupt modellen tänker (låg/medel/hög). Utan den ligger Sonnet 5
   // på "high", vilket är onödigt djupt för en kort sammanfattning.
   if (opts.effort) body.output_config = { effort: opts.effort };
+  // Strömmande: en lång promemoria (CIO-analysen) tar minuter, och ett icke-strömmande
+  // anrop är tyst hela tiden – nätverk/routrar stänger då anslutningen (~60 s, "fetch
+  // failed"). Med strömning skickar API:t data (och ping) löpande.
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify(body)
+    body: JSON.stringify({ ...body, stream: true })
   });
   if (!res.ok) throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${await res.text()}`);
-  const data = await res.json();
+  const data = await readMessageStream(res);
   await logUsage(opts.context || 'engine-synthesize', model, data.usage);
   varnaOmKapat(opts.context || 'engine-synthesize', model, data, maxTokens);
-  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-  return { text, model };
+  return { text: data.text.trim(), model };
+}
+
+// Läser en SSE-ström från /v1/messages → { text, usage, stop_reason } (samma fält som
+// ett vanligt svar). Kastar vid ett error-event mitt i strömmen.
+async function readMessageStream(res) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', text = '', usage = {}, stop_reason = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      let ev;
+      try { ev = JSON.parse(line.slice(5).trim()); } catch (_) { continue; }
+      if (ev.type === 'message_start' && ev.message && ev.message.usage) usage = { ...usage, ...ev.message.usage };
+      else if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') text += ev.delta.text;
+      else if (ev.type === 'message_delta') { if (ev.delta && ev.delta.stop_reason) stop_reason = ev.delta.stop_reason; if (ev.usage) usage = { ...usage, ...ev.usage }; }
+      else if (ev.type === 'error') throw new Error('Anthropic-strömmen avbröts: ' + ((ev.error && (ev.error.message || ev.error.type)) || 'okänt fel'));
+    }
+  }
+  return { text, usage, stop_reason };
 }
 
 // Generiskt structured-output-anrop: tvingar ett verktyg och returnerar dess input.
