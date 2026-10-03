@@ -1,6 +1,8 @@
 // Pre-deploy-kontroll: syntaxkollar all JS + index.html:s inline-script, kör
-// enhetstesterna, och avslutar med kod ≠ 0 om något fallerar. deploy.ps1 kör
-// detta före push och avbryter vid fel. Kör manuellt med:  node verify.mjs
+// enhetstesterna och ett webbläsartest (test/e2e/smoke.mjs, ~40 s, hoppas över om
+// Chrome/Edge saknas eller med SKIP_E2E=1), och avslutar med kod ≠ 0 om något
+// fallerar. deploy.ps1 kör detta före push och avbryter vid fel.
+// Kör manuellt med:  node verify.mjs
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -47,6 +49,12 @@ step('test/', () => {
   execSync(`node --test ${testFiles.map(f => `"${f}"`).join(' ')}`, {
     stdio: 'pipe', env: { ...process.env, NODE_NO_WARNINGS: '1' }
   });
+});
+
+console.log('\n4) Webbläsartest (Chrome headless, lokal kod mot riktiga /api)');
+step('test/e2e/smoke.mjs', () => {
+  try { process.stdout.write(execSync('node test/e2e/smoke.mjs', { stdio: 'pipe', timeout: 240000 }).toString()); }
+  catch (e) { process.stdout.write(String(e.stdout || '')); throw new Error(String(e.stderr || e.message).trim().split('\n').slice(-3).join(' · ')); }
 });
 
 console.log('');
