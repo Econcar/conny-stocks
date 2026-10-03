@@ -272,7 +272,7 @@ Konkretiserar "all tillgänglig data". Börja med dessa; fler kan läggas till l
 
 ### Utgångsläge (funkar bra idag, behålls)
 
-- **En `index.html`** (statisk SPA, inget byggsteg, Chart.js + Supabase via CDN).
+- **`index.html` + `js/` + `css/`** (statisk SPA, inget byggsteg, Chart.js + Supabase via CDN).
 - **Cloudflare Pages Functions** (`functions/api/`) som request-tid-proxys (Yahoo, Avanza, räntor, Claude).
 - **Supabase** för auth (Google) + watchlist. Klienten räknar, hosten är tunn.
 - Användaren klistrar in **egen Anthropic-nyckel** i webbläsaren.
@@ -301,9 +301,9 @@ flyttar till motorn. **Detta är beslutet allt annat hänger på.**
    larm/sammanfattningar ändå kräver.
 3. **Larm utvärderas server-side** (motorn eller Supabase `pg_cron` + Edge Function): kollar
    watchlist-trösklar mot senaste data → Telegram. Kan inte bero på öppen flik.
-4. **Bryt upp `index.html` till ES-moduler** (`<script type="module">`, en fil per vy + delad
-   state-modul). Ingen bundler krävs. Ramverk (React/Vite) skjuts upp tills UI-komplexiteten
-   verkligen kräver det — rör inte det som funkar.
+4. ~~**Bryt upp `index.html` till ES-moduler**~~ **Gjort 2026-10-03 – som klassiska skript i
+   `js/`** (en fil per vy + `common.js`), inte moduler, eftersom HTML:ens `onclick`-attribut
+   kräver globalt scope. Se beslutsloggen. Ramverk (React/Vite) skjuts fortfarande upp.
 
 ### Vad som medvetet INTE ändras
 

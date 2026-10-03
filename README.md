@@ -1,6 +1,6 @@
 # conny-stocks — lokal körning
 
-Detta repo innehåller en statisk frontend (`index.html`) och en liten Express-proxy (`server.js`) som vidarebefordrar anrop till Anthropic/Claude.
+Detta repo innehåller en statisk frontend (`index.html` + skripten i `js/`, CSS i `css/app.css` – se kommentaren överst i varje js-fil om laddningsordningen) och en liten Express-proxy (`server.js`) som vidarebefordrar anrop till Anthropic/Claude.
 
 I drift ligger appen på **Cloudflare Pages** (https://conny-stocks.pages.dev) och proxyerna körs som Pages Functions i `functions/api/`. `server.js` är motsvarigheten för lokal körning — samma `/api/*`-vägar.
 

@@ -27,16 +27,24 @@ function jsFiles(dir) {
 }
 
 console.log('1) Syntaxkoll (node --check) på all JS');
-const files = [...jsFiles('engine'), ...jsFiles('functions'), ...jsFiles('shared'), 'server.js', 'verify.mjs'];
+const files = [...jsFiles('engine'), ...jsFiles('functions'), ...jsFiles('shared'), ...jsFiles('js'), 'server.js', 'verify.mjs'];
 for (const f of files) {
   step(f, () => execSync(`node --check "${f}"`, { stdio: 'pipe' }));
 }
 
-console.log('\n2) Syntaxkoll av inline-script i index.html');
-step('index.html <script>-block', () => {
+console.log('\n2) index.html: skriptfiler och ev. inline-script');
+step('alla js/-filer är inlänkade (och tvärtom)', () => {
+  const html = readFileSync('index.html', 'utf8');
+  const linked = [...html.matchAll(/<script src="(js\/[^"]+)"/g)].map(m => m[1]);
+  const onDisk = readdirSync('js').filter(f => f.endsWith('.js')).map(f => 'js/' + f);
+  const missing = linked.filter(f => !onDisk.includes(f)), unlinked = onDisk.filter(f => !linked.includes(f));
+  if (missing.length) throw new Error('länkas men finns inte: ' + missing.join(', '));
+  if (unlinked.length) throw new Error('finns men länkas inte i index.html: ' + unlinked.join(', '));
+  if (linked[linked.length - 1] !== 'js/init.js') throw new Error('js/init.js måste laddas sist');
+});
+step('index.html inline-script', () => {
   const html = readFileSync('index.html', 'utf8');
   const blocks = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
-  if (!blocks.length) throw new Error('inga inline-script hittades (regex-fel?)');
   // eslint-disable-next-line no-new-func
   blocks.forEach((b, i) => { try { new Function(b); } catch (e) { throw new Error(`block ${i}: ${e.message}`); } });
 });

@@ -20,8 +20,8 @@ rörs inte.
 
 ## Tester & pre-deploy-kontroll
 
-`node verify.mjs` (från repo-roten) syntaxkollar all JS + index.html:s inline-script och kör
-enhetstesterna i `test/`. `deploy.ps1` kör detta **före** varje push och avbryter om något
+`node verify.mjs` (från repo-roten) syntaxkollar all JS (inkl. `js/`) och kör
+enhetstesterna i `test/` samt ett webbläsartest (`test/e2e/smoke.mjs`). `deploy.ps1` kör detta **före** varje push och avbryter om något
 fallerar. Kör tester enskilt med `node --test test/*.test.mjs`. Allt använder Nodes inbyggda
 testkörare – ingen `npm install` (viktigt: repo:t ligger på Google Drive där npm strular).
 

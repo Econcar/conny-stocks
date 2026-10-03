@@ -9,6 +9,23 @@ Nyast först. Poster som ångrats stryks inte — de får en rad om vad som ersa
 
 ---
 
+### 2026-10-03 · `index.html` uppdelad i klassiska skript i `js/`, inte ES-moduler
+
+JavaScriptet (~5 800 rader) ligger nu i 16 filer i `js/` (en per flik/område + `common.js` för
+delade hjälpfunktioner) och CSS:en i `css/app.css`. Filerna laddas som vanliga `<script src>` i
+fast ordning och delar globalt scope; `js/init.js` laddas sist. Fortfarande inget byggsteg.
+
+**Varför inte ES-moduler (som §13 i specen planerade):** moduler har eget scope, och HTML:en har
+~175 `onclick="…"`-attribut som anropar globala funktioner — alla hade behövt skrivas om eller
+exponeras via `window`. Klassiska skript gav samma vinst (mindre filer, tydligare ansvar) utan
+att en enda rad logik ändrades. **Kostnad:** ordningsregeln — kod som körs direkt vid laddning
+får bara använda det som definierats i tidigare filer — och beroenden syns inte som `import`.
+**Skyddsnät:** `test/e2e/smoke.mjs` (Chrome headless, utan npm-beroenden) körs i `verify.mjs`
+före varje deploy och fångar laddningsfel; `verify.mjs` kontrollerar också att varje fil i `js/`
+är inlänkad.
+
+---
+
 ### 2026-07-23 · Forum in via Reddits RSS, inte via API
 
 Forumkällan blev `engine/sources/reddit.js` som läser `reddit.com/r/<sub>/new.rss`.
@@ -355,6 +372,7 @@ ramverk.
 en app utan byggsteg kan deployas genom att pusha en fil. **Kostnad:** filen är stor och växer.
 Uppdelning i ES-moduler är medvetet uppskjuten tills UI-komplexiteten kräver det; ramverk
 (React/Vite) ännu längre fram. Se `spec-mall.md` §13.
+*Ersatt 2026-10-03:* filen är uppdelad i klassiska skript i `js/` (se posten överst).
 
 ---
 
