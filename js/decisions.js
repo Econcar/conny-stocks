@@ -179,7 +179,8 @@ async function renderTrack() {
   const cell = v => `<td style="text-align:right;color:${v == null ? 'var(--text3)' : v >= 0 ? 'var(--green)' : 'var(--red)'}">${pct(v)}</td>`;
   const hcell = h => !h ? '<td></td>' : h.pending != null
     ? `<td style="text-align:right;color:var(--text3);font-size:11px">om ${h.pending} d</td>`
-    : `<td style="text-align:right;color:${h.excess == null ? 'var(--text3)' : h.excess >= 0 ? 'var(--green)' : 'var(--red)'}">${pct(h.excess)}${h.hit == null ? '' : h.hit ? ' ✓' : ' ✗'}</td>`;
+    // Färgen följer om AI:n hade rätt (✓/✗) – för Sälj är en aktie som gått sämre än index rätt.
+    : `<td style="text-align:right;color:${h.excess == null ? 'var(--text3)' : h.hit != null ? (h.hit ? 'var(--green)' : 'var(--red)') : (h.excess >= 0 ? 'var(--green)' : 'var(--red)')}">${pct(h.excess)}${h.hit == null ? '' : h.hit ? ' ✓' : ' ✗'}</td>`;
   const actCol = a => DECISION_DIRECTION[a] > 0 ? 'var(--green)' : DECISION_DIRECTION[a] < 0 ? 'var(--red)' : 'var(--text2)';
   const table = rows.map(({ d, o }) => `<tr>
       <td style="white-space:nowrap">${new Date(d.created_at).toLocaleDateString('sv-SE')}</td>
