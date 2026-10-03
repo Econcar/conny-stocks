@@ -19,7 +19,9 @@ function costUsdOf(model, usage){
 // Loggar ett on-demand-anrop (din nyckel) till ai_usage. Kräver inloggning – RLS
 // tillåter bara skrivning i eget namn. Fire-and-forget, fel sväljs.
 async function recordAiUsage(context, model, usage){
-  if(!sb || !currentUser || !usage) return;
+  if(!usage) return;
+  noteAiSpend(costUsdOf(model, usage)); // månadstakets cache (ai-cost.js)
+  if(!sb || !currentUser) return;
   try {
     await sb.from('ai_usage').insert({
       user_id: currentUser.id, context, model,
@@ -36,6 +38,7 @@ async function recordAiUsage(context, model, usage){
 // den löpande texten för progressiv visning. Returnerar {text, usage, stop_reason}
 // eller {error}.
 async function callClaudeStream(body, onText){
+  if(!(await aiBudgetGate())) return { error:{ message: AI_BUDGET_STOP } }; // månadstaket (ai-cost.js)
   let res;
   try {
     res = await fetch('/api/claude', { method:'POST',

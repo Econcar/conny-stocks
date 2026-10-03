@@ -166,6 +166,32 @@ try {
     await evaluate(`localStorage.removeItem('ai_analyses')`);
   });
 
+  await check('kostnadstaket stoppar AI-anrop när budgeten är slut', async () => {
+    // Simulerad månadskostnad + "Avbryt" i dialogen – inget riktigt anrop görs.
+    const r = await evaluate(`
+      const realSpend = aiMonthSpend, realConfirm = window.confirm, realFetch = window.fetch;
+      let claudeCalls = 0, asked = '';
+      window.fetch = (u, o) => { if(String(u).includes('/api/claude')) claudeCalls++; return realFetch(u, o); };
+      aiMonthSpend = async () => ({ usd: 12.5, mine: 10, engine: 2.5 });
+      window.confirm = msg => { asked = msg; return false; };
+      try {
+        localStorage.setItem('ai_budget_usd', '10');
+        const stopped = await callClaudeStream({ model: 'x', max_tokens: 1, messages: [] });
+        localStorage.setItem('ai_budget_usd', '100');
+        const underBudget = await aiBudgetGate();
+        localStorage.removeItem('ai_budget_usd');
+        const noBudget = await aiBudgetGate();
+        showSection('aicost');
+        await new Promise(r => setTimeout(r, 800));
+        return { stopped: stopped.error && stopped.error.message, asked, claudeCalls, underBudget, noBudget,
+                 card: document.getElementById('aicost-budget').textContent.includes('Månadsbudget') };
+      } finally { aiMonthSpend = realSpend; window.confirm = realConfirm; window.fetch = realFetch; }`);
+    assert(/månadsbudgeten/i.test(r.stopped || ''), 'anropet stoppades inte');
+    assert(r.asked.includes('$12.50 av $10.00') && r.claudeCalls === 0, 'fel fråga eller anrop gick ändå iväg');
+    assert(r.underBudget === true && r.noBudget === true, 'spärren slog till under taket/utan tak');
+    assert(r.card, 'budgetkortet visas inte i AI-kostnader');
+  });
+
   await check('AI-triagens svarstolkning och prompt', async () => {
     const r = await evaluate(`return { picks: parseTriageResult('<triage_result>{"top_picks":[{"ticker":"SAAB-B.ST","name":"Saab","sector":"Försvar","justification":"x"}]}</triage_result>'),
       prompt: triageSystemPrompt(7), row: !!document.getElementById('triage-btn') }`);

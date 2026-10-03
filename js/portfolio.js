@@ -535,7 +535,6 @@ async function renderPortfolio(){
     </div>
     <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="action-btn" id="pf-review-btn" onclick="runPortfolioReview('portfolio')" title="Portfolio Manager: stresstestar innehaven mot senaste CIO-analysen och riskbarometern">✦ Kör Portföljgenomlysning</button>
-      <button class="ghost-btn" onclick="analyzePortfolioAI()">✦ Analysera min portfölj med AI</button>
     </div>
     <div style="margin:-6px 0 12px">${aiGuideHtml('pm')}</div>
     <div id="pf-review-out" class="memo-box"></div>
@@ -724,40 +723,6 @@ async function renderPortfolioAnalyses(){
     </div>`;
   }).join('');
   el.innerHTML = `<div style="font-weight:600;margin:18px 0 8px">Tidigare AI-analyser av portföljen <span class="muted" style="font-weight:400">· sparas automatiskt</span></div>${items}`;
-}
-
-async function analyzePortfolioAI(){
-  if(!portfolio.length) return;
-  openAI();
-  const tickers = [...new Set(portfolio.map(h => h.ticker))];
-  let quotes = await fetchQuotesChunked(tickers);
-  // Räkna om till SEK i appen (samma logik som portföljvyn) och ge AI:n de
-  // färdiga SEK-värdena – annars gissar den valutakurser och får helt fel total.
-  const priceCcys = [...new Set(Object.values(quotes).map(q => normPriceCurrency(q.currency).ccy).filter(c => c && c !== 'SEK'))];
-  const avanzaCcys = portfolio.map(h => (h.currency||'SEK').toUpperCase()).filter(c => c && c !== 'SEK');
-  const allCcys = [...new Set([...priceCcys, ...avanzaCcys])];
-  const fxSyms = [...new Set(allCcys.map(c => FX_SYMBOL[c]).filter(Boolean))];
-  let fx = {};
-  if(fxSyms.length){ try { const fd = await fetchSparkData(fxSyms); allCcys.forEach(c => { const s = FX_SYMBOL[c]; if(s && fd[s]) fx[c] = fd[s].price; }); } catch(e){} }
-  const rateOf = c => { c = (c||'SEK').toUpperCase(); if(c === 'SEK') return 1; return fx[c] != null ? fx[c] : null; };
-  let totalSek = 0;
-  const rows = portfolio.map(h => {
-    const q = quotes[h.ticker];
-    const pc = q && q.currency ? normPriceCurrency(q.currency) : null;
-    const price = q && q.price != null ? (pc ? q.price / pc.div : q.price) : null;
-    const rate = rateOf(pc ? pc.ccy : h.currency);
-    const valSek = (price != null && h.qty != null && rate != null) ? price*h.qty*rate : null;
-    if(valSek != null) totalSek += valSek;
-    const gain = (price != null && h.gav) ? (((price - h.gav)/h.gav)*100).toFixed(1)+'%' : '?';
-    return { h, valSek, gain };
-  });
-  const total = totalSek + portfolioCash;
-  const lines = rows.map(r => {
-    const w = (r.valSek != null && total) ? ((r.valSek/total)*100).toFixed(1)+'%' : '?';
-    return `- ${r.h.name||r.h.ticker} (${r.h.ticker}): ${r.h.qty != null ? r.h.qty : '?'} st, värde ${r.valSek != null ? fmtSekNum(r.valSek,0)+' kr' : 'okänt'} (${w} av portföljen), GAV ${r.h.gav != null ? r.h.gav : '?'} ${r.h.currency||''}, sedan köp ${r.gain}`;
-  }).join('\n');
-  const cashLine = portfolioCash ? `\nLikvida medel (kontanter): ${fmtSekNum(portfolioCash,0)} kr.` : '';
-  stageAnalysis(`Här är min aktieportfölj (importerad från Avanza). Alla värden är redan omräknade till SEK av appen – använd dem rakt av, räkna INTE om valutor själv:\n${lines}${cashLine}\n\nTotalt portföljvärde: ${fmtSekNum(total,0)} kr (varav värdepapper ${fmtSekNum(totalSek,0)} kr).\n\nGör en genomlysning: fördelning och koncentration (sektorer, regioner, valutaexponering), de största riskerna, hur väl diversifierad den är, samt konkreta förslag på förbättringar. Lyft fram vilka innehav som ser starka respektive svaga ut just nu.${webSearchOn ? ' Sök gärna på nätet om du behöver aktuell information om enskilda bolag.' : ''}`, 'Portföljanalys');
 }
 
 // ══════════ PORTFÖLJGENOMLYSNING (Min portfölj + AI-fond) ══════════

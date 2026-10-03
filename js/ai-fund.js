@@ -45,6 +45,7 @@ async function pullAIFundsCloud(){ if(!sb || !currentUser) return null; try { co
 
 async function aiToolCall(model, system, userText, tool, web){
   if(!getApiKey()) throw new Error('Ingen API-nyckel angiven.');
+  if(!(await aiBudgetGate())) throw new Error(AI_BUDGET_STOP);
   const body = { model, max_tokens: 3000, system, messages: [{ role: 'user', content: userText }], tools: [tool] };
   if(web){
     const st = /haiku/.test(model) ? 'web_search_20250305' : 'web_search_20260209';

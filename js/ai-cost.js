@@ -29,6 +29,68 @@ const AICOST_CONTEXTS = {
 const aiCtxLabel = c => (AICOST_CONTEXTS[c] && AICOST_CONTEXTS[c].label) || c;
 const aiCtxIsEngine = c => AICOST_CONTEXTS[c] ? AICOST_CONTEXTS[c].bg : /^engine-/.test(c);
 
+// ── Månadsbudget ──
+// Ett tak för AI-kostnaden per kalendermånad (USD, sparas i den här webbläsaren). Före varje
+// AI-körning (callClaudeStream och AI-fondens aiToolCall) jämförs månadens kostnad – din och
+// motorns, som delar Anthropic-konto – mot taket; är det nått frågar appen innan den kör.
+// Månadens kostnad läses ur ai_usage och kräver inloggning (RLS) – utloggad kontrolleras inget.
+const AI_BUDGET_KEY = 'ai_budget_usd';
+let aiMonthCache = null; // { at, usd, mine, engine } – max 60 s gammal
+function getAiBudget(){ try { const v = parseFloat(localStorage.getItem(AI_BUDGET_KEY)); return isFinite(v) && v > 0 ? v : null; } catch(e){ return null; } }
+function setAiBudget(v){
+  const n = pfNum(v);
+  try { if(n > 0) localStorage.setItem(AI_BUDGET_KEY, String(n)); else localStorage.removeItem(AI_BUDGET_KEY); } catch(e){}
+  renderAiBudget();
+}
+async function aiMonthSpend(force){
+  if(!cloudEnabled || !sb || !currentUser) return null;
+  if(!force && aiMonthCache && Date.now() - aiMonthCache.at < 60000) return aiMonthCache;
+  const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0);
+  const { data, error } = await sb.from('ai_usage').select('context,cost_usd').gte('created_at', start.toISOString()).limit(20000);
+  if(error) return null;
+  let mine = 0, engine = 0;
+  for(const r of data || []) { if(aiCtxIsEngine(r.context)) engine += +r.cost_usd || 0; else mine += +r.cost_usd || 0; }
+  aiMonthCache = { at: Date.now(), usd: mine + engine, mine, engine };
+  return aiMonthCache;
+}
+// Anropas av recordAiUsage, så att nästa kontroll ser körningen utan att vänta på Supabase.
+function noteAiSpend(usd){ if(aiMonthCache && usd > 0) { aiMonthCache.usd += usd; aiMonthCache.mine += usd; } }
+
+// true = kör. Frågar bara när taket är nått.
+async function aiBudgetGate(){
+  const budget = getAiBudget();
+  if(!budget) return true;
+  let s = null;
+  try { s = await aiMonthSpend(false); } catch(e){}
+  if(!s || s.usd < budget) return true;
+  return confirm(`Månadsbudgeten för AI är förbrukad: $${s.usd.toFixed(2)} av $${budget.toFixed(2)} ` +
+    `(du $${s.mine.toFixed(2)}, motorn $${s.engine.toFixed(2)}).\n\nVill du köra ändå?`);
+}
+const AI_BUDGET_STOP = 'Avbrutet – månadsbudgeten för AI är förbrukad. Höj taket under AI-kostnader om du vill fortsätta.';
+
+async function renderAiBudget(){
+  const el = document.getElementById('aicost-budget');
+  if(!el) return;
+  const budget = getAiBudget();
+  let s = null;
+  try { s = await aiMonthSpend(true); } catch(e){}
+  const month = new Date().toLocaleDateString('sv-SE', { month: 'long' });
+  const pct = (budget && s) ? Math.min(100, s.usd / budget * 100) : null;
+  const col = pct == null ? 'var(--accent)' : pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--amber)' : 'var(--green)';
+  const used = s
+    ? `<b>$${s.usd.toFixed(2)}</b> använt i ${month}${budget ? ` av <b>$${budget.toFixed(2)}</b>` : ''} <span class="muted">· du $${s.mine.toFixed(2)} · motorn $${s.engine.toFixed(2)} · ≈ ${fmtSekNum(s.usd * SEK_PER_USD, 0)} kr</span>`
+    : '<span class="muted">Logga in för att se månadens kostnad – taket kontrolleras bara när du är inloggad.</span>';
+  el.innerHTML = `<div class="card" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div><div class="card-title" style="margin-bottom:4px">Månadsbudget</div><div style="font-size:13px">${used}</div></div>
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Tak (USD/månad)
+        <input class="filter-input" id="ai-budget-input" type="number" min="0" step="1" style="width:90px" value="${budget != null ? budget : ''}" placeholder="inget" onchange="setAiBudget(this.value)"></label>
+    </div>
+    ${pct != null ? `<div style="height:8px;background:var(--surface2);border-radius:4px;margin-top:12px;overflow:hidden"><div style="height:100%;width:${pct.toFixed(1)}%;background:${col}"></div></div>` : ''}
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">När taket är nått frågar appen innan varje AI-körning. Räknar både dina körningar och motorns (samma Anthropic-konto). Taket sparas i den här webbläsaren.</div>
+  </div>`;
+}
+
 function setAiCostRange(days, el){
   aiCostRangeDays = days;
   document.querySelectorAll('#section-aicost .filter-chip').forEach(c => c.classList.remove('on'));
@@ -38,6 +100,7 @@ function setAiCostRange(days, el){
 
 async function renderAiCost(){
   const el = document.getElementById('aicost-body');
+  renderAiBudget();
   if(!cloudEnabled || !sb){ el.innerHTML = '<div class="info-msg">Molnet är inte konfigurerat, så kostnadsloggen kan inte läsas.</div>'; return; }
   el.innerHTML = '<div class="info-msg">Hämtar kostnadslogg…</div>';
   try {
@@ -61,7 +124,7 @@ function renderAiCostBody(rows){
   // Modeller utan känt pris – kostnaden för dem är en uppskattning (reservpris).
   const unknownModels = [...new Set(rows.map(r => r.model).filter(m => m && !aiPriceKnown(m)))];
   const priceNote = unknownModels.length
-    ? `<div class="info-msg" style="background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.25);margin-bottom:14px">⚠ Okänd prissättning för <b>${unknownModels.map(escHtml).join(', ')}</b> – kostnaden räknas med reservpriset ($3/$15 per 1M tokens) och kan vara fel. Lägg till modellen i pristabellen (AI_PRICES i index.html och PRICES i engine/lib/anthropic.js).</div>`
+    ? `<div class="info-msg" style="background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.25);margin-bottom:14px">⚠ Okänd prissättning för <b>${unknownModels.map(escHtml).join(', ')}</b> – kostnaden räknas med reservpriset ($3/$15 per 1M tokens) och kan vara fel. Lägg till modellen i pristabellen (AI_PRICES i js/ai-panel.js och PRICES i engine/lib/anthropic.js).</div>`
     : '';
 
   const inTok = r => (r.input_tokens||0) + (r.cache_read_tokens||0) + (r.cache_create_tokens||0);
