@@ -113,6 +113,7 @@ try {
   await check('sidan laddar utan fel', async () => {
     await open(APP);
     assert(await evaluate(`return typeof showSection === 'function' && typeof formatMemo === 'function'`), 'appens funktioner saknas');
+    assert(/^Version \d+ · /.test(await evaluate(`return document.getElementById('app-version').textContent`)), 'versionsnumret visas inte');
   });
 
   await check('alla flikar går att öppna', async () => {

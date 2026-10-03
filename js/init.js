@@ -4,6 +4,24 @@
 // i tidigare filer; allt annat anropas först från init.js eller vid användning.
 
 // ══════════ INIT ══════════
+// Versionsnummer i sidomenyn + koll mot servern: var 5:e minut och när fliken får fokus
+// läses js/version.js om; är den nyare än sidan visas en ruta med "Ladda om".
+document.getElementById('app-version').textContent = `Version ${APP_VERSION.number} · ${APP_VERSION.date}`;
+async function checkForNewVersion() {
+  try {
+    const txt = await (await fetch('js/version.js?t=' + Date.now(), { cache: 'no-store' })).text();
+    const m = txt.match(/number:\s*(\d+)/);
+    if(!m || Number(m[1]) <= APP_VERSION.number || document.getElementById('new-version')) return;
+    const div = document.createElement('div');
+    div.id = 'new-version';
+    div.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--accent);color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4);display:flex;gap:12px;align-items:center';
+    div.innerHTML = `Ny version (${Number(m[1])}) finns <button class="ghost-btn" style="color:#fff;border-color:rgba(255,255,255,.6);padding:4px 10px" onclick="location.reload()">Ladda om</button>`;
+    document.body.appendChild(div);
+  } catch(e) { /* offline e.d. – försök igen nästa gång */ }
+}
+setInterval(checkForNewVersion, 5 * 60 * 1000);
+window.addEventListener('focus', checkForNewVersion);
+
 document.querySelectorAll('.ai-guide[data-here]').forEach(el => el.innerHTML = aiGuideHtml(el.dataset.here));
 renderDashboard();
 renderWatchlist();
