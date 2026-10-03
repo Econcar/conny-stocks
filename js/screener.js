@@ -485,7 +485,8 @@ async function triageGrossList(onProgress) {
       fcf_mn: deepMn(f.fcf),
       fcf_yield_pct: (f.fcf != null && f.mcap && f.finCurrency && f.finCurrency === cur) ? deepR1(f.fcf / f.mcap * 100) : null,
       net_debt_to_ebitda: (netDebt != null && f.ebitda > 0) ? deepR2(netDebt / f.ebitda) : null,
-      dividend_yield_pct: deepR2(f.div), chg_52w_pct: deepR1(q.fiftyTwoWeekChangePercent)
+      dividend_yield_pct: deepR2(f.div), chg_52w_pct: deepR1(q.fiftyTwoWeekChangePercent),
+      price: q.regularMarketPrice != null ? q.regularMarketPrice : null
     };
   }) };
 }
@@ -608,6 +609,9 @@ ${JSON.stringify({ cio_directive: cio, gross_list: gross }, null, 1)}
   saveAnalysis({ ts: Date.now(), title: `AI-triage: ${picks.length} av ${gross.length} bolag (${filters})`, model: SCR_TRIAGE_MODEL, cost: costMeta,
     answer: `### AI-triage: ${picks.length} av ${gross.length} bolag\nFilter: ${filters} · ${cio ? `CIO-direktiv: ${cio.source} (${cio.date})` : 'utan CIO-direktiv'}\n\n` +
       picks.map((p, i) => `${i + 1}. **${p.name || p.data.name} (${p.ticker})**, ${p.sector || p.data.sector || '–'} – ${p.justification || ''}`).join('\n') });
+  // Urvalet till beslutsloggen (AI:ns träffsäkerhet) – varje kort är en köpkandidat.
+  recordDecisions('triage', `AI-triage: ${picks.length} av ${gross.length} bolag (${filters})`, picks.map(p => ({
+    ticker: p.ticker, name: p.name || p.data.name, action: 'KANDIDAT', price: p.data.price, currency: p.data.currency, note: p.justification })));
   if(!live()) return;
   triageState = { key, picks, grossCount: gross.length, filters, cio, costMeta, note };
   renderTriageCards();

@@ -298,6 +298,7 @@ Om underlaget:
 - risk_regime-serierna visar värde, förändring 1 och 3 månader samt läge mot 50-dagarssnitt. HYG är en high yield-kreditfond: fallande HYG = vidgade kreditspreadar.
 - Sektorkollegor ingår inte i underlaget.
 - null eller saknade fält betyder att datan inte gick att hämta. Hitta inte på siffror för dem, säg att de saknas.
+- Avsluta hela svaret med en maskinläsbar rad som inte visas för användaren: <decision>{"action": "KÖP"}</decision> – action är KÖP, AVVAKTA eller SÄLJ, samma som din rekommendation i avsnitt 1.
 
 <underlag>
 ${JSON.stringify(ctx, null, 1)}
@@ -308,7 +309,7 @@ ${JSON.stringify(ctx, null, 1)}
 function formatMemo(md) {
   // Maskinläsbara block (portföljgenomlysningens <screener_config>) visas inte som text –
   // även ett halvfärdigt block under strömningen döljs.
-  md = md.replace(/<screener_config>[\s\S]*?(<\/screener_config>|$)/g, '').trimEnd();
+  md = md.replace(/<(screener_config|decisions|decision)>[\s\S]*?(<\/\1>|$)/g, '').trimEnd();
   const inline = s => escHtml(s)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(?!\s)([^*]+?)\*/g, '<em>$1</em>')
@@ -435,7 +436,12 @@ async function runDeepAnalysis() {
   recordAiUsage('deep_analysis', DEEP_MODEL, result.usage);
   const c = ctx.company;
   const kurs = c.price != null ? `${fmtSekNum(c.price, 2)} ${c.currency || ''}`.trim() : 'kurs okänd';
-  saveAnalysis({ ts: Date.now(), title: `Institutionell djupanalys: ${name} (${ticker}) @ ${kurs}`, model: DEEP_MODEL, answer: text, cost: costMeta });
+  const deepTitle = `Institutionell djupanalys: ${name} (${ticker}) @ ${kurs}`;
+  saveAnalysis({ ts: Date.now(), title: deepTitle, model: DEEP_MODEL, answer: text, cost: costMeta });
+  // Rekommendationen till beslutsloggen (AI:ns träffsäkerhet).
+  const dec = parseTagJson(text, 'decision');
+  if(dec && dec.action) recordDecisions('deep_analysis', deepTitle, [{ ticker, name, action: dec.action, price: c.price, currency: c.currency,
+    note: ((text.match(/###\s*1\.[^\n]*\n([\s\S]*?)(\n###|$)/) || [])[1] || '').replace(/[#*_<>]/g, '').trim().slice(0, 400) }]);
 
   if(live()) {
     out.innerHTML = `<div class="memo">${formatMemo(text)}</div>

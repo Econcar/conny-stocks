@@ -277,4 +277,5 @@ function showSection(s) {
   if(s === 'aifund') renderAIFund();
   if(s === 'earnings') renderEarnings();
   if(s === 'aicost') renderAiCost();
+  if(s === 'track') renderTrack();
 }

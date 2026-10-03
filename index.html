@@ -36,6 +36,7 @@
     <div class="nav-item" onclick="showSection('portfolio')"><span class="nav-icon">▤</span> Min portfölj</div>
     <div class="nav-item" onclick="showSection('aifund')"><span class="nav-icon">❈</span> AI-fond</div>
     <div class="nav-item" onclick="showSection('analyses')"><span class="nav-icon">✎</span> Sparade analyser</div>
+    <div class="nav-item" onclick="showSection('track')"><span class="nav-icon">◎</span> AI:ns träffsäkerhet</div>
     <div class="nav-item" onclick="showSection('aicost')"><span class="nav-icon">◵</span> AI-kostnader</div>
   </div>
 
@@ -486,6 +487,13 @@
       <div id="aifund-view"></div>
     </div>
 
+    <div class="section" id="section-track">
+      <div class="page-title">AI:ns träffsäkerhet <span>· Hur gick det för AI:ns rekommendationer?</span><span class="update-stamp" id="stamp-track"></span></div>
+      <div class="info-msg" style="margin-bottom:14px">Varje rekommendation från <b>AI-triagen</b>, <b>Portföljgenomlysningen</b> och <b>Institutionell djupanalys</b> loggas automatiskt med kurs och jämförelseindex. Här ser du hur aktien gått sedan dess jämfört med sitt lokala index – och efter 1, 3 och 6 månader om AI:n hade rätt.</div>
+      <div class="filter-row" id="track-filters"></div>
+      <div id="track-body"></div>
+    </div>
+
     <div class="section" id="section-analyses">
       <div class="page-title">Sparade analyser <span>· Dina AI-analyser</span></div>
       <div class="info-msg" style="margin-bottom:14px">Alla AI-analyser sparas automatiskt här (lokalt, och i molnet om du är inloggad). Klicka på en för att läsa hela.</div>
@@ -569,6 +577,7 @@
 <script src="js/account.js"></script>
 <script src="js/signals.js"></script>
 <script src="js/watchlist.js"></script>
+<script src="js/decisions.js"></script>
 <script src="js/init.js"></script>
 </body>
 </html>

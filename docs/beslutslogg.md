@@ -9,6 +9,22 @@ Nyast först. Poster som ångrats stryks inte — de får en rad om vad som ersa
 
 ---
 
+### 2026-10-03 · AI:ns beslutslogg räknas fram i webbläsaren, inte av motorn
+
+AI-triagen, portföljgenomlysningen och djupanalysen loggar varje rekommendation (åtgärd, kurs,
+lokalt jämförelseindex och indexnivå) i `ai_decisions` (`supabase-ai-decisions.sql`; utan
+tabellen bara lokalt). Vyn **AI:ns träffsäkerhet** räknar utfallet – sedan beslutet och vid
+1/3/6 månader, mot index – ur Yahoos kurshistorik när den öppnas.
+
+**Varför inte motorn (som först föreslogs):** historiken finns redan hos Yahoo, så ett dagligt
+jobb som sparar kurser skulle bara duplicera den och vara ännu en sak som kan gå sönder.
+Rekommendationerna hämtas ur maskinläsbara block (`<decision>`, `<decisions>`) som modellen ombeds
+skriva i *användarmeddelandet* – systempromptarna är ordagranna och rörs inte. **Kostnad:**
+utfallet räknas i aktiens egen valuta utan utdelningar, och vyn blir långsammare med många
+beslut (en kurshistorik per ticker).
+
+---
+
 ### 2026-10-03 · `index.html` uppdelad i klassiska skript i `js/`, inte ES-moduler
 
 JavaScriptet (~5 800 rader) ligger nu i 16 filer i `js/` (en per flik/område + `common.js` för

@@ -928,6 +928,7 @@ Om underlaget:
 - risk_barometer: värde, förändring 1/3/6 månader och läge mot 50-dagarssnitt.${ctx.portfolio.mandate ? '\n- mandate är fondens förvaltningsmandat (ägarens instruktioner). Håll åtgärderna inom mandatet eller motivera uttryckligen varför det bör ändras.' : ''}
 - screener_capabilities beskriver vad plattformens Aktiescreener faktiskt kan. Använd i screener_config bara sektor- och landnamn som står i dess listor (stavade exakt så). Filter den saknar, t.ex. FCF-marginal, kan du nämna i avsnitt 5 som något att kontrollera per bolag i Aktiedetalj (Institutionell djupanalys).
 - null eller saknade fält betyder att datan inte gick att hämta. Hitta inte på siffror för dem.
+- Placera direkt före <screener_config> ett maskinläsbart block som inte visas för användaren: <decisions>[{"ticker": "TICKER", "action": "SÄLJ", "note": "kort motivering"}]</decisions> – en post per åtgärd i avsnitt 1 som gäller ett specifikt bolag (action är SÄLJ, MINSKA, ÖKA, KÖP eller BEHÅLL; ticker exakt som i underlaget, eller i Yahoo-format för nya bolag). Sektorförslag utan bolag tas inte med.
 
 <underlag>
 ${JSON.stringify(ctx, null, 1)}
@@ -977,6 +978,14 @@ async function runPortfolioReview(kind, fundId) {
   recordAiUsage('portfolio_review', PM_MODEL, result.usage);
   const title = kind === 'fund' ? `Portföljgenomlysning · AI-fond: ${fund.name}` : PM_TITLE_PORTFOLIO;
   saveAnalysis({ ts: Date.now(), title, model: PM_MODEL, answer: result.text, cost: costMeta });
+  // Åtgärderna till beslutsloggen (AI:ns träffsäkerhet). Kursen hämtas av recordDecisions,
+  // så att den är i samma enhet som kurshistoriken (portföljvyn räknar om pence → pund).
+  const decs = parseTagJson(result.text, 'decisions');
+  if(Array.isArray(decs)) {
+    const names = Object.fromEntries(ctx.portfolio.holdings.map(h => [String(h.ticker).toUpperCase(), h.name]));
+    recordDecisions('portfolio_review', title, decs.map(x => ({ ticker: x.ticker, action: x.action, note: x.note,
+      name: names[String(x.ticker || '').toUpperCase()] || null })));
+  }
   const out = getOut();
   if(live() && out) {
     const cio = ctx.cio_directive ? `CIO-direktiv: ${ctx.cio_directive.source} (${ctx.cio_directive.date})` : 'utan CIO-direktiv';

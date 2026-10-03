@@ -69,7 +69,7 @@ function aiGuideHtml(here) {
         'Granskar kandidaten på djupet innan du agerar: vallgrav, kassaflöden, värdering mot 4–5 års historik och djävulens advokat.')}
       <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
         <b style="color:var(--text)">Bra att veta:</b> varje AI-steg tar 1–2 minuter och kostar ungefär $0,10–0,30. Allt sparas i
-        ${link('analyses', 'Sparade analyser')} – där finns ⚡-knappen även för äldre genomlysningar. Analyserna är beslutsunderlag, inte personlig finansiell rådgivning.
+        ${link('analyses', 'Sparade analyser')} – där finns ⚡-knappen även för äldre genomlysningar. Alla rekommendationer följs upp automatiskt mot index i ${link('track', 'AI:ns träffsäkerhet')}. Analyserna är beslutsunderlag, inte personlig finansiell rådgivning.
       </div>
     </div>
   </details>`;
