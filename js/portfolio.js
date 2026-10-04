@@ -886,7 +886,9 @@ function pmPortfolioStructure() {
   const holdings = pfEnriched.map(e => ({
     ticker: e.h.ticker, name: e.h.name || e.h.ticker, sector: e.sektor || null, currency: e.priceCcy || null,
     value_sek: e.valSek, gav: e.h.gav != null ? e.h.gav : null, price: pmR(e.price, 2),
-    return_vs_gav_pct: pmR(e.gain), return_1y_pct: pmR(e.rets && e.rets['1y'])
+    return_vs_gav_pct: pmR(e.gain), return_1y_pct: pmR(e.rets && e.rets['1y']),
+    shares: e.h.qty != null ? e.h.qty : null,
+    price_sek: (e.valSek != null && e.h.qty) ? pmR(e.valSek / e.h.qty, 2) : null
   }));
   const cost = pfEnriched.reduce((s, e) => s + (e.plSek != null ? e.valSek - e.plSek : 0), 0);
   const pl = pfEnriched.reduce((s, e) => s + (e.plSek != null ? e.plSek : 0), 0);
@@ -908,7 +910,9 @@ async function pmFundStructure(f) {
       value_sek: (price != null && rate != null) ? price * h.shares * rate : null,
       purchase_price: h.buyPrice, price: pmR(price, 2),
       return_since_purchase_pct: (price != null && h.buyPrice) ? pmR((price - h.buyPrice) / h.buyPrice * 100) : null,
-      rationale: h.rationale || null };
+      rationale: h.rationale || null,
+      shares: h.shares != null ? pmR(h.shares, 4) : null,
+      price_sek: (price != null && rate != null) ? pmR(price * rate, 2) : null };
   });
   const s = pmStructure(holdings, 0);
   return { name: `AI-fond: ${f.name}`, ...s,
@@ -928,6 +932,8 @@ Om underlaget:
 - risk_barometer: värde, förändring 1/3/6 månader och läge mot 50-dagarssnitt.${ctx.portfolio.mandate ? '\n- mandate är fondens förvaltningsmandat (ägarens instruktioner). Håll åtgärderna inom mandatet eller motivera uttryckligen varför det bör ändras.' : ''}
 - screener_capabilities beskriver vad plattformens Aktiescreener faktiskt kan. Använd i screener_config bara sektor- och landnamn som står i dess listor (stavade exakt så). Filter den saknar, t.ex. FCF-marginal, kan du nämna i avsnitt 5 som något att kontrollera per bolag i Aktiedetalj (Institutionell djupanalys).
 - null eller saknade fält betyder att datan inte gick att hämta. Hitta inte på siffror för dem.
+- Skriv alltid bolagets namn i klartext tillsammans med tickern, t.ex. "Take-Two Interactive (TTWO)" – i åtgärdslistan och i analysen.
+- Gör varje åtgärd i avsnitt 1 direkt exekverbar: ange antal aktier och ungefärligt belopp i kr, beräknat med shares och price_sek i underlaget. SÄLJ = hela innehavet (shares st). MINSKA/ÖKA från X % till Y %: antal = (X − Y) / 100 × total_value_sek ÷ price_sek, avrundat till hela aktier (skriv t.ex. "sälj 12 av 30 aktier, ≈ 18 000 kr"). Saknas shares eller price_sek, ange bara beloppet i kr.
 - Placera direkt före <screener_config> ett maskinläsbart block som inte visas för användaren: <decisions>[{"ticker": "TICKER", "action": "SÄLJ", "note": "kort motivering"}]</decisions> – en post per åtgärd i avsnitt 1 som gäller ett specifikt bolag (action är SÄLJ, MINSKA, ÖKA, KÖP eller BEHÅLL; ticker exakt som i underlaget, eller i Yahoo-format för nya bolag). Sektorförslag utan bolag tas inte med.
 
 <underlag>

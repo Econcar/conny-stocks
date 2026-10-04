@@ -47,9 +47,15 @@ function parseTagJson(text, tag) {
 
 // items: [{ ticker, name?, action, price?, currency?, note? }]. Kurser som saknas – och
 // jämförelseindexens nivå – hämtas nu. Beslut utan kurs (t.ex. påhittad ticker) sparas inte.
+// Samma källa + ticker + åtgärd inom ett dygn räknas som samma beslut (t.ex. en triage
+// som körs om) – annars väger det dubbelt i träffprocenten.
+const DECISION_DUP_MS = 24 * 3600 * 1000;
+const decisionKey = d => `${d.source}|${String(d.ticker).toUpperCase()}|${d.action}`;
+
 async function recordDecisions(source, title, items) {
+  const recent = new Set(aiDecisionsLocal.filter(d => Date.now() - new Date(d.created_at).getTime() < DECISION_DUP_MS).map(decisionKey));
   items = (items || []).map(it => ({ ...it, ticker: String(it.ticker || '').trim(), action: normAction(it.action) }))
-    .filter(it => it.ticker && it.action);
+    .filter(it => it.ticker && it.action && !recent.has(decisionKey({ source, ...it })));
   if(!items.length) return 0;
   const need = [...new Set([...items.filter(i => i.price == null).map(i => i.ticker), ...items.map(i => decisionBenchmark(i.ticker))])];
   let q = {};
@@ -66,17 +72,32 @@ async function recordDecisions(source, title, items) {
   if(!rows.length) return 0;
   aiDecisionsLocal = [...rows, ...aiDecisionsLocal];
   saveDecisionsLocal();
-  if(sb && currentUser && !decisionsCloudMissing) {
+  // Försöker alltid (en tidigare miss får inte stänga av molnet för resten av sessionen).
+  // Misslyckas det ligger beslutet kvar lokalt och laddas upp av loadDecisions() senare.
+  if(sb && currentUser) {
     try {
       const { error } = await sb.from('ai_decisions').insert(rows.map(r => ({ ...r, user_id: currentUser.id })));
-      if(error && /ai_decisions/.test(error.message)) decisionsCloudMissing = true;
+      decisionsCloudMissing = !!(error && /ai_decisions/.test(error.message));
     } catch(e) {}
   }
   return rows.length;
 }
 
+// Dubbletter (samma källa/ticker/åtgärd inom ett dygn): behåll den första, ta bort resten.
+function splitDuplicateDecisions(list) {
+  const keep = [], drop = [], lastByKey = {};
+  for(const d of [...list].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
+    const k = decisionKey(d), t = new Date(d.created_at).getTime();
+    if(lastByKey[k] != null && t - lastByKey[k] < DECISION_DUP_MS) { drop.push(d); continue; }
+    lastByKey[k] = t; keep.push(d);
+  }
+  return { keep: keep.reverse(), drop };
+}
+
 // Molnet (inloggad) + lokala beslut som ännu inte laddats upp – de laddas upp nu.
 async function loadDecisions() {
+  const local = splitDuplicateDecisions(aiDecisionsLocal);
+  if(local.drop.length) { aiDecisionsLocal = local.keep; saveDecisionsLocal(); }
   if(!(sb && currentUser)) return aiDecisionsLocal;
   try {
     const { data, error } = await sb.from('ai_decisions').select('*').order('created_at', { ascending: false }).limit(2000);
@@ -85,7 +106,13 @@ async function loadDecisions() {
     const ids = new Set(data.map(d => d.id));
     const localOnly = aiDecisionsLocal.filter(d => !ids.has(d.id));
     if(localOnly.length) await sb.from('ai_decisions').insert(localOnly.map(r => ({ ...r, user_id: currentUser.id })));
-    return [...data, ...localOnly].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    const { keep, drop } = splitDuplicateDecisions([...data, ...localOnly]);
+    if(drop.length) {
+      const dropIds = new Set(drop.map(d => d.id));
+      aiDecisionsLocal = aiDecisionsLocal.filter(d => !dropIds.has(d.id)); saveDecisionsLocal();
+      await sb.from('ai_decisions').delete().in('id', [...dropIds]);
+    }
+    return keep;
   } catch(e) { return aiDecisionsLocal; }
 }
 

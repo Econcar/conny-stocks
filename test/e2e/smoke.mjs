@@ -199,6 +199,7 @@ try {
       const parsed = parseTagJson('text <decisions>[{"ticker":"VOLV-B.ST","action":"MINSKA EXPONERING"}]</decisions>', 'decisions');
       const n = await recordDecisions('triage', 'test', [{ ticker: 'VOLV-B.ST', name: 'Volvo B', action: 'KANDIDAT', note: 'test' },
                                                          { ticker: 'PAHITTAD-XYZ.ST', action: 'KÖP' }]);
+      const dup = await recordDecisions('triage', 'test igen', [{ ticker: 'VOLV-B.ST', action: 'KANDIDAT' }]);
       // Datera om beslutet 100 dagar bakåt (med kurs/index från då okända) – 1 och 3 mån ska då vara klara, 6 mån väntar.
       const d = aiDecisionsLocal[0];
       d.created_at = new Date(Date.now() - 100 * 86400000).toISOString(); d.bench_price = null;
@@ -207,13 +208,14 @@ try {
       showSection('track');
       for(let i = 0; i < 40 && !document.querySelector('#track-body table'); i++) await new Promise(r => setTimeout(r, 250));
       const cells = [...document.querySelectorAll('#track-body tbody tr:first-child td')].map(td => td.textContent.trim());
-      const out = { parsedAction: normAction(parsed[0].action), n, bench: decisionBenchmark('VOLV-B.ST'), us: decisionBenchmark('AAPL'), cells,
+      const out = { parsedAction: normAction(parsed[0].action), n, dup, bench: decisionBenchmark('VOLV-B.ST'), us: decisionBenchmark('AAPL'), cells,
         hidden: !formatMemo('a <decision>{"action":"KÖP"}</decision>').includes('KÖP') };
       localStorage.removeItem('ai_decisions'); aiDecisionsLocal = [];
       return out;`);
     assert(r.parsedAction === 'MINSKA' && r.bench === '^OMX' && r.us === '^GSPC', 'tolkning/index fel');
     assert(r.n === 1, `skulle logga 1 beslut (påhittad ticker bort), loggade ${r.n}`);
     assert(r.hidden, '<decision>-blocket syns i texten');
+    assert(r.dup === 0, `samma beslut inom ett dygn loggades igen (${r.dup})`);
     const [, , bolag, action, , , , , m1, m3, m6] = r.cells;
     assert(bolag.includes('VOLV-B.ST') && action === 'KANDIDAT', 'raden saknas i vyn: ' + r.cells.join(' | '));
     assert(/%/.test(m1) && /%/.test(m3) && /^om \d+ d$/.test(m6), `horisonter fel: ${m1} / ${m3} / ${m6}`);
