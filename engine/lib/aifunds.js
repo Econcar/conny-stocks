@@ -162,7 +162,7 @@ function fundValue(f, q, fx) {
     const v = (price != null && rate != null) ? price * h.shares * rate : null;
     if (v != null) total += v;
   }
-  return total;
+  return total + (f.cashSek || 0); // modellportföljernas kassa (AI-fonderna är fullinvesterade)
 }
 
 async function aiTool(model, system, userText, tool, web) {
@@ -239,8 +239,9 @@ async function runAIFunds() {
     }
     // Inte dags för ombalansering – logga ändå dagens NAV så fondens graf får en exakt punkt.
     try {
-      const q = await fetchSpark(f.holdings.map((h) => h.ticker));
-      const fx = await getFxRates([...new Set(f.holdings.map((h) => h.currency))]);
+      // Modellportfölj utan innehav (bara kassa) behöver inga kurser.
+      const q = f.holdings.length ? await fetchSpark(f.holdings.map((h) => h.ticker)) : {};
+      const fx = f.holdings.length ? await getFxRates([...new Set(f.holdings.map((h) => h.currency))]) : {};
       const total = fundValue(f, q, fx);
       if (total > 0) {
         recordNav(f, total);

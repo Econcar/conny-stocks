@@ -278,4 +278,5 @@ function showSection(s) {
   if(s === 'earnings') renderEarnings();
   if(s === 'aicost') renderAiCost();
   if(s === 'track') renderTrack();
+  if(s === 'model') renderModelPortfolios();
 }

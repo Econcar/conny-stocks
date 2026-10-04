@@ -66,7 +66,7 @@ function aiGuideHtml(here) {
       ${step('screener', 3, '⚡ Applicera AI:ns filter i Screenern', 'knappen under genomlysningen',
         `Öppnar ${link('screener', 'Aktiescreenern')} med sektorer, marknader och nyckeltalsfilter (P/E, EV/EBITDA, ROE, fritt kassaflöde) ifyllda. Tryck sedan <b>✦ Kör AI-triage</b> och välj hur många (3–15) bolag AI:n ska vaska fram ur listan mot CIO-analysen.`)}
       ${step('deep', 4, '✦ Kör Institutionell Djupanalys', 'knappen på ett triage-kort (eller klicka på ett bolag i listan)',
-        'Granskar kandidaten på djupet innan du agerar: vallgrav, kassaflöden, värdering mot 4–5 års historik och djävulens advokat.')}
+        `Granskar kandidaten på djupet innan du agerar: vallgrav, kassaflöden, värdering mot 4–5 års historik och djävulens advokat. Utlåtandet (Köp/Avvakta/Sälj) syns sedan på kortet och i listan. Vill du testa idén: <b>+ Modellportfölj</b> lägger aktien i en fiktiv ${link('model', 'modellportfölj')} som följs mot index.`)}
       <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
         <b style="color:var(--text)">Bra att veta:</b> varje AI-steg tar 1–2 minuter och kostar ungefär $0,10–0,30. Allt sparas i
         ${link('analyses', 'Sparade analyser')} – där finns ⚡-knappen även för äldre genomlysningar. Alla rekommendationer följs upp automatiskt mot index i ${link('track', 'AI:ns träffsäkerhet')}. Analyserna är beslutsunderlag, inte personlig finansiell rådgivning.

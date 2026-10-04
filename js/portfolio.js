@@ -914,11 +914,11 @@ async function pmFundStructure(f) {
       shares: h.shares != null ? pmR(h.shares, 4) : null,
       price_sek: (price != null && rate != null) ? pmR(price * rate, 2) : null };
   });
-  const s = pmStructure(holdings, 0);
-  return { name: `AI-fond: ${f.name}`, ...s,
+  const s = pmStructure(holdings, f.cashSek || 0); // modellportföljer har kassa, AI-fonder är fullinvesterade
+  return { name: `${isModelFund(f) ? 'Modellportfölj' : 'AI-fond'}: ${f.name}`, ...s,
     mandate: { instructions: f.instructions || null, strategy: f.strategy || null },
     start_value_sek: f.startValueSek || null, started: (f.createdAt || '').slice(0, 10) || null,
-    return_since_start_pct: f.startValueSek ? pmR((s.securities_value_sek - f.startValueSek) / f.startValueSek * 100) : null };
+    return_since_start_pct: f.startValueSek ? pmR((s.total_value_sek - f.startValueSek) / f.startValueSek * 100) : null };
 }
 
 function pmUserMessage(ctx) {
@@ -932,6 +932,7 @@ Om underlaget:
 - risk_barometer: värde, förändring 1/3/6 månader och läge mot 50-dagarssnitt.${ctx.portfolio.mandate ? '\n- mandate är fondens förvaltningsmandat (ägarens instruktioner). Håll åtgärderna inom mandatet eller motivera uttryckligen varför det bör ändras.' : ''}
 - screener_capabilities beskriver vad plattformens Aktiescreener faktiskt kan. Använd i screener_config bara sektor- och landnamn som står i dess listor (stavade exakt så). Filter den saknar, t.ex. FCF-marginal, kan du nämna i avsnitt 5 som något att kontrollera per bolag i Aktiedetalj (Institutionell djupanalys).
 - null eller saknade fält betyder att datan inte gick att hämta. Hitta inte på siffror för dem.
+- Investeraren är en svensk privatperson som räknar i SEK (investor). När du anger målnivå för kassan: säg konkret var kassan ska ligga för en svensk sparare – t.ex. sparkonto med statlig insättningsgaranti, en kort räntefond eller statsskuldväxlar – och ungefär vilken ränta det ger i SEK utifrån Riksbankens styrränta (riksbank_policy_rate_pct). Amerikanska T-bill-räntor gäller bara den som håller USD och tar valutarisk – säg det i så fall uttryckligen.
 - Skriv alltid bolagets namn i klartext tillsammans med tickern, t.ex. "Take-Two Interactive (TTWO)" – i åtgärdslistan och i analysen.
 - Gör varje åtgärd i avsnitt 1 direkt exekverbar: ange antal aktier och ungefärligt belopp i kr, beräknat med shares och price_sek i underlaget. SÄLJ = hela innehavet (shares st). MINSKA/ÖKA från X % till Y %: antal = (X − Y) / 100 × total_value_sek ÷ price_sek, avrundat till hela aktier (skriv t.ex. "sälj 12 av 30 aktier, ≈ 18 000 kr"). Saknas shares eller price_sek, ange bara beloppet i kr.
 - Placera direkt före <screener_config> ett maskinläsbart block som inte visas för användaren: <decisions>[{"ticker": "TICKER", "action": "SÄLJ", "note": "kort motivering"}]</decisions> – en post per åtgärd i avsnitt 1 som gäller ett specifikt bolag (action är SÄLJ, MINSKA, ÖKA, KÖP eller BEHÅLL; ticker exakt som i underlaget, eller i Yahoo-format för nya bolag). Sektorförslag utan bolag tas inte med.
@@ -961,10 +962,15 @@ async function runPortfolioReview(kind, fundId) {
   status('Samlar underlag: innehav och vikter, senaste CIO-direktivet och riskbarometern…');
   let ctx;
   try {
-    const [portfolio, cio, risk] = await Promise.all([
-      kind === 'fund' ? pmFundStructure(fund) : pmPortfolioStructure(), latestCioDirective(), pmRiskBarometer()
+    const [portfolio, cio, risk, rates] = await Promise.all([
+      kind === 'fund' ? pmFundStructure(fund) : pmPortfolioStructure(), latestCioDirective(), pmRiskBarometer(),
+      fetch('/api/rates').then(r => r.json()).catch(() => ({}))
     ]);
-    ctx = { as_of: new Date().toISOString().slice(0, 10), portfolio, cio_directive: cio, risk_barometer: risk,
+    // Investeraren är svensk: kassan ska bedömas i SEK, inte mot amerikanska T-bill-räntor.
+    const investor = { country: 'Sverige', base_currency: 'SEK',
+      riksbank_policy_rate_pct: rates.riksbank ? rates.riksbank.rate : null,
+      fed_funds_effective_pct: rates.fed ? rates.fed.effr : null };
+    ctx = { as_of: new Date().toISOString().slice(0, 10), investor, portfolio, cio_directive: cio, risk_barometer: risk,
             screener_capabilities: screenerCapabilities() };
   } catch(e) {
     const out = getOut();
@@ -982,7 +988,7 @@ async function runPortfolioReview(kind, fundId) {
 
   const costMeta = estimateCostText(PM_MODEL, result.usage);
   recordAiUsage('portfolio_review', PM_MODEL, result.usage);
-  const title = kind === 'fund' ? `Portföljgenomlysning · AI-fond: ${fund.name}` : PM_TITLE_PORTFOLIO;
+  const title = kind === 'fund' ? `Portföljgenomlysning · ${isModelFund(fund) ? 'Modellportfölj' : 'AI-fond'}: ${fund.name}` : PM_TITLE_PORTFOLIO;
   saveAnalysis({ ts: Date.now(), title, model: PM_MODEL, answer: result.text, cost: costMeta });
   // Åtgärderna till beslutsloggen (AI:ns träffsäkerhet). Kursen hämtas av recordDecisions,
   // så att den är i samma enhet som kurshistoriken (portföljvyn räknar om pence → pund).

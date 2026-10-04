@@ -35,6 +35,7 @@
     <div class="nav-item" onclick="showSection('watchlist')"><span class="nav-icon">★</span> Bevakningslista</div>
     <div class="nav-item" onclick="showSection('portfolio')"><span class="nav-icon">▤</span> Min portfölj</div>
     <div class="nav-item" onclick="showSection('aifund')"><span class="nav-icon">❈</span> AI-fond</div>
+    <div class="nav-item" onclick="showSection('model')"><span class="nav-icon">▦</span> Modellportfölj</div>
     <div class="nav-item" onclick="showSection('analyses')"><span class="nav-icon">✎</span> Sparade analyser</div>
     <div class="nav-item" onclick="showSection('track')"><span class="nav-icon">◎</span> AI:ns träffsäkerhet</div>
     <div class="nav-item" onclick="showSection('aicost')"><span class="nav-icon">◵</span> AI-kostnader</div>
@@ -223,6 +224,7 @@
           </div>
           <div style="margin-left:auto;display:flex;gap:8px">
             <button class="ghost-btn" onclick="addToWatchlist()">+ Bevakningslista</button>
+            <button class="ghost-btn" onclick="if(currentIsFund) return alert('Modellportföljen följer aktier – fonder stöds inte.'); openModelAdd(currentTicker, currentStockName)">+ Modellportfölj</button>
             <button class="ghost-btn" onclick="addToCompare()">+ Jämförelse</button>
             <button class="action-btn" onclick="aiAnalyzeStock()">✦ Analysera med AI</button>
           </div>
@@ -487,6 +489,12 @@
       <div id="aifund-view"></div>
     </div>
 
+    <div class="section" id="section-model">
+      <div class="page-title">Modellportfölj <span>· Din egen fiktiva portfölj</span></div>
+      <div class="info-msg" style="margin-bottom:14px">Bygg en fiktiv portfölj av aktier du väljer själv – t.ex. från AI-triagens kort eller aktiesidan (<b>+ Modellportfölj</b>). Du startar med ett startkapital i kassan; köp och sälj sker till dagens kurs och portföljen följs mot index. Inget handlas på riktigt.</div>
+      <div id="model-view"></div>
+    </div>
+
     <div class="section" id="section-track">
       <div class="page-title">AI:ns träffsäkerhet <span>· Hur gick det för AI:ns rekommendationer?</span><span class="update-stamp" id="stamp-track"></span></div>
       <div class="info-msg" style="margin-bottom:14px">Varje rekommendation från <b>AI-triagen</b>, <b>Portföljgenomlysningen</b> och <b>Institutionell djupanalys</b> loggas automatiskt med kurs och jämförelseindex. Här ser du hur aktien gått sedan dess jämfört med sitt lokala index – och efter 1, 3 och 6 månader om AI:n hade rätt.</div>
@@ -574,6 +582,7 @@
 <script src="js/earnings.js"></script>
 <script src="js/ai-cost.js"></script>
 <script src="js/ai-fund.js"></script>
+<script src="js/model-portfolio.js"></script>
 <script src="js/account.js"></script>
 <script src="js/signals.js"></script>
 <script src="js/watchlist.js"></script>

@@ -221,6 +221,50 @@ try {
     assert(/%/.test(m1) && /%/.test(m3) && /^om \d+ d$/.test(m6), `horisonter fel: ${m1} / ${m3} / ${m6}`);
   });
 
+  await check('modellportfölj: skapa, köp, sälj och kassa', async () => {
+    const r = await evaluate(`
+      const realConfirm = window.confirm; window.confirm = () => true;
+      const f = await createModelPortfolio('Testportfölj', 100000);
+      try {
+        await modelBuy(f, 'VOLV-B.ST', 'Volvo B', 20000);
+        const afterBuy = { cash: f.cashSek, shares: f.holdings[0] && f.holdings[0].shares };
+        const value = fundValue(f, await fetchQuotesChunked(['VOLV-B.ST']), await getFxRates(['SEK'])).total;
+        currentModelView = f.id; showSection('model');
+        for(let i = 0; i < 60 && !document.querySelector('#model-view tbody tr'); i++) await new Promise(r => setTimeout(r, 250));
+        const rows = [...document.querySelectorAll('#model-view tbody tr')].map(tr => tr.textContent.replace(/\\s+/g, ' ').trim());
+        const inAiList = (showSection('aifund'), await new Promise(r => setTimeout(r, 800)), document.getElementById('aifund-view').textContent.includes('Testportfölj'));
+        await modelSell(f.id, 'VOLV-B.ST');
+        const afterSell = { cash: f.cashSek, n: f.holdings.length, log: f.reevalLog.length };
+        openModelAdd('SAAB-B.ST', 'Saab B');
+        const dialog = document.getElementById('ma-fund') ? document.getElementById('ma-fund').options.length : 0;
+        closeModelAdd();
+        return { afterBuy, value, rows, inAiList, afterSell, dialog };
+      } finally {
+        window.confirm = realConfirm; currentModelView = null;
+        aiFunds = aiFunds.filter(x => x.id !== f.id); saveAIFundsLocal();
+      }`);
+    assert(r.afterBuy.cash === 80000 && r.afterBuy.shares > 0, `köpet drog fel från kassan: ${JSON.stringify(r.afterBuy)}`);
+    assert(Math.abs(r.value - 100000) < 2000, `värdet (innehav + kassa) borde vara ≈ 100 000 kr, är ${Math.round(r.value)}`);
+    assert(r.rows.some(t => t.includes('VOLV-B.ST')) && r.rows.some(t => t.startsWith('Kassa')), 'innehav/kassarad saknas: ' + r.rows.join(' | '));
+    assert(!r.inAiList, 'modellportföljen syns bland AI-fonderna');
+    assert(r.afterSell.n === 0 && Math.abs(r.afterSell.cash - 100000) < 2000 && r.afterSell.log === 3, `sälj fel: ${JSON.stringify(r.afterSell)}`);
+    assert(r.dialog >= 2, 'dialogen "Lägg i modellportfölj" visar inga portföljer');
+  });
+
+  await check('djupanalysens utlåtande och triagens ✦ syns i screenern', async () => {
+    const r = await evaluate(`
+      const saved = aiDecisionsLocal, savedAll = aiDecisionsAll;
+      aiDecisionsLocal = [{ source: 'deep_analysis', ticker: 'PBR', action: 'AVVAKTA', direction: 0, created_at: new Date().toISOString(), title: 't' }];
+      aiDecisionsAll = null;
+      const badge = verdictBadge('PBR'), none = verdictBadge('AAPL');
+      triageState = { key: 'x', picks: [{ ticker: 'NVDA' }, { ticker: 'SAAB-B.ST' }] };
+      const rank = triagePickRank('SAAB-B.ST'), notPicked = triagePickRank('AAPL');
+      triageState = null; aiDecisionsLocal = saved; aiDecisionsAll = savedAll;
+      return { badge, none, rank, notPicked };`);
+    assert(r.badge.includes('AVVAKTA') && r.none === '', 'utlåtandet visas fel');
+    assert(r.rank === 2 && r.notPicked === 0, 'triagens rangordning fel');
+  });
+
   await check('AI-triagens svarstolkning och prompt', async () => {
     const r = await evaluate(`return { picks: parseTriageResult('<triage_result>{"top_picks":[{"ticker":"SAAB-B.ST","name":"Saab","sector":"Försvar","justification":"x"}]}</triage_result>'),
       prompt: triageSystemPrompt(7), row: !!document.getElementById('triage-btn') }`);

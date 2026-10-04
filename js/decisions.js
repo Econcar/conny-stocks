@@ -14,6 +14,7 @@ const DECISION_DIRECTION = { 'KÖP': 1, 'ÖKA': 1, 'KANDIDAT': 1, 'BEHÅLL': 0, 
 const TRACK_HORIZONS = [['1m', 30, '1 mån'], ['3m', 91, '3 mån'], ['6m', 182, '6 mån']];
 
 let aiDecisionsLocal = (() => { try { return JSON.parse(localStorage.getItem('ai_decisions') || '[]'); } catch(e) { return []; } })();
+let aiDecisionsAll = null;       // senaste sammanslagna listan (moln + lokalt) från loadDecisions
 let decisionsCloudMissing = false; // tabellen ai_decisions finns inte (än) – loggen är då bara lokal
 let trackFilter = 'alla';
 function saveDecisionsLocal() { try { localStorage.setItem('ai_decisions', JSON.stringify(aiDecisionsLocal.slice(0, 2000))); } catch(e) {} }
@@ -72,6 +73,7 @@ async function recordDecisions(source, title, items) {
   if(!rows.length) return 0;
   aiDecisionsLocal = [...rows, ...aiDecisionsLocal];
   saveDecisionsLocal();
+  if(aiDecisionsAll) aiDecisionsAll = [...rows, ...aiDecisionsAll];
   // Försöker alltid (en tidigare miss får inte stänga av molnet för resten av sessionen).
   // Misslyckas det ligger beslutet kvar lokalt och laddas upp av loadDecisions() senare.
   if(sb && currentUser) {
@@ -98,7 +100,7 @@ function splitDuplicateDecisions(list) {
 async function loadDecisions() {
   const local = splitDuplicateDecisions(aiDecisionsLocal);
   if(local.drop.length) { aiDecisionsLocal = local.keep; saveDecisionsLocal(); }
-  if(!(sb && currentUser)) return aiDecisionsLocal;
+  if(!(sb && currentUser)) return (aiDecisionsAll = aiDecisionsLocal);
   try {
     const { data, error } = await sb.from('ai_decisions').select('*').order('created_at', { ascending: false }).limit(2000);
     if(error) { if(/ai_decisions/.test(error.message)) decisionsCloudMissing = true; return aiDecisionsLocal; }
@@ -112,8 +114,33 @@ async function loadDecisions() {
       aiDecisionsLocal = aiDecisionsLocal.filter(d => !dropIds.has(d.id)); saveDecisionsLocal();
       await sb.from('ai_decisions').delete().in('id', [...dropIds]);
     }
-    return keep;
+    return (aiDecisionsAll = keep);
   } catch(e) { return aiDecisionsLocal; }
+}
+
+// ── Djupanalysens senaste utlåtande per aktie (visas på triagekort och i screenern) ──
+function latestDeepVerdict(ticker) {
+  const t = String(ticker || '').toUpperCase();
+  return (aiDecisionsAll || aiDecisionsLocal).find(d => d.source === 'deep_analysis' && String(d.ticker).toUpperCase() === t) || null;
+}
+function verdictBadge(ticker) {
+  const v = latestDeepVerdict(ticker);
+  if(!v) return '';
+  const col = v.direction > 0 ? 'var(--green)' : v.direction < 0 ? 'var(--red)' : 'var(--amber)';
+  const date = new Date(v.created_at).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+  return `<span class="verdict" style="color:${col};border-color:${col}" title="Institutionell djupanalys ${escHtml(date)} – klicka för att läsa" onclick="event.stopPropagation();openSavedAnalysis('${escQuote(v.title || '')}')">${escHtml(v.action)} · ${escHtml(date)}</span>`;
+}
+
+// Öppnar en sparad analys (efter titel) i Sparade analyser, utfälld.
+async function openSavedAnalysis(title) {
+  showSection('analyses');
+  await renderAnalyses();
+  const card = [...document.querySelectorAll('#analyses-list .pf-card')]
+    .find(c => { const t = c.querySelector('[style*="font-weight:600"]'); return t && t.textContent.trim() === title; });
+  if(!card) return;
+  const body = card.querySelector('[id^="an-"]');
+  if(body) body.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function deleteDecision(id) {

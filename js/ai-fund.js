@@ -145,8 +145,12 @@ function fundValue(f, quotes, fx){
     const v = (price != null && rate != null) ? price*h.shares*rate : null;
     if(v != null) total += v; else partial = true;
   }
+  total += f.cashSek || 0; // modellportföljens kassa (AI-fonderna är fullinvesterade)
   return { total, partial };
 }
+
+// Egen modellportfölj (fiktiv, du väljer aktierna) – delar fondernas maskineri. Se model-portfolio.js.
+const isModelFund = f => !!(f && f.kind === 'model');
 
 async function indexReturnSince(sym, sinceMs){
   const days = (Date.now() - sinceMs) / 86400000;
@@ -179,7 +183,7 @@ async function renderAIFund(){
 }
 
 function renderFundList(view){
-  const cards = aiFunds.map(f => `
+  const cards = aiFunds.filter(f => !isModelFund(f)).map(f => `
     <div class="pf-card" style="cursor:pointer;margin-bottom:10px" onclick="openFund('${escQuote(f.id)}')">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div><div style="font-weight:600">${escHtml(f.name)}</div><div style="font-size:11px;color:var(--text3)">${escHtml(f.model.replace('claude-',''))} · ${f.holdings.length} innehav · start ${fmtSekNum(f.startValueSek,0)} kr · ${new Date(f.createdAt).toLocaleDateString('sv-SE')}</div></div>
@@ -201,7 +205,7 @@ function renderFundList(view){
       <textarea id="aif-instr" placeholder="t.ex. Offensiv global tillväxt med fokus på AI och grön energi. Max 10 innehav. Omvärdera varje vecka. Undvik tobak och fossilt." style="width:100%;min-height:80px;margin-top:4px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:9px;font-size:13px;resize:vertical"></textarea>
       <div style="margin-top:10px"><button class="action-btn" id="aif-create-btn" onclick="createAIFund()">✦ Skapa AI-fond</button></div>
     </div>
-    ${aiFunds.length ? `<div style="margin-top:16px;margin-bottom:8px;font-weight:600">Dina AI-fonder</div>${cards}` : '<div class="info-msg" style="margin-top:14px">Inga AI-fonder än. Fyll i instruktioner ovan och skapa din första.</div>'}`;
+    ${cards ? `<div style="margin-top:16px;margin-bottom:8px;font-weight:600">Dina AI-fonder</div>${cards}` : '<div class="info-msg" style="margin-top:14px">Inga AI-fonder än. Fyll i instruktioner ovan och skapa din första.</div>'}`;
 }
 
 async function createAIFund(){
@@ -239,13 +243,16 @@ async function createAIFund(){
 }
 
 async function deleteAIFund(id){
-  if(!confirm('Ta bort denna AI-fond?')) return;
+  const model = isModelFund(aiFunds.find(f => f.id === id));
+  if(!confirm(model ? 'Ta bort denna modellportfölj?' : 'Ta bort denna AI-fond?')) return;
   aiFunds = aiFunds.filter(f => f.id !== id); saveAIFundsLocal();
   if(sb && currentUser){ try { await sb.from('ai_funds').delete().eq('id', id); } catch(e){} }
-  currentFundView = null; renderAIFund();
+  if(model){ currentModelView = null; renderModelPortfolios(); }
+  else { currentFundView = null; renderAIFund(); }
 }
 
 async function renderFundDetail(f, view){
+  const model = isModelFund(f), fid = escQuote(f.id);
   view.innerHTML = '<div class="info-msg">Hämtar kurser…</div>';
   const q = await fetchQuotesChunked(f.holdings.map(h => h.ticker));
   const fx = await getFxRates([...new Set(f.holdings.map(h => h.currency))]);
@@ -270,15 +277,16 @@ async function renderFundDetail(f, view){
       <td style="text-align:right">${price != null ? fmtSekNum(price,2) : '–'}</td>
       <td style="text-align:right;color:${g==null?'var(--text3)':(g>=0?'var(--green)':'var(--red)')}">${g != null ? fmtSekPct(g) : '–'}</td>
       <td style="text-align:right">${val != null ? fmtSekNum(val,0)+' kr' : '–'}</td>
+      ${model ? `<td style="text-align:right"><button class="ghost-btn" style="padding:3px 10px;font-size:11px" onclick="event.stopPropagation();modelSell('${fid}','${escQuote(h.ticker)}')">Sälj</button></td>` : ''}
     </tr>`;
-  }).join('');
+  }).join('') + (model ? `<tr><td style="color:var(--text2)">Kassa</td><td style="text-align:right">${total ? fmtSekNum((f.cashSek||0)/total*100,1)+'%' : '–'}</td><td></td><td></td><td></td><td style="text-align:right">${fmtSekNum(f.cashSek||0,0)} kr</td><td></td></tr>` : '');
   view.innerHTML = `
-    <div style="margin-bottom:12px"><button class="ghost-btn" onclick="backToFundList()">← Alla AI-fonder</button></div>
+    <div style="margin-bottom:12px"><button class="ghost-btn" onclick="${model ? 'backToModelList()' : 'backToFundList()'}">← ${model ? 'Alla modellportföljer' : 'Alla AI-fonder'}</button></div>
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-      <div><div style="font-size:18px;font-weight:600">${escHtml(f.name)}</div><div style="font-size:12px;color:var(--text3)">${escHtml(f.model.replace('claude-',''))} · ${f.web?'webbsök på':'utan webbsök'} · skapad ${created}${f.lastReevalAt ? ' · omvärderad ' + new Date(f.lastReevalAt).toLocaleDateString('sv-SE') : ''}</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="action-btn" id="aif-review-btn" onclick="runPortfolioReview('fund','${escQuote(f.id)}')" title="Portfolio Manager: stresstestar fonden mot senaste CIO-analysen och riskbarometern">✦ Kör Portföljgenomlysning</button><button class="action-btn" id="aif-reeval-btn" onclick="reevalAIFund('${escQuote(f.id)}')">↻ Låt AI omvärdera</button><button class="ghost-btn" onclick="deleteAIFund('${escQuote(f.id)}')">Ta bort</button></div>
+      <div><div style="font-size:18px;font-weight:600">${escHtml(f.name)}</div><div style="font-size:12px;color:var(--text3)">${model ? 'Egen modellportfölj (fiktiv)' : escHtml(f.model.replace('claude-','')) + ' · ' + (f.web?'webbsök på':'utan webbsök')} · skapad ${created}${f.lastReevalAt ? ' · omvärderad ' + new Date(f.lastReevalAt).toLocaleDateString('sv-SE') : ''}</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="action-btn" id="aif-review-btn" onclick="runPortfolioReview('fund','${fid}')" title="Portfolio Manager: stresstestar fonden mot senaste CIO-analysen och riskbarometern">✦ Kör Portföljgenomlysning</button>${model ? '' : `<button class="action-btn" id="aif-reeval-btn" onclick="reevalAIFund('${fid}')">↻ Låt AI omvärdera</button>`}<button class="ghost-btn" onclick="deleteAIFund('${escQuote(f.id)}')">Ta bort</button></div>
     </div>
-    <div class="pf-card" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+    ${model ? '' : `<div class="pf-card" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px">
       <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Omvärdering:
         <select onchange="setFundInterval('${escQuote(f.id)}', this.value)" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:5px 8px">${intervalOptionsHtml(f.reevalIntervalDays||0)}</select>
       </label>
@@ -286,20 +294,22 @@ async function renderFundDetail(f, view){
         <input type="checkbox" ${f.autoReeval?'checked':''} onchange="setFundAuto('${escQuote(f.id)}', this.checked)"> Auto-omvärdera (körs på servern)
       </label>
       ${due ? `<span style="font-size:12px;color:var(--amber,#f59e0b)">⏰ Dags att omvärdera (${intervalLabel(f.reevalIntervalDays||0).toLowerCase()})</span>` : (f.reevalIntervalDays ? `<span style="font-size:12px;color:var(--text3)">Nästa: ${new Date((f.lastReevalAt?new Date(f.lastReevalAt).getTime():new Date(f.createdAt).getTime()) + (f.reevalIntervalDays||0)*86400000).toLocaleDateString('sv-SE')}</span>` : '')}
-    </div>
+    </div>`}
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
       <div class="kpi-card"><div class="kpi-label">Värde nu${partial?' (delvis)':''}</div><div class="kpi-value">${fmtSekNum(total,0)} kr</div></div>
       <div class="kpi-card"><div class="kpi-label">Avkastning sedan start</div><div class="kpi-value" style="color:${ret==null?'var(--text)':(ret>=0?'var(--green)':'var(--red)')}">${ret != null ? fmtSekPct(ret) : '–'}</div></div>
       <div class="kpi-card"><div class="kpi-label">Startbelopp</div><div class="kpi-value">${fmtSekNum(f.startValueSek,0)} kr</div></div>
+      ${model ? `<div class="kpi-card"><div class="kpi-label">Kassa</div><div class="kpi-value">${fmtSekNum(f.cashSek||0,0)} kr</div><div class="kpi-sub muted">${total ? fmtSekNum((f.cashSek||0)/total*100,1) : '0'} % av portföljen</div></div>` : ''}
       ${totalCost ? `<div class="kpi-card"><div class="kpi-label">AI-kostnad hittills</div><div class="kpi-value">$${totalCost.toFixed(3)}</div><div class="kpi-sub muted">≈ ${fmtSekNum(totalCost*10.5,0)} kr · ${nReeval} körning${nReeval===1?'':'ar'}</div></div>` : ''}
     </div>
+    ${model ? modelBuyFormHtml(f) : ''}
     <div style="margin:-6px 0 12px">${aiGuideHtml('pm')}</div>
     <div id="aif-review-out" class="memo-box"></div>
     ${f.lastReevalError ? `<div class="info-msg" style="margin-bottom:14px;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">⚠ Senaste omvärdering misslyckades (${new Date(f.lastReevalError.date).toLocaleString('sv-SE')}): ${escHtml(f.lastReevalError.message)}</div>` : ''}
     ${f.strategy ? `<div class="info-msg" style="margin-bottom:14px"><b>Strategi:</b> ${escHtml(f.strategy)}</div>` : ''}
     <div class="pf-card"><div style="font-weight:600;margin-bottom:8px">Utveckling vs index (sedan ${created})</div><div style="height:260px"><canvas id="aifundChart"></canvas></div></div>
     <div style="overflow-x:auto;margin-top:14px"><table class="pf-table">
-      <thead><tr><th style="text-align:left">Innehav</th><th style="text-align:right">Vikt</th><th style="text-align:right">Inköp</th><th style="text-align:right">Kurs</th><th style="text-align:right">Sedan köp</th><th style="text-align:right">Värde</th></tr></thead>
+      <thead><tr><th style="text-align:left">Innehav</th><th style="text-align:right">Vikt</th><th style="text-align:right">Inköp</th><th style="text-align:right">Kurs</th><th style="text-align:right">Sedan köp</th><th style="text-align:right">Värde</th>${model ? '<th></th>' : ''}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     ${(f.reevalLog && f.reevalLog.length) ? `<div class="pf-card" style="margin-top:14px"><div style="font-weight:600;margin-bottom:6px">Historik – ändringar och motiveringar</div>${f.reevalLog.map(l => `
@@ -351,9 +361,9 @@ async function buildFundSeries(f, liveTotal){
   for(let i = 0; i < log.length; i++){
     const from = new Date(log[i].date).toISOString().slice(0,10);
     const to = (i+1 < log.length) ? new Date(log[i+1].date).toISOString().slice(0,10) : null;
-    segments.push({ from, to, holdings: log[i].holdings || f.holdings });
+    segments.push({ from, to, holdings: log[i].holdings || f.holdings, cash: log[i].cashSek != null ? log[i].cashSek : 0 });
   }
-  if(!segments.length) segments.push({ from: createdKey, to: null, holdings: f.holdings });
+  if(!segments.length) segments.push({ from: createdKey, to: null, holdings: f.holdings, cash: f.cashSek || 0 });
 
   const allCcys = [...new Set(segments.flatMap(s => s.holdings.map(h => h.currency)))];
   const fx = await getFxRates(allCcys.length ? allCcys : ['SEK']);
@@ -373,6 +383,11 @@ async function buildFundSeries(f, liveTotal){
         valueByDate.set(key, (valueByDate.get(key)||0) + (c/pc.div)*h.shares*rate);
       });
     }
+  }
+  // Kassan som gällde i respektive period (modellportföljer; 0 för AI-fonder).
+  for(const [key, v] of valueByDate){
+    const seg = segments.find(s => key >= s.from && (!s.to || key < s.to));
+    if(seg && seg.cash) valueByDate.set(key, v + seg.cash);
   }
   for(const p of (f.navHistory||[])){ if(p.date >= createdKey && p.valueSek != null) valueByDate.set(p.date, p.valueSek); }
   const todayKey = new Date().toISOString().slice(0,10);

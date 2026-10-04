@@ -300,6 +300,7 @@ async function loadScreener() {
       };
     });
     paintScreener();
+    if(triageState) renderTriageCards(); // korten visar ev. nya djupanalyser sedan sist
     // Berika med riktig ÅTD (och färsk kurs) via spark – separat anrop, uppdatera sen.
     const syms = screenerResults.map(s=>s.ticker);
     if(syms.length) {
@@ -343,7 +344,7 @@ function paintScreener() {
       const cells = visibleCols.map(k => COL_DEFS[k].cell(s)).join('');
       return `<tr class="${sel?'selected':''}" onclick="toggleScreenerRow('${escQuote(s.ticker)}')">
         <td><div class="chk ${sel?'on':''}">${sel?'✓':''}</div></td>
-        <td><div class="td-name">${s.flag} ${escHtml(s.name)}</div><div class="td-ticker">${escHtml(s.ticker)}</div></td>
+        <td><div class="td-name">${s.flag} ${triagePickRank(s.ticker) ? `<span class="triage-mark" title="Vald av AI-triagen (nr ${triagePickRank(s.ticker)})">✦${triagePickRank(s.ticker)}</span> ` : ''}${escHtml(s.name)}</div><div class="td-ticker">${escHtml(s.ticker)} ${verdictBadge(s.ticker)}</div></td>
         ${cells}
         <td><button onclick="event.stopPropagation();loadStock('${escQuote(s.ticker)}','${escQuote(s.name)}')" style="background:none;border:1px solid var(--border2);color:var(--text2);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer">Detalj</button></td>
       </tr>`;
@@ -503,8 +504,7 @@ function parseTriageResult(text) {
 function closeTriage() {
   triageState = null;
   const out = document.getElementById('triage-out'); if(out) out.innerHTML = '';
-  const t = document.getElementById('screener-table-card'); if(t) t.style.display = '';
-  const p = document.getElementById('screener-pager'); if(p) p.style.display = '';
+  if(screenerResults.length) paintScreener(); // ta bort ✦-markeringarna i listan
 }
 
 // Kortets knapp: öppna bolaget och starta djupanalysen direkt när sidan laddat.
@@ -513,26 +513,40 @@ async function triageDeep(ticker, name) {
   if(currentTicker === ticker) runDeepAnalysis();
 }
 
+// Triagens val i tabellen: ✦ + rangordning (1 = AI:ns främsta val), 0 = inte vald.
+function triagePickRank(ticker) {
+  if(!triageState) return 0;
+  return triageState.picks.findIndex(p => p.ticker === ticker) + 1;
+}
+
 function renderTriageCards() {
   const out = document.getElementById('triage-out');
   const s = triageState;
   if(!out || !s) return;
-  const kpi = (label, v, suf = '') => v != null ? `${label} ${fmtSekNum(v, 1)}${suf}` : null;
+  const kpi = (label, v, suf = '', dec = 1) => v != null ? `${label} ${fmtSekNum(v, dec)}${suf}` : null;
+  const signed = (label, v) => v != null ? `${label} ${v >= 0 ? '+' : '−'}${fmtSekNum(Math.abs(v), 0)} %` : null;
   const cards = s.picks.map((p, i) => {
-    const g = p.data;
+    const g = p.data, nm = escQuote(p.name || g.name), tk = escQuote(p.ticker);
     const kpis = [kpi('P/E', g.pe_ttm), kpi('EV/EBITDA', g.ev_ebitda), kpi('ROE', g.roe_pct, ' %'), kpi('FCF-yield', g.fcf_yield_pct, ' %')].filter(Boolean).join(' · ');
+    const more = [kpi('Fwd P/E', g.pe_forward), signed('52 v', g.chg_52w_pct), signed('Oms.tillväxt', g.revenue_growth_pct),
+      kpi('Nettoskuld/EBITDA', g.net_debt_to_ebitda, 'x'), kpi('Utd.', g.dividend_yield_pct, ' %'),
+      g.market_cap_bn != null ? `Börsvärde ${fmtSekNum(g.market_cap_bn, 0)} md ${escHtml(g.currency || '')}` : null].filter(Boolean).join(' · ');
     const [bg, tc] = sectorColors[p.sector] || ['rgba(100,100,100,0.15)', '#888'];
+    const verdict = verdictBadge(p.ticker);
     return `<div class="card triage-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div><div style="font-weight:600">${i + 1}. ${escHtml(p.name || g.name)}</div>
-          <div style="font-size:11px;color:var(--text3);font-family:var(--mono)">${escHtml(p.ticker)}</div></div>
+          <div style="font-size:11px;color:var(--text3);font-family:var(--mono)">${escHtml(p.ticker)}${g.price != null ? ` · ${fmtSekNum(g.price, 2)} ${escHtml(g.currency || '')}` : ''}</div></div>
         ${p.sector ? `<span class="sector-pill" style="background:${bg};color:${tc};flex-shrink:0">${escHtml(p.sector)}</span>` : ''}
       </div>
       ${kpis ? `<div class="triage-kpis">${kpis}</div>` : ''}
+      ${more ? `<div class="triage-kpis" style="color:var(--text3)">${more}</div>` : ''}
       <div class="triage-why">${escHtml(p.justification || '')}</div>
+      ${verdict ? `<div style="font-size:12px;color:var(--text2)">Djupanalys: ${verdict}</div>` : ''}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="action-btn" onclick="triageDeep('${escQuote(p.ticker)}','${escQuote(p.name || g.name)}')">✦ Kör Institutionell Djupanalys</button>
-        <button class="ghost-btn" onclick="loadStock('${escQuote(p.ticker)}','${escQuote(p.name || g.name)}')">Öppna</button>
+        <button class="action-btn" onclick="triageDeep('${tk}','${nm}')">${verdict ? '↻ Ny djupanalys' : '✦ Kör Institutionell Djupanalys'}</button>
+        <button class="ghost-btn" onclick="openModelAdd('${tk}','${nm}')">+ Modellportfölj</button>
+        <button class="ghost-btn" onclick="loadStock('${tk}','${nm}')">Öppna</button>
       </div>
     </div>`;
   }).join('');
@@ -540,13 +554,11 @@ function renderTriageCards() {
   out.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
       <div style="font-size:13px"><b>✦ AI-triage: ${s.picks.length} av ${s.grossCount} bolag</b>
         <span class="muted" style="font-size:12px">· ${escHtml(s.filters)} · ${escHtml(cio)}</span></div>
-      <button class="ghost-btn" onclick="closeTriage()">← Visa hela listan</button>
+      <button class="ghost-btn" onclick="closeTriage()">× Stäng korten</button>
     </div>
     ${s.note ? `<div class="info-msg">${escHtml(s.note)}</div>` : ''}
     <div class="triage-grid">${cards}</div>
-    <div class="deep-meta" style="margin-top:0;margin-bottom:14px">Sparad i Sparade analyser · ${escHtml(s.costMeta)}</div>`;
-  document.getElementById('screener-table-card').style.display = 'none';
-  const pager = document.getElementById('screener-pager'); if(pager) pager.style.display = 'none';
+    <div class="deep-meta" style="margin-top:0;margin-bottom:14px">Sparad i Sparade analyser · ${escHtml(s.costMeta)} · triagens val är markerade med ✦ i listan nedan</div>`;
 }
 
 let triageRunId = 0;
@@ -615,5 +627,6 @@ ${JSON.stringify({ cio_directive: cio, gross_list: gross }, null, 1)}
   if(!live()) return;
   triageState = { key, picks, grossCount: gross.length, filters, cio, costMeta, note };
   renderTriageCards();
+  if(screenerResults.length) paintScreener(); // ✦-markera triagens val i listan
   btn.disabled = false; btn.textContent = '↻ Kör ny AI-triage';
 }
