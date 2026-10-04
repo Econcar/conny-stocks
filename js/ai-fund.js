@@ -257,7 +257,7 @@ async function renderFundDetail(f, view){
   const q = await fetchQuotesChunked(f.holdings.map(h => h.ticker));
   const fx = await getFxRates([...new Set(f.holdings.map(h => h.currency))]);
   const { total, partial } = fundValue(f, q, fx);
-  const ret = f.startValueSek ? ((total - f.startValueSek) / f.startValueSek) * 100 : null;
+  const ret = f.startValueSek ? (Math.round((total - f.startValueSek) / f.startValueSek * 1000) / 10 || 0) : null; // avrundad: ±0 visas neutralt
   if(!partial){ recordFundNav(f, total); saveAIFundsLocal(); pushAIFundCloud(f).catch(()=>{}); }
   const created = new Date(f.createdAt).toLocaleDateString('sv-SE');
   const due = fundDueSince(f);
@@ -297,7 +297,7 @@ async function renderFundDetail(f, view){
     </div>`}
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
       <div class="kpi-card"><div class="kpi-label">Värde nu${partial?' (delvis)':''}</div><div class="kpi-value">${fmtSekNum(total,0)} kr</div></div>
-      <div class="kpi-card"><div class="kpi-label">Avkastning sedan start</div><div class="kpi-value" style="color:${ret==null?'var(--text)':(ret>=0?'var(--green)':'var(--red)')}">${ret != null ? fmtSekPct(ret) : '–'}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Avkastning sedan start</div><div class="kpi-value" style="color:${ret==null||ret===0?'var(--text)':(ret>0?'var(--green)':'var(--red)')}">${ret != null ? fmtSekPct(ret) : '–'}</div></div>
       <div class="kpi-card"><div class="kpi-label">Startbelopp</div><div class="kpi-value">${fmtSekNum(f.startValueSek,0)} kr</div></div>
       ${model ? `<div class="kpi-card"><div class="kpi-label">Kassa</div><div class="kpi-value">${fmtSekNum(f.cashSek||0,0)} kr</div><div class="kpi-sub muted">${total ? fmtSekNum((f.cashSek||0)/total*100,1) : '0'} % av portföljen</div></div>` : ''}
       ${totalCost ? `<div class="kpi-card"><div class="kpi-label">AI-kostnad hittills</div><div class="kpi-value">$${totalCost.toFixed(3)}</div><div class="kpi-sub muted">≈ ${fmtSekNum(totalCost*10.5,0)} kr · ${nReeval} körning${nReeval===1?'':'ar'}</div></div>` : ''}

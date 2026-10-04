@@ -213,7 +213,9 @@ async function renderTrack() {
   const rows = list.map(d => ({ d, o: decisionOutcome(d, hist) }));
 
   // Sammanfattning per källa: träffprocent per horisont + snittets "AI-alfa" (överavkastning i AI:ns riktning).
-  const pct = v => v == null ? '–' : (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1).replace('.', ',') + ' %';
+  const r3 = v => v == null ? null : (Math.round(v * 1000) / 1000 || 0); // −0,04 % → 0 (neutral)
+  const pct = v => { v = r3(v); return v == null ? '–' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v * 100).toFixed(1).replace('.', ',') + ' %'; };
+  const col = v => { v = r3(v); return v == null ? 'var(--text3)' : v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text2)'; };
   const summary = (label, rs) => {
     const directed = rs.filter(r => r.d.direction && r.o.sinceExcess != null);
     const alpha = directed.length ? directed.reduce((s, r) => s + r.d.direction * r.o.sinceExcess, 0) / directed.length : null;
@@ -230,7 +232,7 @@ async function renderTrack() {
     ? [summary('Alla', rows), ...Object.entries(DECISION_SOURCES).map(([k, l]) => { const rs = rows.filter(r => r.d.source === k); return rs.length ? summary(l, rs) : ''; })]
     : [summary(DECISION_SOURCES[trackFilter], rows)];
 
-  const cell = v => `<td style="text-align:right;color:${v == null ? 'var(--text3)' : v >= 0 ? 'var(--green)' : 'var(--red)'}">${pct(v)}</td>`;
+  const cell = v => `<td style="text-align:right;color:${col(v)}">${pct(v)}</td>`;
   const hcell = h => !h ? '<td></td>' : h.pending != null
     ? `<td style="text-align:right;color:var(--text3);font-size:11px">om ${h.pending} d</td>`
     // Färgen följer om AI:n hade rätt (✓/✗) – för Sälj är en aktie som gått sämre än index rätt.

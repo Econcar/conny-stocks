@@ -194,7 +194,8 @@ async function fetchSparkData(symbols, range = 'ytd', interval = '1d') {
 }
 
 const fmtSekNum = (n, dec) => n.toLocaleString('sv-SE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-const fmtSekPct = v => (v>=0?'+':'−') + Math.abs(v).toFixed(1).replace('.', ',') + '%';
+// Avrundas först, så att t.ex. −0,004 % visas som 0,0 % (inte "−0,0 %").
+const fmtSekPct = v => { v = Math.round(v * 10) / 10 || 0; return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1).replace('.', ',') + '%'; };
 
 // Stämplar "Uppdaterad HH:MM:SS" när en sidas data faktiskt hämtats.
 function setUpdatedStamp(id) {
