@@ -132,7 +132,9 @@ async function callGeminiStream(model, system, history, onText) {
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': getGeminiKey() },
       body: JSON.stringify({ model, systemInstruction: { parts: [{ text: system }] },
         contents: history.map(m => ({ role: m.role, parts: [{ text: m.text }] })),
-        generationConfig: { maxOutputTokens: 8192 } }) });
+        generationConfig: Object.assign({ maxOutputTokens: 8192 },
+          // 3.8 Flash tänker "medium" som standard – kan ta minuter; "low" räcker för frågor om underlaget
+          model === 'gemini-3.8-flash' ? { thinkingConfig: { thinkingLevel: 'low' } } : {}) }) });
   } catch(e) { return { error: 'Nätverksfel: ' + e.message }; }
 
   const ct = res.headers.get('content-type') || '';
