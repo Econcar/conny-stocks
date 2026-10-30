@@ -39,6 +39,7 @@ function renderDashboard() {
 let cioMode = 'daily';   // 'daily' = motorns analys visas · 'mine' = din körning (pågående eller klar)
 let cioDailyAt = 0;      // senaste hämtningen – Översikt ritas om var 60:e sek, analysen bara var 10:e min
 let cioRunId = 0;
+let cioMine = null;      // din senaste egna körning { ts, answer } – visas som rad på kortet
 
 // Utfällbar guide till AI-flödet (tratten CIO → portfölj → screener → enskilt bolag).
 // Visas vid varje steg; `here` markerar steget man står på: 'cio' | 'pm' | 'screener' | 'deep'.
@@ -86,6 +87,35 @@ function cioHtml(text) {
     <div class="memo">${formatMemo(rest)}</div></details>`;
 }
 
+// Din senaste egna CIO-analys ur Sparade analyser (molnet om inloggad, annars lokalt) –
+// den nyaste av de två, så att en körning som inte hunnit synka ändå syns.
+async function latestMyCio() {
+  const isCio = t => /^CIO-analys/.test(t || '');
+  const local = aiAnalyses.find(a => isCio(a.title));
+  let best = local ? { ts: local.ts, answer: local.answer } : null;
+  if(sb && currentUser) {
+    try {
+      const { data } = await sb.from('analyses').select('created_at,answer').ilike('title', 'CIO-analys%').order('created_at', { ascending: false }).limit(1);
+      const r = data && data[0];
+      if(r && (!best || Date.parse(r.created_at) > best.ts)) best = { ts: Date.parse(r.created_at), answer: r.answer };
+    } catch(e) {}
+  }
+  return best;
+}
+const cioStamp = ts => new Date(ts).toLocaleString('sv-SE', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+const cioMineLine = () => cioMine
+  ? `<div style="margin-top:3px">Din senaste körning: <b style="color:var(--text2)">${escHtml(cioStamp(cioMine.ts))}</b> · <span class="card-link" style="float:none;margin-left:0" onclick="showCioMine()">visa</span></div>`
+  : '';
+
+function showCioMine() {
+  if(!cioMine) return;
+  cioRunId++;
+  cioMode = 'mine';
+  document.getElementById('cio-sub').innerHTML = `Din körning · ${escHtml(cioStamp(cioMine.ts))} · <span class="card-link" style="float:none;margin-left:0" onclick="showCioDaily()">visa motorns dagliga</span>`;
+  document.getElementById('cio-out').innerHTML = cioHtml(cioMine.answer);
+  const btn = document.getElementById('cio-btn'); btn.disabled = false; btn.textContent = '↻ Kör ny CIO-analys';
+}
+
 async function renderCioCard(force) {
   if(cioMode !== 'daily') return; // din egen körning ligger kvar tills du väljer motorns igen
   if(!force && cioDailyAt && Date.now() - cioDailyAt < 10 * 60 * 1000) return;
@@ -96,15 +126,16 @@ async function renderCioCard(force) {
   try {
     const { data, error } = await sb.from('cio_analysis').select('date,analysis,model').order('date', { ascending: false }).limit(1);
     if(error) throw new Error(error.message);
+    cioMine = await latestMyCio();
     if(cioMode !== 'daily') return;
     const a = data && data[0];
     if(!a) {
-      sub.textContent = 'Ingen daglig analys ännu – motorn skriver en varje morgon (06:00 UTC). Kör en själv med knappen.';
+      sub.innerHTML = 'Ingen daglig analys ännu – motorn skriver en varje morgon (06:00 UTC). Kör en själv med knappen.' + cioMineLine();
       out.innerHTML = '';
       return;
     }
     const modelShort = a.model ? ' · ' + a.model.replace('claude-', '') : '';
-    sub.textContent = `Motorns dagliga analys · ${a.date}${modelShort}`;
+    sub.innerHTML = `Motorns dagliga analys · ${escHtml(a.date + modelShort)}` + cioMineLine();
     out.innerHTML = cioHtml(a.analysis);
   } catch(e) {
     cioDailyAt = 0;
@@ -167,7 +198,9 @@ async function runCioNow() {
 
   const costMeta = estimateCostText(CIO_MODEL, result.usage);
   recordAiUsage('cio', CIO_MODEL, result.usage);
-  saveAnalysis({ ts: Date.now(), title: `CIO-analys · taktisk allokering (${ctx.as_of})`, model: CIO_MODEL, answer: text, cost: costMeta });
+  const ts = Date.now();
+  saveAnalysis({ ts, title: `CIO-analys · taktisk allokering (${ctx.as_of})`, model: CIO_MODEL, answer: text, cost: costMeta });
+  cioMine = { ts, answer: text };
   if(live()) {
     out.innerHTML = cioHtml(text) +
       `<div class="deep-meta">Sparad i Sparade analyser · ${escHtml(costMeta)}${currentUser ? '' : ' · logga in för att kostnaden ska synas i AI-kostnader'}</div>`;

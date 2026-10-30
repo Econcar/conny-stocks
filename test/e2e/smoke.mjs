@@ -237,6 +237,24 @@ try {
     assert(r.card, 'kreditkortet/Billing-länken saknas i AI-kostnader');
   });
 
+  await check('CIO-kortet visar när du senast körde en egen CIO-analys', async () => {
+    const r = await evaluate(`
+      const saved = aiAnalyses;
+      const ts = new Date(2026, 9, 30, 10, 55).getTime();
+      try {
+        aiAnalyses = [{ ts, title: 'CIO-analys · taktisk allokering (2026-10-30)', model: 'x', answer: '## Testpromemoria' }];
+        showSection('dashboard'); cioMode = 'daily';
+        await renderCioCard(true);
+        const sub = document.getElementById('cio-sub').textContent;
+        showCioMine();
+        const shown = { sub: document.getElementById('cio-sub').textContent, out: document.getElementById('cio-out').textContent };
+        showCioDaily(); await new Promise(r => setTimeout(r, 1500));
+        return { sub, shown };
+      } finally { aiAnalyses = saved; }`);
+    assert(/Din senaste körning: 30 okt\.? 10:55/.test(r.sub), 'raden saknas: ' + r.sub);
+    assert(/Din körning · 30 okt/.test(r.shown.sub) && r.shown.out.includes('Testpromemoria'), 'visa öppnade inte körningen');
+  });
+
   await check('beslutsloggen loggar och följer upp mot index', async () => {
     const r = await evaluate(`
       localStorage.removeItem('ai_decisions'); aiDecisionsLocal = [];

@@ -102,6 +102,7 @@ function initAuth() {
     currentUser = (session && session.user) ? session.user : null;
     renderAccountBar();
     renderAiCreditBanner(); // kreditvarningen läser kostnadsloggen – kräver inloggning
+    renderCioCard(true);    // din senaste CIO-körning kan ligga i molnet
     if(currentUser) { syncWatchlistFromCloud(); loadDecisions(); /* laddar upp lokala AI-beslut */ if(currentSection === 'portfolio') renderPortfolio(); if(currentSection === 'analyses') renderAnalyses(); if(currentSection === 'aifund') renderAIFund(); }
   });
 }
