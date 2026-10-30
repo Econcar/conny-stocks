@@ -55,7 +55,7 @@ async function callClaudeStream(body, onText){
         ? 'Servern hann inte svara i tid (timeout, ~100 s). Prova igen, eller stäng av Webbsök för ett snabbare svar.'
         : ('Ogiltigt svar från servern (' + res.status + ').') } };
     }
-    if(data && data.error) return { error: data.error };
+    if(data && data.error) return { error: { ...data.error, message: aiErrorMessage(data.error) } }; // slut på krediter → svensk text + varning (ai-cost.js)
     const text = Array.isArray(data.content) ? data.content.filter(b=>b.type==='text').map(b=>b.text).join('').trim() : '';
     return { text, usage:data.usage, stop_reason:data.stop_reason };
   }
@@ -75,7 +75,7 @@ async function callClaudeStream(body, onText){
       if(ev.type === 'message_start' && ev.message && ev.message.usage) usage = { ...usage, ...ev.message.usage };
       else if(ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta'){ text += ev.delta.text; if(onText) onText(text); }
       else if(ev.type === 'message_delta'){ if(ev.delta && ev.delta.stop_reason) stop_reason = ev.delta.stop_reason; if(ev.usage) usage = { ...usage, ...ev.usage }; }
-      else if(ev.type === 'error'){ errMsg = (ev.error && (ev.error.message || ev.error.type)) || 'okänt streamingfel'; }
+      else if(ev.type === 'error'){ errMsg = ev.error ? aiErrorMessage(ev.error) : 'okänt streamingfel'; }
     }
   }
   if(errMsg) return { error:{ message: errMsg } };

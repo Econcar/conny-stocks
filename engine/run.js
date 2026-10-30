@@ -13,8 +13,8 @@ require('./lib/env'); // ladda engine/.env FÖRST – innan moduler läser proce
 
 const { getSources } = require('./sources');
 const { validateDocument, toSignalRows } = require('./lib/schema');
-const { analyze, deepAnalyze, TRIAGE_MODEL, DEEP_MODEL } = require('./lib/anthropic');
-const { upsertSignals, recentExternalIds } = require('./lib/store');
+const { analyze, deepAnalyze, creditsExhausted, BILLING_URL, TRIAGE_MODEL, DEEP_MODEL } = require('./lib/anthropic');
+const { upsertSignals, recentExternalIds, recordAiUsage } = require('./lib/store');
 
 // Kaskad (Fas 2): materiella dokument (impact ≥ tröskel) skickas vidare till
 // djupanalys med en starkare modell. Max-taket bundnar kostnaden per varv.
@@ -105,6 +105,20 @@ async function runDailyTrends() {
   } catch (err) {
     console.error(`Megatrend-analys misslyckades: ${err.message}`);
   }
+}
+
+// Tog krediterna slut under körningen: lämna en markering i ai_usage (appen visar då en
+// varning överst och på AI-kostnader) och fäll jobbet, så att GitHub mejlar om körningen.
+async function failIfCreditsOut() {
+  if (!creditsExhausted()) return;
+  console.error(`
+✗ Anthropic-krediterna tog slut – resten av AI-stegen hoppades över. Fyll på: ${BILLING_URL}`);
+  try {
+    await recordAiUsage({ context: 'engine-credits-out', model: 'none', cost_usd: 0 });
+  } catch (err) {
+    console.error(`Kunde inte markera kreditstoppet i ai_usage: ${err.message}`);
+  }
+  process.exit(1);
 }
 
 async function main() {
@@ -260,11 +274,12 @@ async function main() {
     if (new Date().getUTCDay() === 1) await runDiscovery();
   }
 
+  await failIfCreditsOut();
   if (errCount && !docCount) process.exit(1); // allt föll → låt jobbet fallera
   if (writeFailed) process.exit(1); // analyserna hann köras, men skrivningen sprack
 }
 
-main().catch((err) => {
+main().then(failIfCreditsOut).catch((err) => { // .then: delanalyserna (--cio-only m.fl.) returnerar tidigt
   console.error('Motorn kraschade:', err);
   process.exit(1);
 });

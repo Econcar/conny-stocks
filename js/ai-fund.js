@@ -57,7 +57,7 @@ async function aiToolCall(model, system, userText, tool, web){
   let data;
   try { data = JSON.parse(rawText); }
   catch(_){ throw new Error((r.status === 524 || /error code: 5\d\d/i.test(rawText)) ? 'Servern hann inte svara i tid (timeout, ~100 s). Detta händer oftast med webbsök på. Prova igen, stäng av webbsök för fonden, eller låt serverns dagliga jobb sköta omvärderingen (Auto-omvärdera).' : ('Ogiltigt svar från servern (' + r.status + ').')); }
-  if(data && data.error) throw new Error(data.error.message || data.error.type || 'API-fel');
+  if(data && data.error) throw new Error(aiErrorMessage(data.error));
   const tu = (data.content||[]).find(b => b.type === 'tool_use' && b.name === tool.name);
   if(!tu) throw new Error('AI:n returnerade ingen portfölj – prova igen eller en annan modell.');
   aiSessionCostUsd += costUsdOf(model, data.usage);

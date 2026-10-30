@@ -91,6 +91,142 @@ async function renderAiBudget(){
   </div>`;
 }
 
+// ── Anthropic-krediter ──
+// Anthropic har inget API för kontots saldo, så du anger saldot som står i Billing; appen
+// drar sedan av allt som loggats i ai_usage sedan dess (din + motorns kostnad) och varnar
+// när det uppskattade saldot understiger varningsgränsen eller räcker mindre än en vecka.
+// Tar krediterna slut på riktigt märks det på två sätt: ett anrop här får felet (sparas som
+// 'ai_credits_out_at') eller motorn lämnar en rad med context 'engine-credits-out'.
+const ANTHROPIC_BILLING_URL = 'https://console.anthropic.com/settings/billing';
+const CREDITS_OUT_CTX = 'engine-credits-out';
+const AI_CREDIT_KEY = 'ai_credit_balance';      // { usd, at } – saldot du angav och när
+const AI_CREDIT_WARN_KEY = 'ai_credit_warn_usd'; // varningsgräns i USD
+const AI_CREDITS_OUT_KEY = 'ai_credits_out_at';  // när ett anrop här senast stoppades av krediterna
+const AI_CREDIT_WARN_DEFAULT = 5;
+const AI_CREDIT_WARN_DAYS = 7;
+const AI_CREDITS_OUT_MSG = 'Krediterna på Anthropic-kontot är slut. Fyll på under console.anthropic.com → Billing (länk finns under AI-kostnader).';
+let aiCreditCache = null; // { at, ...status } – max 60 s gammal
+
+function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function lsSet(k, v){ try { if(v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch(e){} }
+function getAiCreditBalance(){ try { const o = JSON.parse(lsGet(AI_CREDIT_KEY)); return o && isFinite(o.usd) && o.at ? o : null; } catch(e){ return null; } }
+function getAiCreditWarn(){ const v = parseFloat(lsGet(AI_CREDIT_WARN_KEY)); return isFinite(v) && v >= 0 ? v : AI_CREDIT_WARN_DEFAULT; }
+
+// Nytt saldo från Billing = du har (troligen) fyllt på → nollställ stoppmarkeringen.
+function setAiCreditBalance(v){
+  const n = pfNum(v);
+  lsSet(AI_CREDIT_KEY, n != null && n >= 0 ? JSON.stringify({ usd: n, at: new Date().toISOString() }) : null);
+  lsSet(AI_CREDITS_OUT_KEY, null);
+  aiCreditCache = null;
+  renderAiCredits(); renderAiCreditBanner();
+}
+function setAiCreditWarn(v){ const n = pfNum(v); lsSet(AI_CREDIT_WARN_KEY, n != null && n >= 0 ? String(n) : null); aiCreditCache = null; renderAiCredits(); renderAiCreditBanner(); }
+
+// Översätter ett API-fel till text; känner igen slut på krediter och tänder varningen.
+function aiErrorMessage(err){
+  const m = (err && (err.message || err.type)) || 'API-fel';
+  if(!/credit balance is too low/i.test(m)) return m;
+  lsSet(AI_CREDITS_OUT_KEY, new Date().toISOString());
+  aiCreditCache = null;
+  renderAiCreditBanner();
+  return AI_CREDITS_OUT_MSG;
+}
+
+// Läget just nu: { out, outAt, outBy, balance, spent, left, perDay, daysLeft, low }.
+async function aiCreditStatus(force){
+  if(!force && aiCreditCache && Date.now() - aiCreditCache.at < 60000) return aiCreditCache;
+  const bal = getAiCreditBalance();
+  const balAt = bal ? Date.parse(bal.at) : 0;
+  const st = { balance: bal, out: false, outAt: null, outBy: null, spent: null, left: null, perDay: null, daysLeft: null, low: false };
+
+  const localOut = lsGet(AI_CREDITS_OUT_KEY);
+  if(localOut && Date.parse(localOut) > balAt) { st.out = true; st.outAt = localOut; st.outBy = 'du'; }
+
+  if(cloudEnabled && sb && currentUser){
+    const weekAgo = Date.now() - 7 * 86400000;
+    const from = new Date(bal ? Math.min(balAt, weekAgo) : weekAgo).toISOString();
+    const { data, error } = await sb.from('ai_usage').select('created_at,context,cost_usd').gte('created_at', from).order('created_at', { ascending: false }).limit(20000);
+    if(!error){
+      let spent = 0, week = 0;
+      for(const r of data || []){
+        const t = Date.parse(r.created_at);
+        if(r.context === CREDITS_OUT_CTX){
+          // Motorns stopp räknas bara om det är nyare än saldot du angav (annars har du fyllt på sedan dess).
+          if(t > balAt && (!st.outAt || t > Date.parse(st.outAt))) { st.out = true; st.outAt = r.created_at; st.outBy = 'motorn'; }
+          continue;
+        }
+        if(bal && t >= balAt) spent += +r.cost_usd || 0;
+        if(t >= weekAgo) week += +r.cost_usd || 0;
+      }
+      st.perDay = week / 7;
+      if(bal){
+        st.spent = spent;
+        st.left = bal.usd - spent;
+        st.daysLeft = st.perDay > 0 ? st.left / st.perDay : null;
+        st.low = st.left < getAiCreditWarn() || (st.daysLeft != null && st.daysLeft < AI_CREDIT_WARN_DAYS);
+      }
+    }
+  }
+  aiCreditCache = { at: Date.now(), ...st };
+  return aiCreditCache;
+}
+
+const fmtUsd = v => '$' + v.toFixed(2);
+const fmtDays = d => { const n = Math.max(0, Math.floor(d)); return n + (n === 1 ? ' dag' : ' dagar'); };
+const fmtWhen = iso => new Date(iso).toLocaleString('sv-SE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+const billingLink = (txt) => `<a href="${ANTHROPIC_BILLING_URL}" target="_blank" rel="noopener" style="color:inherit;font-weight:600;text-decoration:underline">${txt}</a>`;
+
+// Varningsrad överst på alla sidor (ovanför sektionerna). Kan stängas för den här visningen.
+let aiCreditBannerClosed = false;
+async function renderAiCreditBanner(){
+  const el = document.getElementById('ai-credit-banner');
+  if(!el) return;
+  let s = null;
+  try { s = await aiCreditStatus(false); } catch(e){}
+  if(!s || aiCreditBannerClosed || !(s.out || s.low)) { el.innerHTML = ''; return; }
+  const red = s.out;
+  const text = red
+    ? `<b>Anthropic-krediterna är slut</b> – ${s.outBy === 'motorn' ? 'motorn stoppades' : 'en AI-körning stoppades'} ${fmtWhen(s.outAt)}. Inga AI-analyser körs förrän du fyllt på.`
+    : `<b>Anthropic-krediterna börjar ta slut</b> – uppskattningsvis ${fmtUsd(Math.max(0, s.left))} kvar${s.daysLeft != null ? `, räcker ca ${fmtDays(s.daysLeft)}` : ''}.`;
+  el.innerHTML = `<div class="info-msg" style="margin-bottom:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:${red ? 'rgba(239,68,68,0.10)' : 'rgba(245,158,11,0.10)'};border-color:${red ? 'rgba(239,68,68,0.35)' : 'rgba(245,158,11,0.35)'};color:var(--text)">
+    <span style="flex:1;min-width:220px">⚠ ${text}</span>
+    ${billingLink('Fyll på hos Anthropic ↗')}
+    <span class="card-link" style="float:none" onclick="showSection('aicost')">AI-kostnader</span>
+    <span style="cursor:pointer;color:var(--text3);font-size:16px;line-height:1" title="Dölj" onclick="aiCreditBannerClosed=true;renderAiCreditBanner()">×</span>
+  </div>`;
+}
+
+async function renderAiCredits(){
+  const el = document.getElementById('aicost-credits');
+  if(!el) return;
+  let s = null;
+  try { s = await aiCreditStatus(true); } catch(e){}
+  const bal = getAiCreditBalance();
+  const warn = getAiCreditWarn();
+  let status;
+  if(!currentUser) status = '<span class="muted">Logga in för att följa saldot – kostnaderna läses ur kostnadsloggen.</span>';
+  else if(s && s.out) status = `<span style="color:var(--red)"><b>Slut</b> – ${s.outBy === 'motorn' ? 'motorn stoppades' : 'en AI-körning stoppades'} ${fmtWhen(s.outAt)}.</span> Fyll på och skriv in det nya saldot här.`;
+  else if(s && bal && s.left != null) status = `Uppskattat kvar: <b style="color:${s.low ? 'var(--amber)' : 'var(--green)'}">${fmtUsd(s.left)}</b>`
+    + ` <span class="muted">· ${fmtUsd(bal.usd)} angivet ${fmtWhen(bal.at)} − ${fmtUsd(s.spent)} förbrukat sedan dess`
+    + (s.perDay ? ` · senaste veckan ${fmtUsd(s.perDay)}/dag${s.daysLeft != null ? ` → räcker ca ${fmtDays(s.daysLeft)}` : ''}` : '') + '</span>';
+  else status = '<span class="muted">Skriv in saldot från Billing så varnar appen innan det tar slut.</span>';
+  const pct = (s && bal && bal.usd > 0 && s.left != null) ? Math.max(0, Math.min(100, s.left / bal.usd * 100)) : null;
+  el.innerHTML = `<div class="card" style="margin:14px 0">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px"><div class="card-title" style="margin-bottom:4px">Anthropic-krediter</div><div style="font-size:13px">${status}</div></div>
+      <a class="ghost-btn" href="${ANTHROPIC_BILLING_URL}" target="_blank" rel="noopener" style="text-decoration:none;white-space:nowrap">Anthropic Billing ↗</a>
+    </div>
+    ${pct != null ? `<div style="height:8px;background:var(--surface2);border-radius:4px;margin-top:12px;overflow:hidden"><div style="height:100%;width:${pct.toFixed(1)}%;background:${s.low ? 'var(--amber)' : 'var(--green)'}"></div></div>` : ''}
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px">
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Saldo i Billing nu (USD)
+        <input class="filter-input" type="number" min="0" step="0.01" style="width:90px" placeholder="t.ex. 20" onchange="setAiCreditBalance(this.value)"></label>
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Varna under (USD)
+        <input class="filter-input" type="number" min="0" step="1" style="width:70px" value="${warn}" onchange="setAiCreditWarn(this.value)"></label>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">Anthropic visar inte saldot för appen, så skriv in det som står i Billing (gärna efter varje påfyllning). Appen drar av loggade kostnader – dina och motorns – och varnar överst på alla sidor när saldot understiger gränsen eller räcker mindre än ${AI_CREDIT_WARN_DAYS} dagar. Det är en uppskattning: körningar när du är utloggad loggas inte. Säkrast är att slå på <b>auto-reload</b> i Billing så fylls kontot på automatiskt. Sparas i den här webbläsaren.</div>
+  </div>`;
+}
+
 function setAiCostRange(days, el){
   aiCostRangeDays = days;
   document.querySelectorAll('#section-aicost .filter-chip').forEach(c => c.classList.remove('on'));
@@ -100,6 +236,7 @@ function setAiCostRange(days, el){
 
 async function renderAiCost(){
   const el = document.getElementById('aicost-body');
+  renderAiCredits();
   renderAiBudget();
   if(!cloudEnabled || !sb){ el.innerHTML = '<div class="info-msg">Molnet är inte konfigurerat, så kostnadsloggen kan inte läsas.</div>'; return; }
   el.innerHTML = '<div class="info-msg">Hämtar kostnadslogg…</div>';
@@ -111,7 +248,7 @@ async function renderAiCost(){
     const { data, error } = await q;
     if(error) throw new Error(error.message);
     setUpdatedStamp('stamp-aicost');
-    renderAiCostBody(data || []);
+    renderAiCostBody((data || []).filter(r => r.context !== CREDITS_OUT_CTX)); // stoppmarkeringen är inget anrop
   } catch(e){
     el.innerHTML = '<div class="info-msg" style="background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">Kunde inte läsa kostnadsloggen: ' + escHtml(e.message) + '. Har du kört <b>supabase-ai-usage.sql</b> i Supabase?</div>';
   }

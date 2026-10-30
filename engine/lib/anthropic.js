@@ -58,6 +58,26 @@ async function logUsage(context, model, u) {
 }
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
+
+// Slut på krediter: Anthropic svarar 400 "Your credit balance is too low…". Efter första
+// sådana svaret görs inga fler anrop i körningen (de skulle bara misslyckas likadant) –
+// run.js ser flaggan via creditsExhausted() och fäller jobbet så att GitHub mejlar.
+const BILLING_URL = 'https://console.anthropic.com/settings/billing';
+const CREDITS_OUT = `Anthropic-krediterna är slut – fyll på under ${BILLING_URL}`;
+let creditsOut = false;
+function creditsExhausted() { return creditsOut; }
+
+function assertReady() {
+  if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY i miljön');
+  if (creditsOut) throw new Error(CREDITS_OUT);
+}
+
+// Kastar ett läsbart fel för ett misslyckat svar (och sätter kreditflaggan vid behov).
+async function apiFailure(model, res) {
+  const detail = await res.text();
+  if (/credit balance is too low/i.test(detail)) { creditsOut = true; throw new Error(CREDITS_OUT); }
+  throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${detail}`);
+}
 const TRIAGE_MODEL = process.env.ENGINE_TRIAGE_MODEL || 'claude-haiku-4-5';
 // Sonnet 5 för djupanalys/risk/megatrender – Opus-nära kvalitet till Sonnet-pris.
 // Sätt ENGINE_DEEP_MODEL=claude-opus-4-8 (dyrare) eller claude-sonnet-4-6 (äldre) för att byta.
@@ -97,7 +117,7 @@ const DEEP_SYSTEM = [
 
 // Gemensamt anrop mot Messages API med tvingat tool_use.
 async function runAnalysis(doc, { model, system, tool, maxTokens, context }) {
-  if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY i miljön');
+  assertReady();
 
   const hint = doc.hint_tickers.length
     ? `\nKällan tror att dessa tickers berörs: ${doc.hint_tickers.join(', ')}.`
@@ -124,10 +144,7 @@ async function runAnalysis(doc, { model, system, tool, maxTokens, context }) {
     })
   });
 
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${detail}`);
-  }
+  if (!res.ok) await apiFailure(model, res);
 
   const data = await res.json();
   await logUsage(context || 'engine', model, data.usage);
@@ -163,7 +180,7 @@ function varnaOmKapat(context, model, data, maxTokens) {
 }
 
 async function synthesize(prompt, opts = {}) {
-  if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY i miljön');
+  assertReady();
   const model = opts.model || process.env.ENGINE_RISK_MODEL || DEEP_MODEL;
   const maxTokens = opts.maxTokens || 1024;
   const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] };
@@ -179,7 +196,7 @@ async function synthesize(prompt, opts = {}) {
     headers: { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({ ...body, stream: true })
   });
-  if (!res.ok) throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${await res.text()}`);
+  if (!res.ok) await apiFailure(model, res);
   const data = await readMessageStream(res);
   await logUsage(opts.context || 'engine-synthesize', model, data.usage);
   varnaOmKapat(opts.context || 'engine-synthesize', model, data, maxTokens);
@@ -214,7 +231,7 @@ async function readMessageStream(res) {
 
 // Generiskt structured-output-anrop: tvingar ett verktyg och returnerar dess input.
 async function extract(prompt, tool, opts = {}) {
-  if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY i miljön');
+  assertReady();
   const model = opts.model || process.env.ENGINE_DISCOVERY_MODEL || DEEP_MODEL;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -225,7 +242,7 @@ async function extract(prompt, tool, opts = {}) {
       messages: [{ role: 'user', content: prompt }]
     })
   });
-  if (!res.ok) throw new Error(`Anthropic-anrop (${model}) misslyckades (${res.status}): ${await res.text()}`);
+  if (!res.ok) await apiFailure(model, res);
   const data = await res.json();
   await logUsage(opts.context || 'engine-extract', model, data.usage);
   varnaOmKapat(opts.context || 'engine-extract', model, data, opts.maxTokens || 1024);
@@ -234,4 +251,7 @@ async function extract(prompt, tool, opts = {}) {
   return { input: toolUse.input, model };
 }
 
-module.exports = { analyze, deepAnalyze, synthesize, extract, costUsd, logUsage, TRIAGE_MODEL, DEEP_MODEL };
+module.exports = {
+  analyze, deepAnalyze, synthesize, extract, costUsd, logUsage,
+  creditsExhausted, assertReady, apiFailure, BILLING_URL, TRIAGE_MODEL, DEEP_MODEL
+};

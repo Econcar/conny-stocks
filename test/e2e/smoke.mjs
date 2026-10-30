@@ -193,6 +193,50 @@ try {
     assert(r.card, 'budgetkortet visas inte i AI-kostnader');
   });
 
+  await check('kreditvarningen: slut på krediter, lågt saldo och motorns stopp', async () => {
+    // Simulerat 400-svar och simulerad kostnadslogg – inget riktigt anrop görs.
+    const r = await evaluate(`
+      const realFetch = window.fetch, realUser = currentUser, realFrom = sb.from;
+      const banner = () => document.getElementById('ai-credit-banner').textContent;
+      const wait = () => new Promise(r => setTimeout(r, 300));
+      let rows = [];
+      try {
+        localStorage.removeItem('ai_credit_balance'); localStorage.removeItem('ai_credits_out_at'); aiCreditBannerClosed = false;
+        window.fetch = async (u, o) => String(u).includes('/api/claude')
+          ? new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' } }), { status: 400, headers: { 'content-type': 'application/json' } })
+          : realFetch(u, o);
+        const out = await callClaudeStream({ model: 'x', max_tokens: 1, messages: [] });
+        await wait();
+        const outBanner = banner();
+        // Inloggad med påhittad logg: saldo $20 angivet för 2 dagar sedan, $17 förbrukat sedan dess.
+        currentUser = { id: 'test' };
+        const q = { select(){ return q; }, gte(){ return q; }, order(){ return q; }, limit(){ return Promise.resolve({ data: rows, error: null }); } };
+        sb.from = () => q;
+        setAiCreditBalance('20'); await wait();
+        const refilled = banner();
+        localStorage.setItem('ai_credit_balance', JSON.stringify({ usd: 20, at: new Date(Date.now() - 2*86400000).toISOString() }));
+        rows = [{ created_at: new Date(Date.now() - 3600000).toISOString(), context: 'engine-deep', cost_usd: 17 }];
+        aiCreditCache = null; await renderAiCreditBanner();
+        const lowBanner = banner();
+        rows.unshift({ created_at: new Date().toISOString(), context: 'engine-credits-out', cost_usd: 0 });
+        aiCreditCache = null; await renderAiCreditBanner();
+        const engineBanner = banner();
+        showSection('aicost'); await new Promise(r => setTimeout(r, 800));
+        const card = document.getElementById('aicost-credits').innerHTML;
+        return { msg: out.error && out.error.message, outBanner, refilled, lowBanner, engineBanner,
+                 card: card.includes('Anthropic-krediter') && card.includes('console.anthropic.com/settings/billing') };
+      } finally {
+        window.fetch = realFetch; currentUser = realUser; sb.from = realFrom; aiCreditCache = null;
+        localStorage.removeItem('ai_credit_balance'); localStorage.removeItem('ai_credits_out_at'); renderAiCreditBanner();
+      }`);
+    assert(/krediterna på Anthropic-kontot är slut/i.test(r.msg || ''), 'kreditfelet översattes inte: ' + r.msg);
+    assert(/krediterna är slut/i.test(r.outBanner), 'ingen varning när ett anrop stoppades');
+    assert(r.refilled === '', 'varningen låg kvar efter nytt saldo');
+    assert(/börjar ta slut[\s\S]*\$3\.00/.test(r.lowBanner), 'ingen förvarning vid lågt saldo: ' + r.lowBanner);
+    assert(/motorn stoppades/.test(r.engineBanner), 'motorns stopp syns inte');
+    assert(r.card, 'kreditkortet/Billing-länken saknas i AI-kostnader');
+  });
+
   await check('beslutsloggen loggar och följer upp mot index', async () => {
     const r = await evaluate(`
       localStorage.removeItem('ai_decisions'); aiDecisionsLocal = [];

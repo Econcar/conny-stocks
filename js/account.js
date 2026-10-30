@@ -101,6 +101,7 @@ function initAuth() {
   sb.auth.onAuthStateChange((event, session) => {
     currentUser = (session && session.user) ? session.user : null;
     renderAccountBar();
+    renderAiCreditBanner(); // kreditvarningen läser kostnadsloggen – kräver inloggning
     if(currentUser) { syncWatchlistFromCloud(); loadDecisions(); /* laddar upp lokala AI-beslut */ if(currentSection === 'portfolio') renderPortfolio(); if(currentSection === 'analyses') renderAnalyses(); if(currentSection === 'aifund') renderAIFund(); }
   });
 }

@@ -54,7 +54,7 @@ function aiGuideHtml(here) {
     <div style="font-size:12px;line-height:1.7;color:var(--text2);margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
       <b style="color:var(--text)">Innan du börjar</b> (en gång):
       <div style="padding-left:12px">
-        · Din Anthropic-nyckel i AI-panelen (✦ AI-analys) och krediter på kontot (console.anthropic.com → Billing).<br>
+        · Din Anthropic-nyckel i AI-panelen (✦ AI-analys) och krediter på kontot (<a href="${ANTHROPIC_BILLING_URL}" target="_blank" rel="noopener" style="color:var(--accent)">console.anthropic.com → Billing</a>).<br>
         · Logga in med Google – då sparas analyserna i molnet och kostnaden syns i ${link('aicost', 'AI-kostnader')}.<br>
         · En portfölj att genomlysa: klistra in dina innehav från Avanza i ${link('portfolio', 'Min portfölj')}, eller skapa en ${link('aifund', 'AI-fond')}.
       </div>

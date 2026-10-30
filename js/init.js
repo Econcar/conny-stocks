@@ -33,6 +33,10 @@ refreshLivePrices();
 refreshMarketKpis();
 setInterval(() => { refreshLivePrices(); refreshMarketKpis(); }, 60000);
 
+// Kreditvarningen överst: kollas vid inloggning (account.js) och sedan var 10:e minut,
+// så att ett stopp i motorn syns även om sidan står öppen.
+setInterval(renderAiCreditBanner, 10 * 60 * 1000);
+
 // Kolla om nyckel redan finns sparad sedan tidigare
 const savedKey = getApiKey();
 if(savedKey) {

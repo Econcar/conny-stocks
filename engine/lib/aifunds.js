@@ -5,7 +5,7 @@
 // Speglar klientens logik i index.html (buildFundHoldings, reevalAIFund).
 
 const { getAIFunds, updateAIFundData } = require('./store');
-const { logUsage } = require('./anthropic');
+const { logUsage, assertReady, apiFailure } = require('./anthropic');
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const UA = 'Mozilla/5.0 (compatible; conny-stocks-engine)';
@@ -166,7 +166,7 @@ function fundValue(f, q, fx) {
 }
 
 async function aiTool(model, system, userText, tool, web) {
-  if (!API_KEY) throw new Error('Saknar ANTHROPIC_API_KEY');
+  assertReady();
   const body = { model, max_tokens: 3000, system, tools: [tool], messages: [{ role: 'user', content: userText }] };
   if (web) {
     const st = /haiku/.test(model) ? 'web_search_20250305' : 'web_search_20260209';
@@ -178,7 +178,7 @@ async function aiTool(model, system, userText, tool, web) {
     headers: { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error(`Anthropic (${model}) ${res.status}: ${await res.text()}`);
+  if (!res.ok) await apiFailure(model, res);
   const data = await res.json();
   await logUsage('engine-aifund', model, data.usage);
   const tu = (data.content || []).find(b => b.type === 'tool_use' && b.name === tool.name);

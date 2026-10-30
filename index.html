@@ -61,6 +61,7 @@
   </div>
 
   <div id="content">
+    <div id="ai-credit-banner"></div> <!-- varning när Anthropic-krediterna tar slut (ai-cost.js) -->
 
     <!-- ── DASHBOARD ── -->
     <div class="section active" id="section-dashboard">
@@ -516,6 +517,7 @@
         <div class="filter-chip" data-days="90" onclick="setAiCostRange(90,this)">90 dagar</div>
         <div class="filter-chip" data-days="0" onclick="setAiCostRange(0,this)">Allt</div>
       </div>
+      <div id="aicost-credits"></div>
       <div id="aicost-budget"></div>
       <div id="aicost-body"></div>
     </div>
