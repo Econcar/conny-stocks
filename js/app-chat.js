@@ -23,10 +23,13 @@ function setChatModel(m) { lsSet(CHAT_MODEL_STORE, m); }
 
 function saveGeminiKey() {
   const input = document.getElementById('chat-key-input');
-  const key = (input.value || '').trim();
+  const key = (input.value || '').trim().replace(/^["']|["']$/g, '');
   const status = document.getElementById('chat-key-status');
-  if(!/^AIza[\w-]{20,}$/.test(key)) {
-    status.textContent = '⚠ Nyckeln verkar inte stämma – en Gemini-nyckel börjar med AIza';
+  // Googles nyckelformat varierar (AIza… m.fl.) – avvisa bara uppenbart fel; Google svarar om nyckeln är ogiltig
+  const bad = key.startsWith('sk-ant-') ? 'Det där är en Anthropic-nyckel – chatten behöver en nyckel från Google AI Studio'
+    : !/^[\w.\-]{20,}$/.test(key) ? 'Nyckeln verkar inte stämma – kopiera hela nyckeln från AI Studio (utan mellanslag)' : '';
+  if(bad) {
+    status.textContent = '⚠ ' + bad;
     status.style.color = 'var(--red)';
     return;
   }
@@ -194,7 +197,7 @@ function renderChatCard() {
         Chatten använder Google Gemini med din egen nyckel. Skapa en gratis på
         <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:var(--accent)">aistudio.google.com/apikey ↗</a> och klistra in den här.
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-          <input type="password" id="chat-key-input" class="filter-input" placeholder="AIza…" style="flex:1;min-width:200px;font-family:var(--mono)">
+          <input type="password" id="chat-key-input" class="filter-input" placeholder="Klistra in nyckeln från AI Studio" style="flex:1;min-width:200px;font-family:var(--mono)">
           <button class="action-btn" onclick="saveGeminiKey()">Spara nyckel</button>
         </div>
         <div id="chat-key-status" style="font-size:12px;margin-top:6px"></div>
