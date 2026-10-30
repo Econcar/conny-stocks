@@ -318,3 +318,10 @@ th.sortable:hover { color: var(--text); }
 .verdict { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 1px 7px; border: 1px solid; border-radius: 10px; cursor: pointer; font-family: var(--font); letter-spacing: 0; white-space: nowrap; }
 .verdict:hover { background: rgba(255,255,255,0.06); }
 .triage-mark { color: var(--accent); font-weight: 700; font-size: 11px; }
+
+/* Chatten på Översikt (js/app-chat.js) */
+.chat-log { display: flex; flex-direction: column; gap: 12px; max-height: 480px; overflow-y: auto; margin-top: 14px; padding-right: 4px; }
+.chat-meta { font-size: 10px; color: var(--text3); font-family: var(--mono); margin-top: 4px; }
+#chat-input { flex: 1; min-width: 0; resize: vertical; background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 13px; font-family: var(--font); outline: none; }
+#chat-input:focus { border-color: var(--accent); }
+#chat-input:disabled { opacity: 0.5; }

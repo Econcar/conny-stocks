@@ -20,7 +20,7 @@ function costUsdOf(model, usage){
 // tillåter bara skrivning i eget namn. Fire-and-forget, fel sväljs.
 async function recordAiUsage(context, model, usage){
   if(!usage) return;
-  noteAiSpend(costUsdOf(model, usage)); // månadstakets cache (ai-cost.js)
+  if(!/^gemini/.test(model)) noteAiSpend(costUsdOf(model, usage)); // månadstakets cache (ai-cost.js) – bara Anthropic
   if(!sb || !currentUser) return;
   try {
     await sb.from('ai_usage').insert({

@@ -24,8 +24,11 @@ const AICOST_CONTEXTS = {
   'portfolio_review':  { label: 'Du · portföljgenomlysning', bg: false },
   'screener_triage':   { label: 'Du · AI-triage (screener)', bg: false },
   'engine-cio':        { label: 'Motor · CIO-analys', bg: true },
-  'aifund':            { label: 'Du · AI-fond', bg: false }
+  'aifund':            { label: 'Du · AI-fond', bg: false },
+  'gemini_chat':       { label: 'Du · Gemini-chatt (Google)', bg: false }
 };
+// Gemini betalas via Google, inte Anthropic-kontot – räknas inte mot månadstaket eller kreditsaldot.
+const aiCtxIsGoogle = c => /^gemini/.test(c || '');
 const aiCtxLabel = c => (AICOST_CONTEXTS[c] && AICOST_CONTEXTS[c].label) || c;
 const aiCtxIsEngine = c => AICOST_CONTEXTS[c] ? AICOST_CONTEXTS[c].bg : /^engine-/.test(c);
 
@@ -49,7 +52,7 @@ async function aiMonthSpend(force){
   const { data, error } = await sb.from('ai_usage').select('context,cost_usd').gte('created_at', start.toISOString()).limit(20000);
   if(error) return null;
   let mine = 0, engine = 0;
-  for(const r of data || []) { if(aiCtxIsEngine(r.context)) engine += +r.cost_usd || 0; else mine += +r.cost_usd || 0; }
+  for(const r of data || []) { if(aiCtxIsGoogle(r.context)) continue; if(aiCtxIsEngine(r.context)) engine += +r.cost_usd || 0; else mine += +r.cost_usd || 0; }
   aiMonthCache = { at: Date.now(), usd: mine + engine, mine, engine };
   return aiMonthCache;
 }
@@ -87,7 +90,7 @@ async function renderAiBudget(){
         <input class="filter-input" id="ai-budget-input" type="number" min="0" step="1" style="width:90px" value="${budget != null ? budget : ''}" placeholder="inget" onchange="setAiBudget(this.value)"></label>
     </div>
     ${pct != null ? `<div style="height:8px;background:var(--surface2);border-radius:4px;margin-top:12px;overflow:hidden"><div style="height:100%;width:${pct.toFixed(1)}%;background:${col}"></div></div>` : ''}
-    <div style="font-size:11px;color:var(--text3);margin-top:8px">När taket är nått frågar appen innan varje AI-körning. Räknar både dina körningar och motorns (samma Anthropic-konto). Taket sparas i den här webbläsaren.</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">När taket är nått frågar appen innan varje AI-körning. Räknar både dina körningar och motorns (samma Anthropic-konto) – Gemini-chatten räknas inte, den betalas via Google. Taket sparas i den här webbläsaren.</div>
   </div>`;
 }
 
@@ -155,6 +158,7 @@ async function aiCreditStatus(force){
           if(t > balAt && (!st.outAt || t > Date.parse(st.outAt))) { st.out = true; st.outAt = r.created_at; st.outBy = 'motorn'; }
           continue;
         }
+        if(aiCtxIsGoogle(r.context)) continue;
         if(bal && t >= balAt) spent += +r.cost_usd || 0;
         if(t >= weekAgo) week += +r.cost_usd || 0;
       }

@@ -255,6 +255,43 @@ try {
     assert(/Din körning · 30 okt/.test(r.shown.sub) && r.shown.out.includes('Testpromemoria'), 'visa öppnade inte körningen');
   });
 
+  await check('Gemini-chatten på Översikt: underlag, strömmat svar och kostnad', async () => {
+    // Simulerat SSE-svar från /api/gemini – inget riktigt anrop görs.
+    const r = await evaluate(`
+      const realFetch = window.fetch;
+      let sent = null;
+      const sse = chunks => new Response(chunks.map(c => 'data: ' + JSON.stringify(c) + '\\r\\n\\r\\n').join(''), { headers: { 'content-type': 'text/event-stream' } });
+      try {
+        showSection('dashboard');
+        localStorage.removeItem('gemini_api_key'); renderChatCard();
+        const lockedBefore = document.getElementById('chat-input').disabled && !!document.getElementById('chat-key-input');
+        document.getElementById('chat-key-input').value = 'AIza' + 'x'.repeat(35);
+        saveGeminiKey();
+        window.fetch = async (u, o) => {
+          if(!String(u).includes('/api/gemini')) return realFetch(u, o);
+          sent = { key: o.headers['x-goog-api-key'], body: JSON.parse(o.body) };
+          return sse([
+            { candidates: [{ content: { parts: [{ text: 'Enligt **CIO-analysen** ' }] } }] },
+            { candidates: [{ content: { parts: [{ text: 'tänker…', thought: true }, { text: 'är läget neutralt.' }] }, finishReason: 'STOP' }],
+              usageMetadata: { promptTokenCount: 20000, cachedContentTokenCount: 15000, candidatesTokenCount: 200, thoughtsTokenCount: 100 } }
+          ]);
+        };
+        document.getElementById('chat-input').value = 'Vad säger CIO:n?';
+        await chatSend();
+        const log = document.getElementById('chat-log').textContent;
+        const sys = sent.body.systemInstruction.parts[0].text;
+        return { lockedBefore, key: sent.key, model: sent.body.model, turns: sent.body.contents.length,
+                 hasCtx: ['cio_analysis', 'my_portfolio', 'news_signals_last_7_days', 'ai_decision_log', 'watchlist'].every(k => sys.includes('"' + k + '"')),
+                 ctxChars: sys.length, log, history: chatHistory.length };
+      } finally { window.fetch = realFetch; localStorage.removeItem('gemini_api_key'); chatClear(); renderChatCard(); }`);
+    assert(r.lockedBefore, 'chatten var inte låst utan nyckel');
+    assert(r.key.startsWith('AIza') && r.model === 'gemini-3.8-flash' && r.turns === 1, 'fel anrop: ' + JSON.stringify(r));
+    assert(r.hasCtx, 'underlaget saknar delar');
+    assert(r.log.includes('Enligt CIO-analysen är läget neutralt.') && !r.log.includes('tänker'), 'svaret visades fel: ' + r.log);
+    assert(/gemini-3\.8-flash/.test(r.log) && /underlaget cachat/.test(r.log), 'kostnadsraden saknas');
+    assert(r.history === 2, 'historiken sparades inte');
+  });
+
   await check('beslutsloggen loggar och följer upp mot index', async () => {
     const r = await evaluate(`
       localStorage.removeItem('ai_decisions'); aiDecisionsLocal = [];

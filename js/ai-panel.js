@@ -79,7 +79,12 @@ const AI_PRICES = {
   'claude-sonnet-4-6': { in: 3, out: 15 },
   'claude-sonnet-5': { in: 3, out: 15 },
   'claude-opus-4-8': { in: 5, out: 25 },
-  'claude-fable-5': { in: 10, out: 50 }
+  'claude-fable-5': { in: 10, out: 50 },
+  // Google Gemini (chatten på Översikt, js/app-chat.js) – Googles prislista. 3.8 Flash
+  // har intropris t.o.m. 2026-12-31; från 2027-01-01 gäller $1,50/$7,50. Cachat
+  // underlag debiteras 0,1× in-priset, samma faktor som räknas för Claude.
+  'gemini-3.8-flash': { in: 0.75, out: 3.75 },
+  'gemini-3.5-flash-lite': { in: 0.30, out: 2.50 }
 };
 const aiPriceKnown = model => !!AI_PRICES[model];
 
@@ -110,7 +115,7 @@ function aiPriceTableHtml(){
       <tbody>${rows}</tbody></table></div>
     <div style="padding:10px 14px;font-size:11px;color:var(--text3)">
       Cache-läsning debiteras ~0,1× in-priset, cache-skapande ~1,25×. Webbsök ~$0,01 per sökning.
-      SEK ≈ USD × ${SEK_PER_USD}. Anthropics prislista; uppdateras för hand i koden om den ändras.
+      SEK ≈ USD × ${SEK_PER_USD}. Anthropics och Googles prislistor; uppdateras för hand i koden om den ändras.
     </div>
   </div>`;
 }

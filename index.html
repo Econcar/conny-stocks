@@ -83,6 +83,25 @@
         <div class="ai-guide" data-here="cio"></div>
         <div id="cio-out" style="margin-top:14px"></div>
       </div>
+      <div class="card" id="chat-card" style="margin-bottom:14px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <div class="card-title" style="margin-bottom:4px">✦ Fråga conny-stocks · Gemini</div>
+            <div style="font-size:12px;color:var(--text3)">Ställ frågor om CIO-analysen, riskbarometern, nyheter, din portfölj, AI-fonder, beslutsloggen m.m.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="chat-model" class="filter-input" onchange="setChatModel(this.value)"></select>
+            <button class="ghost-btn" onclick="chatClear()">Rensa</button>
+            <button class="ghost-btn" id="chat-forget" onclick="forgetGeminiKey()" title="Ta bort Gemini-nyckeln från den här webbläsaren">Byt nyckel</button>
+          </div>
+        </div>
+        <div id="chat-key-row"></div>
+        <div id="chat-log" class="chat-log" style="display:none"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
+          <textarea id="chat-input" rows="2" placeholder="T.ex. Vad säger CIO-analysen om räntor, och hur påverkar det mina innehav?" onkeydown="chatKey(event)"></textarea>
+          <button class="action-btn" id="chat-send" onclick="chatSend()">Skicka</button>
+        </div>
+      </div>
       <div class="card" style="margin-bottom:14px">
         <div class="card-title">Toppnyheter · störst kurspåverkan <span class="card-link" onclick="showSection('signals')">Se alla →</span></div>
         <div id="dashboard-news-list"><div class="muted" style="font-size:12px">Laddar…</div></div>
@@ -589,6 +608,7 @@
 <script src="js/signals.js"></script>
 <script src="js/watchlist.js"></script>
 <script src="js/decisions.js"></script>
+<script src="js/app-chat.js"></script>
 <script src="js/init.js"></script>
 </body>
 </html>

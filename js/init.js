@@ -24,6 +24,7 @@ window.addEventListener('focus', checkForNewVersion);
 
 document.querySelectorAll('.ai-guide[data-here]').forEach(el => el.innerHTML = aiGuideHtml(el.dataset.here));
 renderDashboard();
+renderChatCard();
 renderWatchlist();
 initAuth();
 // Screenern laddas först när man öppnar fliken (showSection('screener') → renderScreener)
