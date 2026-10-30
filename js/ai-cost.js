@@ -124,7 +124,7 @@ function setAiCreditWarn(v){ const n = pfNum(v); lsSet(AI_CREDIT_WARN_KEY, n != 
 
 // Översätter ett API-fel till text; känner igen slut på krediter och tänder varningen.
 function aiErrorMessage(err){
-  const m = (err && (err.message || err.type)) || 'API-fel';
+  const m = typeof err === 'string' ? err : (err && (err.message || err.type)) || 'API-fel'; // proxyn svarar t.ex. { error: 'Ingen API-nyckel angiven' }
   if(!/credit balance is too low/i.test(m)) return m;
   lsSet(AI_CREDITS_OUT_KEY, new Date().toISOString());
   aiCreditCache = null;

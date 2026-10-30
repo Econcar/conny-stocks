@@ -55,7 +55,7 @@ async function callClaudeStream(body, onText){
         ? 'Servern hann inte svara i tid (timeout, ~100 s). Prova igen, eller stäng av Webbsök för ett snabbare svar.'
         : ('Ogiltigt svar från servern (' + res.status + ').') } };
     }
-    if(data && data.error) return { error: { ...data.error, message: aiErrorMessage(data.error) } }; // slut på krediter → svensk text + varning (ai-cost.js)
+    if(data && data.error) return { error: { message: aiErrorMessage(data.error) } }; // slut på krediter → svensk text + varning (ai-cost.js)
     const text = Array.isArray(data.content) ? data.content.filter(b=>b.type==='text').map(b=>b.text).join('').trim() : '';
     return { text, usage:data.usage, stop_reason:data.stop_reason };
   }
