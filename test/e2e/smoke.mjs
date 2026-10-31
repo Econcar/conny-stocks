@@ -307,7 +307,8 @@ try {
       showSection('track');
       for(let i = 0; i < 40 && !document.querySelector('#track-body table'); i++) await new Promise(r => setTimeout(r, 250));
       const cells = [...document.querySelectorAll('#track-body tbody tr:first-child td')].map(td => td.textContent.trim());
-      const out = { parsedAction: normAction(parsed[0].action), n, dup, bench: decisionBenchmark('VOLV-B.ST'), us: decisionBenchmark('AAPL'), cells,
+      const next = (document.getElementById('track-next') || {}).textContent || '';
+      const out = { parsedAction: normAction(parsed[0].action), n, dup, bench: decisionBenchmark('VOLV-B.ST'), us: decisionBenchmark('AAPL'), cells, next,
         hidden: !formatMemo('a <decision>{"action":"KÖP"}</decision>').includes('KÖP') };
       localStorage.removeItem('ai_decisions'); aiDecisionsLocal = [];
       return out;`);
@@ -318,6 +319,8 @@ try {
     const [, , bolag, action, , , , , m1, m3, m6] = r.cells;
     assert(bolag.includes('VOLV-B.ST') && action === 'KANDIDAT', 'raden saknas i vyn: ' + r.cells.join(' | '));
     assert(/%/.test(m1) && /%/.test(m3) && /^om \d+ d$/.test(m6), `horisonter fel: ${m1} / ${m3} / ${m6}`);
+    // 100 dagar gammalt beslut: 1 och 3 mån klara, 6 mån förfaller om 82 dagar.
+    assert(/Nästa utvärdering · 6 mån: om 8[123] dagar \(.+, 1 beslut\)/.test(r.next) && !/1 mån|3 mån/.test(r.next), 'nästa utvärdering fel: ' + r.next);
   });
 
   await check('modellportfölj: skapa, köp, sälj och kassa', async () => {

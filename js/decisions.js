@@ -174,7 +174,7 @@ function decisionOutcome(d, hist) {
   const out = { sinceStock, sinceBench, sinceExcess: (sinceStock != null && sinceBench != null) ? sinceStock - sinceBench : null, h: {} };
   for(const [k, days] of TRACK_HORIZONS) {
     const due = t0 + days * 86400000;
-    if(Date.now() < due) { out.h[k] = { pending: Math.ceil((due - Date.now()) / 86400000) }; continue; }
+    if(Date.now() < due) { out.h[k] = { pending: Math.ceil((due - Date.now()) / 86400000), due }; continue; }
     const rs = ret(closeOnOrAfter(s, due), p0), rb = ret(closeOnOrAfter(b, due), b0);
     const excess = (rs != null && rb != null) ? rs - rb : null;
     out.h[k] = { excess, hit: (excess != null && d.direction) ? d.direction * excess > 0 : null };
@@ -216,13 +216,24 @@ async function renderTrack() {
   const r3 = v => v == null ? null : (Math.round(v * 1000) / 1000 || 0); // −0,04 % → 0 (neutral)
   const pct = v => { v = r3(v); return v == null ? '–' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v * 100).toFixed(1).replace('.', ',') + ' %'; };
   const col = v => { v = r3(v); return v == null ? 'var(--text3)' : v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text2)'; };
+  // Nästa utvärdering per horisont: tidigaste förfallodag bland väntande beslut (+ hur många som förfaller den dagen).
+  const dayStart = t => { const x = new Date(t); x.setHours(0, 0, 0, 0); return x.getTime(); };
+  const nextDue = (rs, k) => {
+    const due = rs.map(r => r.o.h[k] && r.o.h[k].due).filter(Boolean);
+    if(!due.length) return null;
+    const first = dayStart(Math.min(...due));
+    return { at: first, days: Math.round((first - dayStart(Date.now())) / 86400000), n: due.filter(t => dayStart(t) === first).length };
+  };
+  const whenTxt = nd => nd.days <= 0 ? 'i dag' : nd.days === 1 ? 'i morgon' : `om ${nd.days} dagar`;
+  const dateTxt = nd => new Date(nd.at).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
   const summary = (label, rs) => {
     const directed = rs.filter(r => r.d.direction && r.o.sinceExcess != null);
     const alpha = directed.length ? directed.reduce((s, r) => s + r.d.direction * r.o.sinceExcess, 0) / directed.length : null;
     const hits = TRACK_HORIZONS.map(([k, , lbl]) => {
       const done = rs.filter(r => r.o.h[k] && r.o.h[k].hit != null);
       const n = done.filter(r => r.o.h[k].hit).length;
-      return `<div class="kpi-sub">${lbl}: ${done.length ? `<b style="color:${n / done.length >= 0.5 ? 'var(--green)' : 'var(--red)'}">${Math.round(n / done.length * 100)} %</b> <span class="muted">(${n}/${done.length})</span>` : '<span class="muted">väntar</span>'}</div>`;
+      const nd = done.length ? null : nextDue(rs, k);
+      return `<div class="kpi-sub">${lbl}: ${done.length ? `<b style="color:${n / done.length >= 0.5 ? 'var(--green)' : 'var(--red)'}">${Math.round(n / done.length * 100)} %</b> <span class="muted">(${n}/${done.length})</span>` : `<span class="muted">väntar${nd ? ' · ' + whenTxt(nd) : ''}</span>`}</div>`;
     }).join('');
     return `<div class="kpi-card"><div class="kpi-label">${label} · ${rs.length} beslut</div>
       <div class="kpi-value" style="color:${alpha == null ? 'var(--text)' : alpha >= 0 ? 'var(--green)' : 'var(--red)'}" title="Snittlig överavkastning mot index sedan beslutet, i AI:ns riktning (för Sälj räknas en sämre aktie som plus)">${pct(alpha)}</div>
@@ -251,7 +262,15 @@ async function renderTrack() {
       <td><span class="wl-remove" title="Ta bort" onclick="deleteDecision('${escQuote(d.id)}')" style="cursor:pointer;opacity:.6">×</span></td>
     </tr>`).join('');
 
-  body.innerHTML = cloudNote + `<div class="kpi-grid" style="margin-bottom:14px">${groups.join('')}</div>
+  const dueParts = TRACK_HORIZONS.map(([k, , lbl], i) => {
+    const nd = nextDue(rows, k); if(!nd) return '';
+    const txt = `${lbl}: ${i === 0 ? `<b>${whenTxt(nd)}</b>` : whenTxt(nd)} <span class="muted">(${dateTxt(nd)}, ${nd.n} beslut)</span>`;
+    return i === 0 ? txt : `<span style="color:var(--text2)">${txt}</span>`;
+  }).filter(Boolean);
+  const dueNote = dueParts.length
+    ? `<div class="info-msg" id="track-next" style="margin-bottom:14px">⏳ Nästa utvärdering · ${dueParts.join(' · ')}</div>` : '';
+
+  body.innerHTML = cloudNote + dueNote + `<div class="kpi-grid" style="margin-bottom:14px">${groups.join('')}</div>
     <div class="card" style="padding:0"><div class="table-wrap"><table class="pf-table">
       <thead><tr><th style="text-align:left">Datum</th><th style="text-align:left">Källa</th><th style="text-align:left">Bolag</th><th style="text-align:left">Åtgärd</th>
         <th style="text-align:right">Kurs då</th><th style="text-align:right">Sedan dess</th><th style="text-align:right">Index</th><th style="text-align:right">Mot index</th>
