@@ -65,7 +65,7 @@ async function activeThemes() {
 async function runMegatrends() {
   let signals = [];
   try {
-    signals = await recentSignals({ days: 5, limit: 400 });
+    signals = await recentSignals({ days: 7, limit: 400 }); // veckovis analys – hela veckans signaler
   } catch (e) {
     console.error(`[megatrends] kunde inte läsa signaler: ${e.message}`);
   }

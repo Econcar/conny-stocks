@@ -210,7 +210,14 @@ try {
         const outBanner = banner();
         // Inloggad med påhittad logg: saldo $20 angivet för 2 dagar sedan, $17 förbrukat sedan dess.
         currentUser = { id: 'test' };
-        const q = { select(){ return q; }, gte(){ return q; }, order(){ return q; }, limit(){ return Promise.resolve({ data: rows, error: null }); } };
+        // Supabase skickar högst 1000 rader per svar: aiUsageRows ska bläddra (1000 + 1000 + 500 = 2500).
+        const pages = [];
+        const big = { select(){ return big; }, gte(){ return big; }, order(){ return big; },
+          range(a, b){ pages.push(a + '-' + b); return Promise.resolve({ data: Array.from({ length: Math.max(0, Math.min(b + 1, 2500) - a) }, () => ({ cost_usd: 0.001 })), error: null }); } };
+        sb.from = () => big;
+        const paged = await aiUsageRows('cost_usd', null);
+        var paging = { n: paged.data.length, pages: pages.join(',') };
+        const q = { select(){ return q; }, gte(){ return q; }, order(){ return q; }, range(){ return Promise.resolve({ data: rows, error: null }); } };
         sb.from = () => q;
         setAiCreditBalance('20'); await wait();
         const refilled = banner();
@@ -223,12 +230,13 @@ try {
         const engineBanner = banner();
         showSection('aicost'); await new Promise(r => setTimeout(r, 800));
         const card = document.getElementById('aicost-credits').innerHTML;
-        return { msg: out.error && out.error.message, outBanner, refilled, lowBanner, engineBanner,
+        return { msg: out.error && out.error.message, outBanner, refilled, lowBanner, engineBanner, paging,
                  card: card.includes('Anthropic-krediter') && card.includes('console.anthropic.com/settings/billing') };
       } finally {
         window.fetch = realFetch; currentUser = realUser; sb.from = realFrom; aiCreditCache = null;
         localStorage.removeItem('ai_credit_balance'); localStorage.removeItem('ai_credits_out_at'); renderAiCreditBanner();
       }`);
+    assert(r.paging.n === 2500 && r.paging.pages === '0-999,1000-1999,2000-2999', 'kostnadsloggen bläddras inte förbi 1000 rader: ' + JSON.stringify(r.paging));
     assert(/krediterna på Anthropic-kontot är slut/i.test(r.msg || ''), 'kreditfelet översattes inte: ' + r.msg);
     assert(/krediterna är slut/i.test(r.outBanner), 'ingen varning när ett anrop stoppades');
     assert(r.refilled === '', 'varningen låg kvar efter nytt saldo');

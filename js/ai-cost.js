@@ -45,11 +45,27 @@ function setAiBudget(v){
   try { if(n > 0) localStorage.setItem(AI_BUDGET_KEY, String(n)); else localStorage.removeItem(AI_BUDGET_KEY); } catch(e){}
   renderAiBudget();
 }
+// Supabase skickar högst 1000 rader per svar oavsett .limit() – hämta ai_usage sida för sida
+// (motorn loggar ~100 anrop/dygn, så en månad är flera tusen rader). Nyast först.
+const AI_USAGE_PAGE = 1000;
+async function aiUsageRows(columns, fromIso, max = 100000){
+  const out = [];
+  for(let off = 0; off < max; off += AI_USAGE_PAGE){
+    let q = sb.from('ai_usage').select(columns).order('created_at', { ascending: false }).order('id', { ascending: true });
+    if(fromIso) q = q.gte('created_at', fromIso);
+    const { data, error } = await q.range(off, off + AI_USAGE_PAGE - 1);
+    if(error) return { data: null, error };
+    out.push(...(data || []));
+    if(!data || data.length < AI_USAGE_PAGE) break;
+  }
+  return { data: out, error: null };
+}
+
 async function aiMonthSpend(force){
   if(!cloudEnabled || !sb || !currentUser) return null;
   if(!force && aiMonthCache && Date.now() - aiMonthCache.at < 60000) return aiMonthCache;
   const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0);
-  const { data, error } = await sb.from('ai_usage').select('context,cost_usd').gte('created_at', start.toISOString()).limit(20000);
+  const { data, error } = await aiUsageRows('context,cost_usd', start.toISOString());
   if(error) return null;
   let mine = 0, engine = 0;
   for(const r of data || []) { if(aiCtxIsGoogle(r.context)) continue; if(aiCtxIsEngine(r.context)) engine += +r.cost_usd || 0; else mine += +r.cost_usd || 0; }
@@ -148,7 +164,7 @@ async function aiCreditStatus(force){
   if(cloudEnabled && sb && currentUser){
     const weekAgo = Date.now() - 7 * 86400000;
     const from = new Date(bal ? Math.min(balAt, weekAgo) : weekAgo).toISOString();
-    const { data, error } = await sb.from('ai_usage').select('created_at,context,cost_usd').gte('created_at', from).order('created_at', { ascending: false }).limit(20000);
+    const { data, error } = await aiUsageRows('created_at,context,cost_usd', from);
     if(!error){
       let spent = 0, week = 0;
       for(const r of data || []){
@@ -245,12 +261,11 @@ async function renderAiCost(){
   if(!cloudEnabled || !sb){ el.innerHTML = '<div class="info-msg">Molnet är inte konfigurerat, så kostnadsloggen kan inte läsas.</div>'; return; }
   el.innerHTML = '<div class="info-msg">Hämtar kostnadslogg…</div>';
   try {
-    let q = sb.from('ai_usage')
-      .select('created_at,user_id,context,model,input_tokens,output_tokens,cache_read_tokens,cache_create_tokens,web_searches,cost_usd')
-      .order('created_at', { ascending: false }).limit(5000);
-    if(aiCostRangeDays > 0) q = q.gte('created_at', new Date(Date.now() - aiCostRangeDays*86400000).toISOString());
-    const { data, error } = await q;
+    const range = aiCostRangeDays;
+    const { data, error } = await aiUsageRows('created_at,user_id,context,model,input_tokens,output_tokens,cache_read_tokens,cache_create_tokens,web_searches,cost_usd',
+      range > 0 ? new Date(Date.now() - range*86400000).toISOString() : null);
     if(error) throw new Error(error.message);
+    if(range !== aiCostRangeDays) return; // användaren hann byta tidsspann – det nyare anropet ritar
     setUpdatedStamp('stamp-aicost');
     renderAiCostBody((data || []).filter(r => r.context !== CREDITS_OUT_CTX)); // stoppmarkeringen är inget anrop
   } catch(e){

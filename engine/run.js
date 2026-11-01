@@ -21,6 +21,8 @@ const { upsertSignals, recentExternalIds, recordAiUsage } = require('./lib/store
 const DEEP_ENABLED = process.env.ENGINE_DEEP_ENABLED !== 'false';
 const DEEP_THRESHOLD = Number(process.env.ENGINE_DEEP_THRESHOLD || 0.6);
 const DEEP_MAX = Number(process.env.ENGINE_DEEP_MAX || 10);
+// Megatrenderna ändras långsamt – analysen körs när den senaste är minst så här många dagar gammal.
+const TRENDS_EVERY_DAYS = Number(process.env.ENGINE_TRENDS_EVERY_DAYS || 7);
 
 function parseArgs(argv) {
   const args = { demo: false, dry: false, source: null, riskOnly: false, trendsOnly: false, discover: false, fundsOnly: false, earningsOnly: false, cioOnly: false };
@@ -73,7 +75,7 @@ async function runDailyRisk() {
   }
 }
 
-// Daglig CIO-analys (taktisk allokering) – körs efter megatrenderna så den får dagens teman.
+// Daglig CIO-analys (taktisk allokering) – körs efter megatrenderna och får den senaste analysens teman.
 async function runDailyCio() {
   try {
     const { runCioAnalysis } = require('./lib/cio');
@@ -95,8 +97,25 @@ async function runDailyAIFunds() {
   }
 }
 
-// Daglig AI-analys av megatrender (grundad i signalerna).
-async function runDailyTrends() {
+// Är det dags för veckans megatrend-analys? Räknas från senaste sparade analysen, så en
+// missad körning (t.ex. slut på krediter) tas igen nästa dag i stället för om en vecka.
+async function trendsDue() {
+  try {
+    const { latestMegatrends } = require('./lib/store');
+    const rows = await latestMegatrends();
+    if (!rows.length) return true;
+    const age = Math.round((Date.parse(new Date().toISOString().slice(0, 10)) - Date.parse(rows[0].date)) / 86400000);
+    if (age >= TRENDS_EVERY_DAYS) return true;
+    console.log(`Megatrender: senaste analysen ${rows[0].date} (${age} d sedan) – nästa om ${TRENDS_EVERY_DAYS - age} d.`);
+    return false;
+  } catch (err) {
+    console.error(`Megatrender: kunde inte läsa senaste analysen (${err.message}) – kör ändå.`);
+    return true;
+  }
+}
+
+// Veckovis AI-analys av megatrender (grundad i signalerna).
+async function runWeeklyTrends() {
   try {
     console.log('Megatrend-analys:');
     const { runMegatrends } = require('./lib/megatrends');
@@ -132,7 +151,7 @@ async function main() {
   }
   if (args.trendsOnly) {
     console.log('Kör endast megatrend-analysen.');
-    await runDailyTrends();
+    await runWeeklyTrends();
     return;
   }
   if (args.discover) {
@@ -267,7 +286,7 @@ async function main() {
   if (!args.dry) {
     await runEarnings(false);
     await runDailyRisk();
-    await runDailyTrends();
+    if (await trendsDue()) await runWeeklyTrends();
     await runDailyCio();
     await runDailyAIFunds();
     // Trendspaning körs veckovis (måndagar UTC) för att hålla nere brus/kostnad.
