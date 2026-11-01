@@ -245,6 +245,60 @@ try {
     assert(r.card, 'kreditkortet/Billing-länken saknas i AI-kostnader');
   });
 
+  await check('motorns schema: pausa jobb och ändra intervall på AI-kostnader', async () => {
+    // Simulerad engine_settings + kostnadslogg – inget sparas på riktigt.
+    const r = await evaluate(`
+      const realUser = currentUser, realFrom = sb.from;
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      const iso = d => new Date(Date.now() - d*86400000).toISOString();
+      const settingsRows = [{ id: 'megatrends', enabled: true, every_days: 7, last_run_at: iso(2) }, { id: 'cio', enabled: false, every_days: 1 }];
+      const usage = [{ created_at: iso(0.1), context: 'engine-megatrends', model: 'claude-sonnet-5', cost_usd: 0.5 },
+                     { created_at: iso(0.2), context: 'engine-cio', model: 'claude-sonnet-5', cost_usd: 0.1 },
+                     { created_at: iso(0.3), context: 'chat', model: 'claude-sonnet-5', cost_usd: 0.05 }];
+      const saved = [];
+      let tableError = null;
+      const freq = label => { const tr = [...document.querySelectorAll('#aicost-body tr')].find(t => t.textContent.includes(label)); return tr ? tr.children[1].textContent : null; };
+      const job = id => document.querySelector('#engine-jobs tr[data-job="' + id + '"]');
+      try {
+        sb.from = t => {
+          if(t === 'engine_settings') return {
+            select: () => Promise.resolve(tableError ? { data: null, error: tableError } : { data: settingsRows.map(x => ({ ...x })), error: null }),
+            upsert: row => { saved.push(row); const i = settingsRows.findIndex(x => x.id === row.id); if(i >= 0) Object.assign(settingsRows[i], row); else settingsRows.push({ ...row }); return Promise.resolve({ error: null }); } };
+          const q = { select(){ return q; }, gte(){ return q; }, order(){ return q; }, eq(){ return q; },
+            limit(){ return Promise.resolve({ data: [], error: null }); }, range(){ return Promise.resolve({ data: usage, error: null }); } };
+          return q;
+        };
+        currentUser = { id: 'test' };
+        showSection('aicost'); await wait(900);
+        const before = { rows: document.querySelectorAll('#engine-jobs tbody tr').length,
+          megaEvery: job('megatrends').querySelector('select').value, megaNext: job('megatrends').querySelector('.engine-next').textContent,
+          cioOn: job('cio').querySelector('input[type=checkbox]').checked, cioNext: job('cio').querySelector('.engine-next').textContent,
+          freqMega: freq('Motor · megatrender'), freqCio: freq('Motor · CIO-analys'), freqChat: freq('Du · AI-chatt') };
+        const sel = job('megatrends').querySelector('select'); sel.value = '14'; sel.dispatchEvent(new Event('change'));
+        await wait(400);
+        const changed = { saved: saved[saved.length - 1], freqMega: freq('Motor · megatrender') };
+        document.getElementById('engine-pause-all').click(); await wait(400);
+        const paused = { saved: saved[saved.length - 1], status: document.getElementById('engine-status').textContent,
+          freqMega: freq('Motor · megatrender'), btn: document.getElementById('engine-pause-all').textContent };
+        currentUser = null; await renderEngineSchedule();
+        const loggedOut = { disabled: job('news').querySelector('input').disabled, note: document.getElementById('aicost-schedule').textContent.includes('Logga in') };
+        currentUser = { id: 'test' }; tableError = { code: 'PGRST205', message: "Could not find the table 'public.engine_settings'" }; await renderEngineSchedule();
+        const missing = document.getElementById('aicost-schedule').textContent.includes('supabase-engine-settings.sql');
+        return { before, changed, paused, loggedOut, missing };
+      } finally { currentUser = realUser; sb.from = realFrom; renderEngineSchedule(); }`);
+    const b = r.before;
+    assert(b.rows === 8, `fel antal jobb i schemat: ${b.rows}`);
+    assert(b.megaEvery === '7' && /ca \d\d:\d\d/.test(b.megaNext), `megatrenderna visas fel: ${b.megaEvery} / ${b.megaNext}`);
+    assert(!b.cioOn && /pausad/.test(b.cioNext), 'pausad CIO-analys visas inte som pausad');
+    assert(b.freqMega === 'en gång i veckan' && b.freqCio === 'pausad' && b.freqChat === 'när du kör den', `"Hur ofta" i Vad kostar: ${b.freqMega} / ${b.freqCio} / ${b.freqChat}`);
+    assert(r.changed.saved && r.changed.saved.id === 'megatrends' && r.changed.saved.every_days === 14 && r.changed.saved.enabled === true, 'intervallet sparades inte: ' + JSON.stringify(r.changed.saved));
+    assert(r.changed.freqMega === 'varannan vecka', 'tabellen ritades inte om: ' + r.changed.freqMega);
+    assert(r.paused.saved.id === 'all' && r.paused.saved.enabled === false, 'pausa hela motorn sparades inte');
+    assert(/Pausad/.test(r.paused.status) && r.paused.freqMega === 'pausad' && /Starta motorn igen/.test(r.paused.btn), 'pausen syns inte');
+    assert(r.loggedOut.disabled && r.loggedOut.note, 'utloggad går det att ändra schemat');
+    assert(r.missing, 'ingen hänvisning till SQL-filen när tabellen saknas');
+  });
+
   await check('CIO-kortet visar när du senast körde en egen CIO-analys', async () => {
     const r = await evaluate(`
       const saved = aiAnalyses;

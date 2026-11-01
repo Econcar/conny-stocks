@@ -57,6 +57,13 @@ Yahoo/Avanza ändrar svarsformat – det är en annan sorts kontroll och görs m
 `.github/workflows/engine.yml` kör dagligen 06:00 UTC och kan startas manuellt
 (Actions → signal-engine → Run workflow, med demo-kryssruta).
 
+Vilka jobb som körs och hur ofta ställs in i appen (AI-kostnader → Automatiska analyser)
+och sparas i `engine_settings` (kräver `../supabase-engine-settings.sql`). Varje jobb kan
+pausas, hela motorn kan pausas, och intervallet väljs i dagar (räknat från senaste lyckade
+körningen, som motorn noterar i `last_run_at`). Reglerna finns i `../shared/engine-schedule.js`
+och delas med appen. Utan tabellen gäller standardvärdena: dagligen, utom megatrender och
+trendspaning som körs en gång i veckan. Flaggorna `--risk-only` m.fl. kör ett jobb oavsett schema.
+
 Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Actions):
 
 | Secret | Värde |
@@ -114,6 +121,6 @@ Lägg in dessa som **repo-secrets** (Settings → Secrets and variables → Acti
   Skälet till att detta ligger i motorn: Yahoos egen kalender-endpoint är nästan tom
   (601 rader ≈ 22 unika bolag på ett år, inga nordiska) – se `../docs/beslutslogg.md`.
 - **Teman i databasen + trendspaning:** temana ligger i `themes` (kräver
-  `../supabase-themes.sql`, seedat med 5 st). Motorn spanar **veckovis** (måndagar UTC) efter
+  `../supabase-themes.sql`, seedat med 5 st). Motorn spanar **veckovis** (enligt schemat, se ovan) efter
   nya framväxande teman (`lib/discovery.js`) och sparar dem som `status='suggested'` – du
   aktiverar dem i appen. Kör enbart spaningen med `node engine/run.js --discover`.

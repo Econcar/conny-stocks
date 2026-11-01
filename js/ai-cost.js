@@ -6,15 +6,16 @@
 // ══════════ AI-KOSTNADER ══════════
 const SEK_PER_USD = 10.5;                 // grov omräkning för visning
 let aiCostRangeDays = 7;
+let aiCostLastRows = null; // senast ritade raderna – ritas om när motorns schema ändras
 let aiCostChart = null;
 // Läsbara etiketter + om raden är motorn (bakgrund) eller din (on-demand).
 const AICOST_CONTEXTS = {
-  'engine-triage':     { label: 'Motor · nyhetstriage', bg: true },
-  'engine-deep':       { label: 'Motor · djupanalys', bg: true },
-  'engine-risk':       { label: 'Motor · riskbarometer', bg: true },
-  'engine-megatrends': { label: 'Motor · megatrender', bg: true },
-  'engine-discovery':  { label: 'Motor · trendspaning', bg: true },
-  'engine-aifund':     { label: 'Motor · AI-fond', bg: true },
+  'engine-triage':     { label: 'Motor · nyhetstriage', bg: true, job: 'news' },
+  'engine-deep':       { label: 'Motor · djupanalys', bg: true, job: 'deep' },
+  'engine-risk':       { label: 'Motor · riskbarometer', bg: true, job: 'risk' },
+  'engine-megatrends': { label: 'Motor · megatrender', bg: true, job: 'megatrends' },
+  'engine-discovery':  { label: 'Motor · trendspaning', bg: true, job: 'discovery' },
+  'engine-aifund':     { label: 'Motor · AI-fond', bg: true, job: 'aifunds' },
   'engine-synthesize': { label: 'Motor · syntes', bg: true },
   'engine-extract':    { label: 'Motor · extraktion', bg: true },
   'chat':              { label: 'Du · AI-chatt', bg: false },
@@ -23,7 +24,7 @@ const AICOST_CONTEXTS = {
   'cio':               { label: 'Du · CIO-analys', bg: false },
   'portfolio_review':  { label: 'Du · portföljgenomlysning', bg: false },
   'screener_triage':   { label: 'Du · AI-triage (screener)', bg: false },
-  'engine-cio':        { label: 'Motor · CIO-analys', bg: true },
+  'engine-cio':        { label: 'Motor · CIO-analys', bg: true, job: 'cio' },
   'aifund':            { label: 'Du · AI-fond', bg: false },
   'gemini_chat':       { label: 'Du · Gemini-chatt (Google)', bg: false }
 };
@@ -31,6 +32,8 @@ const AICOST_CONTEXTS = {
 const aiCtxIsGoogle = c => /^gemini/.test(c || '');
 const aiCtxLabel = c => (AICOST_CONTEXTS[c] && AICOST_CONTEXTS[c].label) || c;
 const aiCtxIsEngine = c => AICOST_CONTEXTS[c] ? AICOST_CONTEXTS[c].bg : /^engine-/.test(c);
+// Hur ofta en kontext körs: motorns jobb enligt schemat (engine-settings.js), dina när du kör dem.
+const aiCtxFreq = c => AICOST_CONTEXTS[c] && AICOST_CONTEXTS[c].job ? engineFreqText(AICOST_CONTEXTS[c].job) : aiCtxIsEngine(c) ? 'motorn' : 'när du kör den';
 
 // ── Månadsbudget ──
 // Ett tak för AI-kostnaden per kalendermånad (USD, sparas i den här webbläsaren). Före varje
@@ -258,6 +261,7 @@ async function renderAiCost(){
   const el = document.getElementById('aicost-body');
   renderAiCredits();
   renderAiBudget();
+  const sched = renderEngineSchedule(); // "Hur ofta" i tabellen läser schemat
   if(!cloudEnabled || !sb){ el.innerHTML = '<div class="info-msg">Molnet är inte konfigurerat, så kostnadsloggen kan inte läsas.</div>'; return; }
   el.innerHTML = '<div class="info-msg">Hämtar kostnadslogg…</div>';
   try {
@@ -266,6 +270,8 @@ async function renderAiCost(){
       range > 0 ? new Date(Date.now() - range*86400000).toISOString() : null);
     if(error) throw new Error(error.message);
     if(range !== aiCostRangeDays) return; // användaren hann byta tidsspann – det nyare anropet ritar
+    await sched;
+    if(range !== aiCostRangeDays) return;
     setUpdatedStamp('stamp-aicost');
     renderAiCostBody((data || []).filter(r => r.context !== CREDITS_OUT_CTX)); // stoppmarkeringen är inget anrop
   } catch(e){
@@ -275,6 +281,7 @@ async function renderAiCost(){
 
 function renderAiCostBody(rows){
   const el = document.getElementById('aicost-body');
+  aiCostLastRows = rows;
   if(!rows.length){ el.innerHTML = '<div class="info-msg" style="margin-bottom:14px">Inga AI-kostnader loggade i perioden ännu. Motorn loggar varje natt; on-demand-analyser loggas när du är inloggad.</div>' + aiPriceTableHtml(); return; }
 
   // Modeller utan känt pris – kostnaden för dem är en uppskattning (reservpris).
@@ -305,12 +312,12 @@ function renderAiCostBody(rows){
   const byCtx = {};
   for(const r of rows){ const k=r.context; (byCtx[k] ||= {n:0,cost:0,in:0,out:0}); const b=byCtx[k]; b.n++; b.cost+=+r.cost_usd||0; b.in+=inTok(r); b.out+=r.output_tokens||0; }
   const ctxRows = Object.entries(byCtx).sort((a,b)=>b[1].cost-a[1].cost).map(([c,b])=>`<tr>
-    <td>${escHtml(aiCtxLabel(c))}</td><td style="text-align:right">${b.n}</td>
+    <td>${escHtml(aiCtxLabel(c))}</td><td style="font-size:12px;color:var(--text2)">${escHtml(aiCtxFreq(c))}</td><td style="text-align:right">${b.n}</td>
     <td style="text-align:right">${(b.in/1e3).toFixed(0)}k / ${(b.out/1e3).toFixed(0)}k</td>
     <td style="text-align:right">$${b.cost.toFixed(3)}</td>
     <td style="text-align:right">${fmtSekNum(b.cost*SEK_PER_USD,2)} kr</td></tr>`).join('');
   const breakdown = `<div class="card" style="padding:0;margin-bottom:14px"><div class="table-wrap"><table>
-    <thead><tr><th>Vad kostar</th><th style="text-align:right">Anrop</th><th style="text-align:right">Tokens in/ut</th><th style="text-align:right">USD</th><th style="text-align:right">SEK</th></tr></thead>
+    <thead><tr><th>Vad kostar</th><th>Hur ofta</th><th style="text-align:right">Anrop</th><th style="text-align:right">Tokens in/ut</th><th style="text-align:right">USD</th><th style="text-align:right">SEK</th></tr></thead>
     <tbody>${ctxRows}</tbody></table></div></div>`;
 
   // Tidslogg (senaste anropen)

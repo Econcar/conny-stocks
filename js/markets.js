@@ -243,7 +243,7 @@ async function renderTrends() {
     return;
   }
   if(!data.length) {
-    el.innerHTML = `<div class="muted" style="padding:20px 4px">Inga megatrend-analyser ännu. Motorn genererar dem en gång i veckan.</div>`;
+    el.innerHTML = `<div class="muted" style="padding:20px 4px">Inga megatrend-analyser ännu. Motorn genererar dem automatiskt – hur ofta ställer du in under AI-kostnader.</div>`;
     return;
   }
   const latest = data[0].date;
