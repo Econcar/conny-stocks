@@ -518,7 +518,29 @@
 
     <div class="section" id="section-track">
       <div class="page-title">AI:ns träffsäkerhet <span>· Hur gick det för AI:ns rekommendationer?</span><span class="update-stamp" id="stamp-track"></span></div>
-      <div class="info-msg" style="margin-bottom:14px">Varje rekommendation från <b>AI-triagen</b>, <b>Portföljgenomlysningen</b> och <b>Institutionell djupanalys</b> loggas automatiskt med kurs och jämförelseindex. Här ser du hur aktien gått sedan dess jämfört med sitt lokala index – och efter 1, 3 och 6 månader om AI:n hade rätt.</div>
+      <div class="info-msg" style="margin-bottom:14px">Varje rekommendation från <b>AI-triagen</b>, <b>Portföljgenomlysningen</b> och <b>Institutionell djupanalys</b> loggas automatiskt med kurs och jämförelseindex. Här ser du hur aktien gått sedan dess jämfört med sitt lokala index – och efter 1, 3 och 6 månader om AI:n hade rätt.
+        <details id="track-guide" style="margin-top:10px">
+          <summary style="cursor:pointer;color:var(--accent);font-size:12px;user-select:none">Så använder du perioderna – t.ex. månadens ombalansering ▾</summary>
+          <div style="font-size:12px;line-height:1.7;color:var(--text2);margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+            <b style="color:var(--text)">Innan du börjar</b> (en gång): logga in med Google och kör <b>supabase-ai-track-periods.sql</b> i Supabase → SQL Editor – då sparas perioderna i databasen.<br>
+            <b style="color:var(--text)">Varje månad:</b>
+            <div style="padding-left:12px">
+              1. Gå till <b>Min portfölj</b> och tryck <b>✦ Kör Portföljgenomlysning</b>. Har perioden pågått i 25 dagar eller mer frågar appen om den ska avslutas först – svara <b>OK</b>. (Eller tryck <b>↻ Starta ny period</b> här innan du kör analysen.)<br>
+              2. Perioden sparas i databasen och laddas ner som Excel/CSV. Den nya analysens råd hamnar i den nya perioden.<br>
+              3. Ombalansera efter råden.<br>
+              4. Kom tillbaka hit: <b>Perioder jämförda</b> visar en rad per månad med antal råd, AI-alfa och träffprocent. Välj <b>Portföljgenomlysning</b> i filtret för att bara se dina ombalanseringar.
+            </div>
+            <b style="color:var(--text)">Bra att veta:</b>
+            <div style="padding-left:12px">
+              · Ordningen spelar roll: perioden byts när du trycker – kör analysen <i>efter</i> bytet.<br>
+              · Inget raderas. Avslutade perioder följs upp vid 1, 3 och 6 mån och syns i periodväljaren. Den sparade sammanfattningen fylls på när fler horisonter nåtts.<br>
+              · <b>1 mån</b> är den viktiga horisonten vid månadsvis ombalansering: slog varje råd index fram till nästa ombalansering?<br>
+              · Träffsäkerheten mäter varje råd för sig. För att se hur hela den ombalanserade portföljen gått mot index – följ den som en <b>Modellportfölj</b>.<br>
+              · Behåll och Avvakta räknas inte i träffprocenten.
+            </div>
+          </div>
+        </details>
+      </div>
       <div class="filter-row" id="track-filters"></div>
       <div id="track-body"></div>
     </div>
