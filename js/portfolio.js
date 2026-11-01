@@ -954,6 +954,9 @@ async function runPortfolioReview(kind, fundId) {
   }
   const fund = kind === 'fund' ? aiFunds.find(f => f.id === fundId) : null;
   if(kind === 'fund' ? !fund : !pfEnriched.length) return;
+  // Månadens ombalansering: erbjud att avsluta perioden i AI:ns träffsäkerhet först,
+  // så att de nya råden räknas i en ny period.
+  await maybeStartNewPeriod();
   const id = ++pmRunId, live = () => id === pmRunId;
   const setBtn = (disabled, label) => { const b = document.getElementById(btnId); if(b && live()) { b.disabled = disabled; b.textContent = label; } };
   const status = txt => { if(live()) memoStatus(getOut(), txt); };

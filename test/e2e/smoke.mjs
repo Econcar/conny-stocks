@@ -256,7 +256,8 @@ try {
   });
 
   await check('Gemini-chatten på Översikt: underlag, strömmat svar och kostnad', async () => {
-    // Simulerat SSE-svar från /api/gemini – inget riktigt anrop görs.
+    // Simulerat SSE-svar från Google (direktanrop) – inget riktigt anrop görs. Andra frågan: direktanropet
+    // når inte fram (TypeError) → reserven /api/gemini används, med modellen i bodyn.
     const r = await evaluate(`
       const realFetch = window.fetch;
       let sent = null;
@@ -268,8 +269,8 @@ try {
         document.getElementById('chat-key-input').value = 'AIza' + 'x'.repeat(35);
         saveGeminiKey();
         window.fetch = async (u, o) => {
-          if(!String(u).includes('/api/gemini')) return realFetch(u, o);
-          sent = { key: o.headers['x-goog-api-key'], body: JSON.parse(o.body) };
+          if(!String(u).includes('generativelanguage.googleapis.com')) return realFetch(u, o);
+          sent = { url: String(u), key: o.headers['x-goog-api-key'], body: JSON.parse(o.body) };
           return sse([
             { candidates: [{ content: { parts: [{ text: 'Enligt **CIO-analysen** ' }] } }] },
             { candidates: [{ content: { parts: [{ text: 'tänker…', thought: true }, { text: 'är läget neutralt.' }] }, finishReason: 'STOP' }],
@@ -280,7 +281,19 @@ try {
         await chatSend();
         const log = document.getElementById('chat-log').textContent;
         const sys = sent.body.systemInstruction.parts[0].text;
-        return { lockedBefore, key: sent.key, model: sent.body.model, turns: sent.body.contents.length,
+        const direct = sent;
+        let proxied = null;
+        window.fetch = async (u, o) => {
+          if(String(u).includes('generativelanguage.googleapis.com')) throw new TypeError('Failed to fetch');
+          if(!String(u).includes('/api/gemini')) return realFetch(u, o);
+          proxied = JSON.parse(o.body);
+          return sse([{ candidates: [{ content: { parts: [{ text: 'Via reserven.' }] }, finishReason: 'STOP' }] }]);
+        };
+        document.getElementById('chat-input').value = 'Och sedan?';
+        await chatSend();
+        const fallback = { model: proxied && proxied.model, turns: proxied && proxied.contents.length, shown: document.getElementById('chat-log').textContent.includes('Via reserven.') };
+        return { lockedBefore, key: direct.key, model: direct.url.endsWith(':streamGenerateContent?alt=sse') && direct.url.split('/models/')[1].split(':')[0],
+                 bodyModel: direct.body.model, turns: direct.body.contents.length, fallback,
                  hasCtx: ['cio_analysis', 'my_portfolio', 'news_signals_last_7_days', 'ai_decision_log', 'watchlist'].every(k => sys.includes('"' + k + '"')),
                  ctxChars: sys.length, log, history: chatHistory.length };
       } finally { window.fetch = realFetch; localStorage.removeItem('gemini_api_key'); chatClear(); renderChatCard(); }`);
@@ -289,7 +302,9 @@ try {
     assert(r.hasCtx, 'underlaget saknar delar');
     assert(r.log.includes('Enligt CIO-analysen är läget neutralt.') && !r.log.includes('tänker'), 'svaret visades fel: ' + r.log);
     assert(/gemini-3\.8-flash/.test(r.log) && /underlaget cachat/.test(r.log), 'kostnadsraden saknas');
-    assert(r.history === 2, 'historiken sparades inte');
+    assert(r.history === 4, 'historiken sparades inte: ' + r.history);
+    assert(r.bodyModel === undefined, 'modellen ska ligga i URL:en vid direktanrop');
+    assert(r.fallback.model === 'gemini-3.8-flash' && r.fallback.turns === 3 && r.fallback.shown, 'reserven via /api/gemini fungerade inte: ' + JSON.stringify(r.fallback));
   });
 
   await check('beslutsloggen loggar och följer upp mot index', async () => {
@@ -308,7 +323,45 @@ try {
       for(let i = 0; i < 40 && !document.querySelector('#track-body table'); i++) await new Promise(r => setTimeout(r, 250));
       const cells = [...document.querySelectorAll('#track-body tbody tr:first-child td')].map(td => td.textContent.trim());
       const next = (document.getElementById('track-next') || {}).textContent || '';
-      const out = { parsedAction: normAction(parsed[0].action), n, dup, bench: decisionBenchmark('VOLV-B.ST'), us: decisionBenchmark('AAPL'), cells, next,
+      const csv = trackCsv(trackRows).split('\\r\\n');
+      // Starta ny period: sparas (lokalt – inte inloggad) med ögonblicksbild + CSV, nya perioden är tom,
+      // och den avslutade perioden går att öppna igen med samma beslut.
+      const realConfirm = window.confirm, realDl = window.downloadCsv;
+      let dl = null; window.confirm = () => true; window.downloadCsv = (t, f) => { dl = f; };
+      localStorage.removeItem('ai_track_periods'); trackPeriodsLocal = [];
+      let period = {};
+      try {
+        // Inför genomlysningen: perioden har pågått 100 dagar → frågan ställs; Avbryt = ingen ny period.
+        let asked = '';
+        window.confirm = m => { asked = m; return false; };
+        const declined = await maybeStartNewPeriod();
+        period.prompt = { asked: /startade för 100 dagar sedan/.test(asked), declined: declined === false && trackPeriodsLocal.length === 0 };
+        window.confirm = () => true;
+        await startNewPeriod();
+        const p = trackPeriodsLocal[0] || {};
+        Object.assign(period, { n: trackPeriodsLocal.length, label: p.label, snapRows: (p.rows || []).length, snapN: p.summary && p.summary.all.n,
+          m1done: p.summary && p.summary.all.h['1m'].done, dl,
+          emptyNow: document.getElementById('track-body').textContent.includes('i den nya perioden än'),
+          selector: !!document.getElementById('track-period'),
+          cmpRows: [...document.querySelectorAll('#track-periods tbody tr')].map(tr => tr.textContent.replace(/\\s+/g, ' ').trim()) });
+        // Nyss avslutad period: ingen fråga inför nästa genomlysning.
+        asked = ''; window.confirm = m => { asked = m; return false; };
+        await maybeStartNewPeriod();
+        period.noPromptAfter = asked === '';
+        window.confirm = () => true;
+        // Ögonblicksbilden uppdateras i efterhand när en horisont nåtts som saknades vid avslutet.
+        p.summary.all.h['1m'].done = 0;
+        await renderTrack();
+        period.refreshed = p.summary.all.h['1m'].done === 1 && !!p.summary.refreshed_at;
+        setTrackPeriod(p.id);
+        for(let i = 0; i < 40 && !document.querySelector('#track-body table'); i++) await new Promise(r => setTimeout(r, 250));
+        period.reopened = !!document.querySelector('#track-body tbody tr') && !!document.getElementById('track-period-note')
+          && !document.getElementById('track-new-period');
+      } finally {
+        window.confirm = realConfirm; window.downloadCsv = realDl;
+        localStorage.removeItem('ai_track_periods'); trackPeriodsLocal = []; trackPeriodsAll = []; trackPeriod = 'current';
+      }
+      const out = { parsedAction: normAction(parsed[0].action), n, dup, bench: decisionBenchmark('VOLV-B.ST'), us: decisionBenchmark('AAPL'), cells, next, csv, period,
         hidden: !formatMemo('a <decision>{"action":"KÖP"}</decision>').includes('KÖP') };
       localStorage.removeItem('ai_decisions'); aiDecisionsLocal = [];
       return out;`);
@@ -319,6 +372,16 @@ try {
     const [, , bolag, action, , , , , m1, m3, m6] = r.cells;
     assert(bolag.includes('VOLV-B.ST') && action === 'KANDIDAT', 'raden saknas i vyn: ' + r.cells.join(' | '));
     assert(/%/.test(m1) && /%/.test(m3) && /^om \d+ d$/.test(m6), `horisonter fel: ${m1} / ${m3} / ${m6}`);
+    assert(r.csv.length === 2 && r.csv[0].startsWith('\uFEFFDatum;Källa;Bolag') && /;VOLV-B\.ST;KANDIDAT;\d+,\d\d;/.test(r.csv[1])
+      && /;väntar \d{4}-\d\d-\d\d;;test$/.test(r.csv[1]), 'CSV-exporten fel: ' + r.csv.join(' / '));
+    const p = r.period;
+    assert(p.n === 1 && p.label === 'Period 1' && p.snapRows === 1 && p.snapN === 1 && p.m1done === 1 && /^ai-traffsakerhet-period-1-.*\.csv$/.test(p.dl),
+      'perioden sparades fel: ' + JSON.stringify(p));
+    assert(p.emptyNow && p.selector && p.reopened, 'ny period/periodväljaren fungerar inte: ' + JSON.stringify(p));
+    assert(p.prompt.asked && p.prompt.declined && p.noPromptAfter, 'frågan inför genomlysningen fel: ' + JSON.stringify(p));
+    assert(p.cmpRows.length === 2 && /^Period 1 .* 1 [+−]?[\d,]+ %/.test(p.cmpRows[0]) && /^Nuvarande sedan .* 0 –/.test(p.cmpRows[1]),
+      'jämförelsetabellen fel: ' + JSON.stringify(p.cmpRows));
+    assert(p.refreshed, 'ögonblicksbilden uppdaterades inte i efterhand');
     // 100 dagar gammalt beslut: 1 och 3 mån klara, 6 mån förfaller om 82 dagar.
     assert(/Nästa utvärdering · 6 mån: om 8[123] dagar \(.+, 1 beslut\)/.test(r.next) && !/1 mån|3 mån/.test(r.next), 'nästa utvärdering fel: ' + r.next);
   });

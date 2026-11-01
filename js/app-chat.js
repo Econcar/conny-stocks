@@ -125,18 +125,34 @@ ${JSON.stringify(ctx)}
 }
 
 // ── Anropet (strömmande, SSE) → { text, usage, finish } eller { error } ──
+// Direkt från webbläsaren till Google (Gemini-API:t tillåter CORS) – via Cloudflare bröts
+// långa svar efter ~100 s (524). /api/gemini finns kvar som reserv om direktanropet inte når fram.
+const GEMINI_URL = m => `https://generativelanguage.googleapis.com/v1beta/models/${m}:streamGenerateContent?alt=sse`;
+const GEMINI_TIMEOUT_MS = 5 * 60 * 1000;
 async function callGeminiStream(model, system, history, onText) {
+  const req = { systemInstruction: { parts: [{ text: system }] },
+    contents: history.map(m => ({ role: m.role, parts: [{ text: m.text }] })),
+    generationConfig: Object.assign({ maxOutputTokens: 8192 },
+      // 3.8 Flash tänker "medium" som standard – kan ta minuter; "low" räcker för frågor om underlaget
+      model === 'gemini-3.8-flash' ? { thinkingConfig: { thinkingLevel: 'low' } } : {}) };
+  const headers = { 'Content-Type': 'application/json', 'x-goog-api-key': getGeminiKey() };
+  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), GEMINI_TIMEOUT_MS);
+  const timeoutMsg = 'Gemini svarade inte inom 5 minuter. Prova igen, eller byt till Flash-Lite i modellväljaren.';
   let res;
   try {
-    res = await fetch('/api/gemini', { method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': getGeminiKey() },
-      body: JSON.stringify({ model, systemInstruction: { parts: [{ text: system }] },
-        contents: history.map(m => ({ role: m.role, parts: [{ text: m.text }] })),
-        generationConfig: Object.assign({ maxOutputTokens: 8192 },
-          // 3.8 Flash tänker "medium" som standard – kan ta minuter; "low" räcker för frågor om underlaget
-          model === 'gemini-3.8-flash' ? { thinkingConfig: { thinkingLevel: 'low' } } : {}) }) });
-  } catch(e) { return { error: 'Nätverksfel: ' + e.message }; }
+    try {
+      res = await fetch(GEMINI_URL(model), { method: 'POST', headers, body: JSON.stringify(req), signal: ctrl.signal });
+    } catch(e) {
+      if(ctrl.signal.aborted) throw e;
+      res = await fetch('/api/gemini', { method: 'POST', headers, body: JSON.stringify(Object.assign({ model }, req)), signal: ctrl.signal });
+    }
+  } catch(e) { clearTimeout(timer); return { error: ctrl.signal.aborted ? timeoutMsg : 'Nätverksfel: ' + e.message }; }
+  try { return await readGeminiResponse(res, onText); }
+  catch(e) { return { error: ctrl.signal.aborted ? timeoutMsg : 'Nätverksfel: ' + e.message }; }
+  finally { clearTimeout(timer); }
+}
 
+async function readGeminiResponse(res, onText) {
   const ct = res.headers.get('content-type') || '';
   if(!ct.includes('text/event-stream')) {
     const raw = await res.text();
@@ -235,14 +251,19 @@ async function chatSend() {
   if(!q || chatBusy || !getGeminiKey()) return;
   chatBusy = true; btn.disabled = true; input.value = '';
   chatAppend('user', escHtml(q).replace(/\n/g, '<br>'));
-  const bubble = chatAppend('model', '<div class="typing"><span></span><span></span><span></span></div>');
+  const typing = '<div class="typing"><span></span><span></span><span></span></div>';
+  const bubble = chatAppend('model', typing);
   const log = document.getElementById('chat-log');
+  // Sekundräknare medan Gemini tänker (innan första ordet kommit)
+  const t0 = Date.now(); let gotText = false;
+  const tick = setInterval(() => { if(!gotText) bubble.innerHTML = typing + `<span class="chat-meta">tänker … ${Math.round((Date.now() - t0) / 1000)} s</span>`; }, 1000);
   const model = chatModel();
   try {
     const ctx = await chatBuildContext(false);
     chatHistory.push({ role: 'user', text: q });
     const history = chatHistory.slice(-CHAT_HISTORY_TURNS * 2);
-    const r = await callGeminiStream(model, chatSystemPrompt(ctx), history, t => { bubble.innerHTML = chatFormat(t); log.scrollTop = log.scrollHeight; });
+    const r = await callGeminiStream(model, chatSystemPrompt(ctx), history, t => { gotText = true; bubble.innerHTML = chatFormat(t); log.scrollTop = log.scrollHeight; });
+    gotText = true; clearInterval(tick);
     if(r.error) {
       chatHistory.pop(); // frågan fick inget svar – skicka inte med den som minne
       bubble.innerHTML = `<span style="color:var(--red)">${escHtml(r.error)}</span>`;
@@ -263,6 +284,7 @@ async function chatSend() {
   } catch(e) {
     bubble.innerHTML = `<span style="color:var(--red)">Något gick fel: ${escHtml(e.message)}</span>`;
   } finally {
+    clearInterval(tick);
     chatBusy = false; btn.disabled = !getGeminiKey();
     log.scrollTop = log.scrollHeight;
     input.focus();
