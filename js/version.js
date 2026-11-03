@@ -1,3 +1,3 @@
 // Skrivs av deploy.ps1 vid varje deploy - andra inte for hand. Visas i sidomenyn, och
 // init.js jamfor med servern for att visa "ny version finns".
-const APP_VERSION = { number: 171, date: "2026-11-01 22:16" };
+const APP_VERSION = { number: 172, date: "2026-11-03 20:57" };

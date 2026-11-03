@@ -354,7 +354,21 @@ try {
         document.getElementById('chat-input').value = 'Och sedan?';
         await chatSend();
         const fallback = { model: proxied && proxied.model, turns: proxied && proxied.contents.length, shown: document.getElementById('chat-log').textContent.includes('Via reserven.') };
-        return { lockedBefore, key: direct.key, model: direct.url.endsWith(':streamGenerateContent?alt=sse') && direct.url.split('/models/')[1].split(':')[0],
+        // Svarsformat: sista händelsen utan radslut, JSON över flera data:-rader, och tomma svar med orsak.
+        const raw = body => readGeminiResponse(new Response(body, { headers: { 'content-type': 'text/event-stream' } }));
+        const noEol = await raw('data: {"candidates":[{"content":{"parts":[{"text":"Utan "}]}}]}\\r\\n\\r\\ndata: {"candidates":[{"content":{"parts":[{"text":"radslut."}]},"finishReason":"STOP"}]}');
+        const multi = await raw('data: {"candidates":[{"content":{"parts":\\ndata: [{"text":"Flera rader."}]}}]}\\n\\n');
+        const blocked = geminiEmptyText(await raw('data: {"promptFeedback":{"blockReason":"OTHER"}}\\n\\n'));
+        const garbage = geminiEmptyText(await raw('hej hopp'));
+        const historyBefore = chatHistory.length;
+        window.fetch = async (u, o) => String(u).includes('generativelanguage.googleapis.com')
+          ? sse([{ candidates: [{ content: { parts: [] }, finishReason: 'MAX_TOKENS' }], usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 0, thoughtsTokenCount: 32000 } }])
+          : realFetch(u, o);
+        document.getElementById('chat-input').value = 'Tom?';
+        await chatSend();
+        const empty = { shown: document.getElementById('chat-log').textContent, history: chatHistory.length - historyBefore };
+        var formats = { noEol: noEol.text, multi: multi.text, blocked, garbage, empty };
+        return { lockedBefore, formats, key: direct.key, model: direct.url.endsWith(':streamGenerateContent?alt=sse') && direct.url.split('/models/')[1].split(':')[0],
                  bodyModel: direct.body.model, turns: direct.body.contents.length, fallback,
                  hasCtx: ['cio_analysis', 'my_portfolio', 'news_signals_last_7_days', 'ai_decision_log', 'watchlist'].every(k => sys.includes('"' + k + '"')),
                  ctxChars: sys.length, log, history: chatHistory.length };
@@ -367,6 +381,10 @@ try {
     assert(r.history === 4, 'historiken sparades inte: ' + r.history);
     assert(r.bodyModel === undefined, 'modellen ska ligga i URL:en vid direktanrop');
     assert(r.fallback.model === 'gemini-3.8-flash' && r.fallback.turns === 3 && r.fallback.shown, 'reserven via /api/gemini fungerade inte: ' + JSON.stringify(r.fallback));
+    const f = r.formats;
+    assert(f.noEol === 'Utan radslut.' && f.multi === 'Flera rader.', 'svarsformaten lästes fel: ' + JSON.stringify(f));
+    assert(/avvisade frågan \(OTHER\)/.test(f.blocked) && /Början av svaret: hej hopp/.test(f.garbage), 'orsaken till tomt svar visas inte: ' + JSON.stringify(f));
+    assert(/längdgränsen/.test(f.empty.shown) && f.empty.history === 0, 'tomt svar (MAX_TOKENS) hanteras fel: ' + JSON.stringify(f.empty));
   });
 
   await check('beslutsloggen loggar och följer upp mot index', async () => {

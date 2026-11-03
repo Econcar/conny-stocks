@@ -132,7 +132,9 @@ const GEMINI_TIMEOUT_MS = 5 * 60 * 1000;
 async function callGeminiStream(model, system, history, onText) {
   const req = { systemInstruction: { parts: [{ text: system }] },
     contents: history.map(m => ({ role: m.role, parts: [{ text: m.text }] })),
-    generationConfig: Object.assign({ maxOutputTokens: 8192 },
+    // Taket gäller tänkande + svar tillsammans – med 8192 kunde tänkandet äta upp allt (tomt svar).
+    // Man betalar bara för det som faktiskt skrivs.
+    generationConfig: Object.assign({ maxOutputTokens: 32768 },
       // 3.8 Flash tänker "medium" som standard – kan ta minuter; "low" räcker för frågor om underlaget
       model === 'gemini-3.8-flash' ? { thinkingConfig: { thinkingLevel: 'low' } } : {}) };
   const headers = { 'Content-Type': 'application/json', 'x-goog-api-key': getGeminiKey() };
@@ -161,27 +163,60 @@ async function readGeminiResponse(res, onText) {
     return { error: geminiErrorText(res.status, err) };
   }
 
+  // SSE enligt standarden: händelser skiljs av en tom rad och kan ha flera data:-rader; sista
+  // händelsen läses även om strömmen slutar utan radbrytning. head/events finns för felsökning.
   const reader = res.body.getReader(), dec = new TextDecoder();
-  let buf = '', text = '', usage = null, finish = null;
-  for(;;) {
-    const { done, value } = await reader.read(); if(done) break;
-    buf += dec.decode(value, { stream: true });
-    let nl;
-    while((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-      if(!line.startsWith('data:')) continue;
-      let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch(_) { continue; }
-      if(ev.error) return { error: geminiErrorText(ev.error.code, ev.error) };
-      const cand = ev.candidates && ev.candidates[0];
-      if(cand && cand.content && cand.content.parts) {
-        const add = cand.content.parts.filter(p => p.text && !p.thought).map(p => p.text).join('');
-        if(add) { text += add; if(onText) onText(text); }
-      }
-      if(cand && cand.finishReason) finish = cand.finishReason;
-      if(ev.usageMetadata) usage = ev.usageMetadata;
+  let buf = '', data = [], head = '';
+  const out = { text: '', usage: null, finish: null, block: null, finishMsg: null, events: 0, head: '' };
+  const flush = () => {
+    if(!data.length) return null;
+    let ev; try { ev = JSON.parse(data.join('\n')); } catch(_) { ev = null; }
+    data = [];
+    if(!ev) return null;
+    out.events++;
+    if(ev.error) return { error: geminiErrorText(ev.error.code, ev.error) };
+    if(ev.promptFeedback && ev.promptFeedback.blockReason) out.block = ev.promptFeedback.blockReason;
+    const cand = ev.candidates && ev.candidates[0];
+    if(cand && cand.content && cand.content.parts) {
+      const add = cand.content.parts.filter(p => p.text && !p.thought).map(p => p.text).join('');
+      if(add) { out.text += add; if(onText) onText(out.text); }
     }
+    if(cand && cand.finishReason) out.finish = cand.finishReason;
+    if(cand && cand.finishMessage) out.finishMsg = cand.finishMessage;
+    if(ev.usageMetadata) out.usage = ev.usageMetadata;
+    return null;
+  };
+  const line = l => {
+    l = l.replace(/\r$/, '');
+    if(l === '') return flush();
+    if(l.startsWith('data:')) data.push(l.slice(5).replace(/^ /, ''));
+    return null;
+  };
+  for(;;) {
+    const { done, value } = await reader.read();
+    const chunk = done ? dec.decode() : dec.decode(value, { stream: true });
+    if(head.length < 300) head += chunk;
+    buf += chunk;
+    let nl, err;
+    while((nl = buf.indexOf('\n')) >= 0) {
+      err = line(buf.slice(0, nl)); buf = buf.slice(nl + 1);
+      if(err) return err;
+    }
+    if(done) { err = line(buf) || flush(); if(err) return err; break; }
   }
-  return { text, usage, finish };
+  out.head = head.slice(0, 300);
+  return out;
+}
+
+// Svar utan text – säg varför i stället för bara "tomt".
+function geminiEmptyText(r) {
+  const f = r.finish || '';
+  if(r.block) return `Gemini avvisade frågan (${r.block}). Formulera om frågan eller prova igen.`;
+  if(f === 'MAX_TOKENS') return 'Gemini tänkte så länge att inget svar hann skrivas (längdgränsen nåddes). Prova igen, eller byt till Flash-Lite i modellväljaren.';
+  if(/SAFETY|PROHIBITED|BLOCKLIST|SPII/.test(f)) return `Gemini stoppade svaret av säkerhetsskäl (${f}).`;
+  if(f === 'RECITATION') return 'Gemini stoppade svaret eftersom det liknade skyddad text (RECITATION). Formulera om frågan.';
+  if(!r.events) return 'Tomt svar från Gemini – svaret gick inte att läsa. Början av svaret: ' + (r.head ? r.head.trim().slice(0, 200) : '(ingenting)');
+  return `Tomt svar från Gemini (orsak: ${f || 'ingen angiven'}${r.finishMsg ? ' – ' + r.finishMsg : ''}). Prova igen.`;
 }
 
 function geminiErrorText(status, err) {
@@ -264,11 +299,12 @@ async function chatSend() {
     const history = chatHistory.slice(-CHAT_HISTORY_TURNS * 2);
     const r = await callGeminiStream(model, chatSystemPrompt(ctx), history, t => { gotText = true; bubble.innerHTML = chatFormat(t); log.scrollTop = log.scrollHeight; });
     gotText = true; clearInterval(tick);
-    if(r.error) {
+    if(r.error || !(r.text || '').trim()) {
       chatHistory.pop(); // frågan fick inget svar – skicka inte med den som minne
-      bubble.innerHTML = `<span style="color:var(--red)">${escHtml(r.error)}</span>`;
+      bubble.innerHTML = `<span style="color:var(--red)">${escHtml(r.error || geminiEmptyText(r))}</span>`;
+      if(!r.error) recordAiUsage('gemini_chat', model, geminiUsage(r.usage)); // tänkandet kostar ändå
     } else {
-      let text = (r.text || '').trim() || 'Tomt svar från Gemini.';
+      let text = r.text.trim();
       if(r.finish === 'MAX_TOKENS') text += '\n\n_…(svaret kapades vid längdgränsen – ställ en följdfråga för resten)_';
       if(r.finish === 'SAFETY') text += '\n\n_(Gemini stoppade svaret av säkerhetsskäl.)_';
       chatHistory.push({ role: 'model', text });
