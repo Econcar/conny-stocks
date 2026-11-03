@@ -140,33 +140,53 @@ async function callGeminiStream(model, system, history, onText) {
   const headers = { 'Content-Type': 'application/json', 'x-goog-api-key': getGeminiKey() };
   const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), GEMINI_TIMEOUT_MS);
   const timeoutMsg = 'Gemini svarade inte inom 5 minuter. Prova igen, eller byt till Flash-Lite i modellväljaren.';
-  let res;
   try {
-    try {
-      res = await fetch(GEMINI_URL(model), { method: 'POST', headers, body: JSON.stringify(req), signal: ctrl.signal });
-    } catch(e) {
-      if(ctrl.signal.aborted) throw e;
-      res = await fetch('/api/gemini', { method: 'POST', headers, body: JSON.stringify(Object.assign({ model }, req)), signal: ctrl.signal });
+    for(let attempt = 0; ; attempt++) {
+      let res;
+      try {
+        try {
+          res = await fetch(GEMINI_URL(model), { method: 'POST', headers, body: JSON.stringify(req), signal: ctrl.signal });
+        } catch(e) {
+          if(ctrl.signal.aborted) throw e;
+          res = await fetch('/api/gemini', { method: 'POST', headers, body: JSON.stringify(Object.assign({ model }, req)), signal: ctrl.signal });
+        }
+      } catch(e) { return { error: ctrl.signal.aborted ? timeoutMsg : 'Nätverksfel: ' + e.message }; }
+      let r;
+      try { r = await readGeminiResponse(res, onText); }
+      catch(e) { return { error: ctrl.signal.aborted ? timeoutMsg : 'Nätverksfel: ' + e.message }; }
+      // Överbelastad modell (503) eller tillfälligt serverfel: försök igen efter en stund
+      if(r.error && GEMINI_RETRY_CODES.includes(r.code) && attempt < GEMINI_RETRY_DELAYS.length) {
+        await new Promise(ok => setTimeout(ok, GEMINI_RETRY_DELAYS[attempt]));
+        if(ctrl.signal.aborted) return { error: timeoutMsg };
+        continue;
+      }
+      return r;
     }
-  } catch(e) { clearTimeout(timer); return { error: ctrl.signal.aborted ? timeoutMsg : 'Nätverksfel: ' + e.message }; }
-  try { return await readGeminiResponse(res, onText); }
-  catch(e) { return { error: ctrl.signal.aborted ? timeoutMsg : 'Nätverksfel: ' + e.message }; }
-  finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); }
+}
+const GEMINI_RETRY_CODES = [500, 503];
+let GEMINI_RETRY_DELAYS = [3000, 8000];
+
+// Fel från Google som JSON ({error} eller [{error}]) → { error, code }. null om texten inte är ett sådant fel.
+function geminiJsonError(raw, status) {
+  let data; try { data = JSON.parse(raw); } catch(_) { return null; }
+  const err = Array.isArray(data) ? data[0] && data[0].error : data && data.error;
+  if(!err) return null;
+  const code = (typeof err === 'object' && Number(err.code)) || status;
+  return { error: geminiErrorText(code, err), code };
 }
 
 async function readGeminiResponse(res, onText) {
   const ct = res.headers.get('content-type') || '';
-  if(!ct.includes('text/event-stream')) {
+  if(!res.ok || !ct.includes('text/event-stream')) {
     const raw = await res.text();
-    let data; try { data = JSON.parse(raw); } catch(_) { return { error: 'Ogiltigt svar från servern (' + res.status + ').' }; }
-    const err = Array.isArray(data) ? data[0] && data[0].error : data.error;
-    return { error: geminiErrorText(res.status, err) };
+    return geminiJsonError(raw, res.status) || { error: 'Ogiltigt svar från servern (' + res.status + ').', code: res.status };
   }
 
   // SSE enligt standarden: händelser skiljs av en tom rad och kan ha flera data:-rader; sista
   // händelsen läses även om strömmen slutar utan radbrytning. head/events finns för felsökning.
   const reader = res.body.getReader(), dec = new TextDecoder();
-  let buf = '', data = [], head = '';
+  let buf = '', data = [], head = '', raw = '';
   const out = { text: '', usage: null, finish: null, block: null, finishMsg: null, events: 0, head: '' };
   const flush = () => {
     if(!data.length) return null;
@@ -174,7 +194,7 @@ async function readGeminiResponse(res, onText) {
     data = [];
     if(!ev) return null;
     out.events++;
-    if(ev.error) return { error: geminiErrorText(ev.error.code, ev.error) };
+    if(ev.error) return { error: geminiErrorText(ev.error.code, ev.error), code: Number(ev.error.code) || null };
     if(ev.promptFeedback && ev.promptFeedback.blockReason) out.block = ev.promptFeedback.blockReason;
     const cand = ev.candidates && ev.candidates[0];
     if(cand && cand.content && cand.content.parts) {
@@ -196,6 +216,7 @@ async function readGeminiResponse(res, onText) {
     const { done, value } = await reader.read();
     const chunk = done ? dec.decode() : dec.decode(value, { stream: true });
     if(head.length < 300) head += chunk;
+    if(!out.events && raw.length < 20000) raw += chunk;
     buf += chunk;
     let nl, err;
     while((nl = buf.indexOf('\n')) >= 0) {
@@ -204,6 +225,8 @@ async function readGeminiResponse(res, onText) {
     }
     if(done) { err = line(buf) || flush(); if(err) return err; break; }
   }
+  // Google skickar ibland felet som vanlig JSON i SSE-strömmen (utan data:), t.ex. 503 vid hög belastning
+  if(!out.events) { const e = geminiJsonError(raw, res.status); if(e) return e; }
   out.head = head.slice(0, 300);
   return out;
 }
@@ -222,6 +245,8 @@ function geminiEmptyText(r) {
 function geminiErrorText(status, err) {
   const msg = typeof err === 'string' ? err : (err && err.message) || 'okänt fel';
   if(status === 429 || /quota|RESOURCE_EXHAUSTED/i.test(msg)) return 'Gemini-kvoten är slut för tillfället (för många frågor på kort tid, eller dagens gratiskvot förbrukad). Vänta en stund, eller slå på fakturering i Google AI Studio.';
+  if(status === 503 || /UNAVAILABLE|high demand|overloaded/i.test(msg)) return 'Gemini är överbelastat just nu (Googles servrar, 503) – appen försökte igen utan att lyckas. Vänta en stund och prova igen, eller byt till Flash-Lite i modellväljaren.';
+  if(status === 500 || /INTERNAL/.test(msg)) return 'Tillfälligt fel hos Google (500). Prova igen om en stund.';
   if(/API key not valid|API_KEY_INVALID/i.test(msg)) return 'Gemini-nyckeln är ogiltig. Skapa en ny i Google AI Studio och klistra in den igen.';
   return 'Gemini-fel: ' + msg;
 }

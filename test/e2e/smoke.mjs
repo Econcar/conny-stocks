@@ -367,11 +367,27 @@ try {
         document.getElementById('chat-input').value = 'Tom?';
         await chatSend();
         const empty = { shown: document.getElementById('chat-log').textContent, history: chatHistory.length - historyBefore };
-        var formats = { noEol: noEol.text, multi: multi.text, blocked, garbage, empty };
+        // 503 "high demand" som vanlig JSON i SSE-strömmen: nytt försök – lyckas andra gången, resp. ger upp efter tre.
+        const realDelays = GEMINI_RETRY_DELAYS; GEMINI_RETRY_DELAYS = [10, 10];
+        const busy = () => new Response('{\\n  "error": {\\n    "code": 503,\\n    "message": "This model is currently experiencing high demand.",\\n    "status": "UNAVAILABLE"\\n  }\\n}\\n', { headers: { 'content-type': 'text/event-stream' } });
+        let calls = 0;
+        window.fetch = async (u, o) => String(u).includes('generativelanguage.googleapis.com')
+          ? (++calls === 1 ? busy() : sse([{ candidates: [{ content: { parts: [{ text: 'Andra försöket.' }] }, finishReason: 'STOP' }] }]))
+          : realFetch(u, o);
+        document.getElementById('chat-input').value = 'Upptaget?';
+        await chatSend();
+        const retried = { calls, shown: document.getElementById('chat-log').textContent.includes('Andra försöket.') };
+        calls = 0;
+        window.fetch = async (u, o) => String(u).includes('generativelanguage.googleapis.com') ? (calls++, busy()) : realFetch(u, o);
+        document.getElementById('chat-input').value = 'Fortfarande upptaget?';
+        await chatSend();
+        const gaveUp = { calls, shown: document.getElementById('chat-log').textContent };
+        GEMINI_RETRY_DELAYS = realDelays;
+        var formats = { noEol: noEol.text, multi: multi.text, blocked, garbage, empty, retried, gaveUp };
         return { lockedBefore, formats, key: direct.key, model: direct.url.endsWith(':streamGenerateContent?alt=sse') && direct.url.split('/models/')[1].split(':')[0],
                  bodyModel: direct.body.model, turns: direct.body.contents.length, fallback,
                  hasCtx: ['cio_analysis', 'my_portfolio', 'news_signals_last_7_days', 'ai_decision_log', 'watchlist'].every(k => sys.includes('"' + k + '"')),
-                 ctxChars: sys.length, log, history: chatHistory.length };
+                 ctxChars: sys.length, log, history: historyBefore };
       } finally { window.fetch = realFetch; localStorage.removeItem('gemini_api_key'); chatClear(); renderChatCard(); }`);
     assert(r.lockedBefore, 'chatten var inte låst utan nyckel');
     assert(r.key.startsWith('AIza') && r.model === 'gemini-3.8-flash' && r.turns === 1, 'fel anrop: ' + JSON.stringify(r));
@@ -385,6 +401,8 @@ try {
     assert(f.noEol === 'Utan radslut.' && f.multi === 'Flera rader.', 'svarsformaten lästes fel: ' + JSON.stringify(f));
     assert(/avvisade frågan \(OTHER\)/.test(f.blocked) && /Början av svaret: hej hopp/.test(f.garbage), 'orsaken till tomt svar visas inte: ' + JSON.stringify(f));
     assert(/längdgränsen/.test(f.empty.shown) && f.empty.history === 0, 'tomt svar (MAX_TOKENS) hanteras fel: ' + JSON.stringify(f.empty));
+    assert(f.retried.calls === 2 && f.retried.shown, 'inget nytt försök efter 503: ' + JSON.stringify(f.retried));
+    assert(f.gaveUp.calls === 3 && /överbelastat/.test(f.gaveUp.shown), '503 efter tre försök visas fel: ' + f.gaveUp.calls + ' ' + f.gaveUp.shown.slice(-200));
   });
 
   await check('beslutsloggen loggar och följer upp mot index', async () => {
