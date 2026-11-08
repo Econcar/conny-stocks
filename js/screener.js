@@ -109,6 +109,7 @@ function renderScreenerHead() {
 }
 
 function onSort(key) {
+  triageRankSort = false;
   if(sortCol === key) sortDir = (sortDir === 'desc') ? 'asc' : 'desc';
   else { sortCol = key; sortDir = (key === 'pe') ? 'asc' : 'desc'; }
   const d = COL_DEFS[key];
@@ -250,6 +251,41 @@ function screenerParams(offset, size) {
 // Vilka filter som gäller (utan sida/sortering) – AI-triagens kort stängs när de ändras.
 const screenerFilterKey = () => JSON.stringify([[...activeRegions].sort(), [...activeSectors].sort(), numFilters]);
 
+// En rad i tabellen ur en Yahoo-quote (/api/screener). Delas av sidan och AI-triagens val.
+function screenerRow(q) {
+  // q.region är opålitlig (= query-regionen, ofta "US"). q.market = "se_market" ger rätt land.
+  // Med flera valda marknader går det inte att gissa land ur filtret – då får
+  // q.market avgöra ensam (den är rätt) och flaggan falla tillbaka på tickern.
+  const only = activeRegions.size === 1 ? [...activeRegions][0] : '';
+  const market = (q.market || '').split('_')[0] || (only && only !== 'norden' ? only : '');
+  return {
+    name: q.shortName || q.longName || q.symbol,
+    ticker: q.symbol,
+    r: market,
+    sektor: activeSectors.size === 1 ? [...activeSectors][0] : (q.sector || 'Aktie'),
+    kurs: q.regularMarketPrice != null ? fmtPrice(q.regularMarketPrice, q.currency) : '–',
+    price: q.regularMarketPrice != null ? q.regularMarketPrice : null,
+    ytd: null,
+    dag: q.regularMarketChangePercent != null ? +q.regularMarketChangePercent.toFixed(1) : null,
+    ar52: q.fiftyTwoWeekChangePercent != null ? +q.fiftyTwoWeekChangePercent.toFixed(1) : null,
+    volym: q.regularMarketVolume != null ? q.regularMarketVolume : null,
+    pe: q.trailingPE != null ? +q.trailingPE.toFixed(1) : null,
+    fpe: q.forwardPE != null ? +q.forwardPE.toFixed(1) : null,
+    pb: q.priceToBook != null ? +q.priceToBook.toFixed(1) : null,
+    eps: q.epsTrailingTwelveMonths != null ? +q.epsTrailingTwelveMonths.toFixed(2) : null,
+    rating: q.averageAnalystRating || null,
+    div: q.trailingAnnualDividendYield != null ? +(q.trailingAnnualDividendYield*100).toFixed(1)
+         : (q.dividendYield != null ? +q.dividendYield.toFixed(1) : 0),
+    mcap: q.marketCap != null ? Math.round(q.marketCap/1e9) : null,
+    valuta: q.currency || '',
+    hi52: q.fiftyTwoWeekHigh != null ? q.fiftyTwoWeekHigh : null,
+    lo52: q.fiftyTwoWeekLow != null ? q.fiftyTwoWeekLow : null,
+    fwdeps: q.epsForward != null ? +q.epsForward.toFixed(2) : null,
+    avgvol: q.averageDailyVolume3Month != null ? q.averageDailyVolume3Month : null,
+    flag: REGION_FLAGS[market] || REGION_FLAGS[marketFromTickerCode(q.symbol)] || '🏳️'
+  };
+}
+
 let screenerReload = false; // filter ändrades medan en hämtning pågick → hämta igen efteråt
 async function loadScreener() {
   if(screenerLoading) { screenerReload = true; return; }
@@ -266,39 +302,7 @@ async function loadScreener() {
     const quotes = (result && result.quotes) || [];
     screenerTotal = (result && result.total) || 0;
     screenerFilterInfo = (result && result.tradableFilter) || null;
-    screenerResults = quotes.map(q => {
-      // q.region är opålitlig (= query-regionen, ofta "US"). q.market = "se_market" ger rätt land.
-      // Med flera valda marknader går det inte att gissa land ur filtret – då får
-      // q.market avgöra ensam (den är rätt) och flaggan falla tillbaka på tickern.
-      const only = activeRegions.size === 1 ? [...activeRegions][0] : '';
-      const market = (q.market || '').split('_')[0] || (only && only !== 'norden' ? only : '');
-      return {
-      name: q.shortName || q.longName || q.symbol,
-      ticker: q.symbol,
-      r: market,
-      sektor: activeSectors.size === 1 ? [...activeSectors][0] : (q.sector || 'Aktie'),
-      kurs: q.regularMarketPrice != null ? fmtPrice(q.regularMarketPrice, q.currency) : '–',
-      price: q.regularMarketPrice != null ? q.regularMarketPrice : null,
-      ytd: null,
-      dag: q.regularMarketChangePercent != null ? +q.regularMarketChangePercent.toFixed(1) : null,
-      ar52: q.fiftyTwoWeekChangePercent != null ? +q.fiftyTwoWeekChangePercent.toFixed(1) : null,
-      volym: q.regularMarketVolume != null ? q.regularMarketVolume : null,
-      pe: q.trailingPE != null ? +q.trailingPE.toFixed(1) : null,
-      fpe: q.forwardPE != null ? +q.forwardPE.toFixed(1) : null,
-      pb: q.priceToBook != null ? +q.priceToBook.toFixed(1) : null,
-      eps: q.epsTrailingTwelveMonths != null ? +q.epsTrailingTwelveMonths.toFixed(2) : null,
-      rating: q.averageAnalystRating || null,
-      div: q.trailingAnnualDividendYield != null ? +(q.trailingAnnualDividendYield*100).toFixed(1)
-           : (q.dividendYield != null ? +q.dividendYield.toFixed(1) : 0),
-      mcap: q.marketCap != null ? Math.round(q.marketCap/1e9) : null,
-      valuta: q.currency || '',
-      hi52: q.fiftyTwoWeekHigh != null ? q.fiftyTwoWeekHigh : null,
-      lo52: q.fiftyTwoWeekLow != null ? q.fiftyTwoWeekLow : null,
-      fwdeps: q.epsForward != null ? +q.epsForward.toFixed(2) : null,
-      avgvol: q.averageDailyVolume3Month != null ? q.averageDailyVolume3Month : null,
-      flag: REGION_FLAGS[market] || REGION_FLAGS[marketFromTickerCode(q.symbol)] || '🏳️'
-      };
-    });
+    screenerResults = quotes.map(screenerRow);
     paintScreener();
     if(triageState) renderTriageCards(); // korten visar ev. nya djupanalyser sedan sist
     // Berika med riktig ÅTD (och färsk kurs) via spark – separat anrop, uppdatera sen.
@@ -325,12 +329,14 @@ function renderScreener() { loadScreener(); }
 
 function paintScreener() {
   const q = (document.getElementById('name-search').value || '').toLowerCase().trim();
-  let rows = screenerResults.filter(s => !q || s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q));
+  const onlyTriage = triageOnly && triageState;
+  let rows = (onlyTriage ? triageState.rows : screenerResults).filter(s => !q || s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q));
   // Servern väljer vilka aktier som hamnar på sidan (globalt). Här ordnar vi sidan exakt efter
   // det VISADE värdet, så ordningen alltid matchar siffrorna (t.ex. P/E där Yahoos sorteringsfält
   // skiljer sig från det P/E-tal vi visar).
   const def = sortCol === 'name' ? { val:s=>s.name } : COL_DEFS[sortCol];
-  if(def && def.val) rows = rows.slice().sort((a,b) => {
+  if(onlyTriage && triageRankSort) rows = rows.slice().sort((a, b) => triagePickRank(a.ticker) - triagePickRank(b.ticker));
+  else if(def && def.val) rows = rows.slice().sort((a,b) => {
     const va = def.val(a), vb = def.val(b);
     if(typeof va === 'string') { const c = va.localeCompare(vb,'sv'); return sortDir==='desc'?-c:c; }
     return sortDir==='desc' ? (vb-va) : (va-vb);
@@ -361,6 +367,10 @@ function paintScreener() {
     : '';
   document.getElementById('pg-prev').disabled = screenerPage <= 0;
   document.getElementById('pg-next').disabled = (screenerPage+1) >= totalPages;
+  if(onlyTriage) {
+    document.getElementById('pg-info').textContent = `Visar bara AI-triagens ${triageState.rows.length} val${triageRankSort ? ' i AI:ns ordning' : ''}`;
+    document.getElementById('pg-prev').disabled = document.getElementById('pg-next').disabled = true;
+  }
   updateSelBar();
 }
 
@@ -372,7 +382,7 @@ function screenerNext() {
 
 function toggleScreenerRow(ticker) {
   if(screenerSel.has(ticker)) { screenerSel.delete(ticker); delete screenerSelMeta[ticker]; }
-  else { screenerSel.add(ticker); const m = screenerResults.find(s=>s.ticker===ticker); if(m) screenerSelMeta[ticker] = m; }
+  else { screenerSel.add(ticker); const m = screenerResults.find(s=>s.ticker===ticker) || (triageState && triageState.rows.find(s=>s.ticker===ticker)); if(m) screenerSelMeta[ticker] = m; }
   paintScreener();
 }
 
@@ -472,7 +482,7 @@ async function triageGrossList(onProgress) {
   for(let i = 0; i < quotes.length; i += 8) {
     await Promise.all(quotes.slice(i, i + 8).map(async q => { fund[q.symbol] = await fetchFundamentals(q.symbol); }));
   }
-  return { total: Math.max(total, quotes.length), list: quotes.map(q => {
+  return { total: Math.max(total, quotes.length), quotes, list: quotes.map(q => {
     const f = fund[q.symbol] || {};
     const cur = q.currency || f.currency || null;
     const netDebt = (f.debt != null && f.cash != null) ? f.debt - f.cash : null;
@@ -502,7 +512,7 @@ function parseTriageResult(text) {
 }
 
 function closeTriage() {
-  triageState = null;
+  triageState = null; triageOnly = false;
   const out = document.getElementById('triage-out'); if(out) out.innerHTML = '';
   if(screenerResults.length) paintScreener(); // ta bort ✦-markeringarna i listan
 }
@@ -554,11 +564,33 @@ function renderTriageCards() {
   out.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
       <div style="font-size:13px"><b>✦ AI-triage: ${s.picks.length} av ${s.grossCount} bolag</b>
         <span class="muted" style="font-size:12px">· ${escHtml(s.filters)} · ${escHtml(cio)}</span></div>
-      <button class="ghost-btn" onclick="closeTriage()">× Stäng korten</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ghost-btn" id="triage-only-btn" onclick="setTriageOnly(!triageOnly)">${triageOnly ? 'Visa hela listan' : '✦ Visa bara triagens val'}</button>
+        <button class="ghost-btn" onclick="closeTriage()">× Stäng korten</button>
+      </div>
     </div>
     ${s.note ? `<div class="info-msg">${escHtml(s.note)}</div>` : ''}
     <div class="triage-grid">${cards}</div>
-    <div class="deep-meta" style="margin-top:0;margin-bottom:14px">Sparad i Sparade analyser · ${escHtml(s.costMeta)} · triagens val är markerade med ✦ i listan nedan</div>`;
+    <div class="deep-meta" style="margin-top:0;margin-bottom:14px">Sparad i Sparade analyser · ${escHtml(s.costMeta)} · ${triageOnly ? 'listan nedan visar bara triagens val' : 'triagens val är markerade med ✦ i listan nedan'}</div>`;
+}
+
+// ✦ Visa bara triagens val: tabellen visar de utvalda bolagen (i AI:ns ordning, tills du
+// sorterar på en rubrik) i stället för screenerns sida – valen kan ligga på olika sidor.
+let triageOnly = false, triageRankSort = true;
+async function setTriageOnly(on) {
+  triageOnly = !!(on && triageState);
+  triageRankSort = true;
+  renderTriageCards();
+  paintScreener();
+  if(!triageOnly || triageState.rowsEnriched) return;
+  const s = triageState;
+  const prices = await fetchSparkPrices(s.rows.map(r => r.ticker)); // ÅTD + färsk kurs, som på sidan
+  s.rows.forEach(r => {
+    const p = prices[r.ticker];
+    if(p) { if(p.ytd != null) r.ytd = p.ytd; if(p.price != null) { r.price = p.price; r.kurs = fmtPrice(p.price, p.currency); } }
+  });
+  s.rowsEnriched = true;
+  if(triageState === s) paintScreener();
 }
 
 let triageRunId = 0;
@@ -625,7 +657,10 @@ ${JSON.stringify({ cio_directive: cio, gross_list: gross }, null, 1)}
   recordDecisions('triage', `AI-triage: ${picks.length} av ${gross.length} bolag (${filters})`, picks.map(p => ({
     ticker: p.ticker, name: p.name || p.data.name, action: 'KANDIDAT', price: p.data.price, currency: p.data.currency, note: p.justification })));
   if(!live()) return;
-  triageState = { key, picks, grossCount: gross.length, filters, cio, costMeta, note };
+  const quoteBy = new Map(grossRes.quotes.map(q => [q.symbol, q]));
+  triageState = { key, picks, grossCount: gross.length, filters, cio, costMeta, note,
+    rows: picks.filter(p => quoteBy.has(p.ticker)).map(p => screenerRow(quoteBy.get(p.ticker))) };
+  triageOnly = false;
   renderTriageCards();
   if(screenerResults.length) paintScreener(); // ✦-markera triagens val i listan
   btn.disabled = false; btn.textContent = '↻ Kör ny AI-triage';

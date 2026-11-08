@@ -534,6 +534,49 @@ try {
     assert(r.rank === 2 && r.notPicked === 0, 'triagens rangordning fel');
   });
 
+  await check('✦ Visa bara triagens val: listan visar de utvalda i AI:ns ordning', async () => {
+    // Simulerad bruttolista och AI-svar – inget riktigt anrop görs.
+    const r = await evaluate(`
+      const real = { gross: triageGrossList, cio: latestCioDirective, claude: callClaudeStream, key: getApiKey, spark: fetchSparkPrices,
+                     dec: recordDecisions, save: saveAnalysis, usage: recordAiUsage, results: screenerResults };
+      const q = (symbol, pe, mcap) => ({ symbol, shortName: 'Bolag ' + symbol, regularMarketPrice: 100, currency: 'USD', trailingPE: pe, marketCap: mcap * 1e9, market: 'us_market' });
+      const quotes = [q('AAA', 10, 50), q('BBB', 20, 40), q('CCC', 30, 30), q('DDD', 40, 20)];
+      const tickers = () => [...document.querySelectorAll('#screener-tbody .td-ticker')].map(e => e.textContent.trim().split(' ')[0]);
+      try {
+        showSection('screener');
+        await new Promise(r => setTimeout(r, 300));
+        triageGrossList = async () => ({ total: 4, quotes, list: quotes.map(x => ({ ticker: x.symbol, name: x.shortName, price: 100, currency: 'USD', pe_ttm: x.trailingPE })) });
+        latestCioDirective = async () => null;
+        getApiKey = () => 'sk-test';
+        callClaudeStream = async () => ({ text: '<triage_result>{"top_picks":[{"ticker":"CCC","justification":"a"},{"ticker":"AAA","justification":"b"}]}</triage_result>', usage: { input_tokens: 1, output_tokens: 1 } });
+        fetchSparkPrices = async syms => Object.fromEntries(syms.map(s => [s, { ytd: 5, price: 101, currency: 'USD' }]));
+        recordDecisions = () => {}; saveAnalysis = () => {}; recordAiUsage = () => {};
+        screenerResults = [screenerRow(q('ZZZ', 5, 99)), screenerRow(q('AAA', 10, 50))];
+        document.getElementById('triage-count').value = '3';
+        await runTriage();
+        const before = tickers();
+        document.getElementById('triage-only-btn').click();
+        await new Promise(r => setTimeout(r, 200));
+        const only = { tickers: tickers(), info: document.getElementById('pg-info').textContent,
+          next: document.getElementById('pg-next').disabled, btn: document.getElementById('triage-only-btn').textContent,
+          ytd: triageState.rows.every(x => x.ytd === 5) };
+        sortCol = 'pe'; sortDir = 'asc'; triageRankSort = false; paintScreener();
+        const sorted = tickers();
+        closeTriage();
+        return { before, only, sorted, after: tickers(), flag: triageOnly };
+      } finally {
+        triageGrossList = real.gross; latestCioDirective = real.cio; callClaudeStream = real.claude; getApiKey = real.key;
+        fetchSparkPrices = real.spark; recordDecisions = real.dec; saveAnalysis = real.save; recordAiUsage = real.usage;
+        screenerResults = real.results; sortCol = 'mcap'; sortDir = 'desc'; triageRankSort = true; closeTriage();
+      }`);
+    assert(r.before.join() === 'ZZZ,AAA', 'listan ändrades innan knappen trycktes: ' + r.before.join());
+    assert(r.only.tickers.join() === 'CCC,AAA', 'visar inte bara valen i AI:ns ordning: ' + r.only.tickers.join());
+    assert(/bara AI-triagens 2 val/.test(r.only.info) && r.only.next && /Visa hela listan/.test(r.only.btn), 'sidinfo/knapp fel: ' + JSON.stringify(r.only));
+    assert(r.only.ytd, 'ÅTD hämtades inte för valen');
+    assert(r.sorted.join() === 'AAA,CCC', 'rubriksorteringen gäller inte valen: ' + r.sorted.join());
+    assert(r.after.join() === 'ZZZ,AAA' && r.flag === false, 'Stäng korten gav inte tillbaka hela listan: ' + r.after.join());
+  });
+
   await check('AI-triagens svarstolkning och prompt', async () => {
     const r = await evaluate(`return { picks: parseTriageResult('<triage_result>{"top_picks":[{"ticker":"SAAB-B.ST","name":"Saab","sector":"Försvar","justification":"x"}]}</triage_result>'),
       prompt: triageSystemPrompt(7), row: !!document.getElementById('triage-btn') }`);
