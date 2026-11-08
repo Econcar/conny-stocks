@@ -482,24 +482,27 @@ async function triageGrossList(onProgress) {
   for(let i = 0; i < quotes.length; i += 8) {
     await Promise.all(quotes.slice(i, i + 8).map(async q => { fund[q.symbol] = await fetchFundamentals(q.symbol); }));
   }
-  return { total: Math.max(total, quotes.length), quotes, list: quotes.map(q => {
-    const f = fund[q.symbol] || {};
-    const cur = q.currency || f.currency || null;
-    const netDebt = (f.debt != null && f.cash != null) ? f.debt - f.cash : null;
-    return {
-      ticker: q.symbol, name: q.longName || q.shortName || q.symbol,
-      sector: f.sector || q.sector || null, industry: f.industry || null,
-      market: (q.market || '').split('_')[0] || null, currency: cur,
-      market_cap_bn: q.marketCap != null ? deepR1(q.marketCap / 1e9) : null,
-      pe_ttm: deepR1(q.trailingPE), pe_forward: deepR1(q.forwardPE), ev_ebitda: deepR1(f.evEbitda),
-      roe_pct: deepR1(f.roe), operating_margin_pct: deepR1(f.opMargin), revenue_growth_pct: deepR1(f.revenueGrowth),
-      fcf_mn: deepMn(f.fcf),
-      fcf_yield_pct: (f.fcf != null && f.mcap && f.finCurrency && f.finCurrency === cur) ? deepR1(f.fcf / f.mcap * 100) : null,
-      net_debt_to_ebitda: (netDebt != null && f.ebitda > 0) ? deepR2(netDebt / f.ebitda) : null,
-      dividend_yield_pct: deepR2(f.div), chg_52w_pct: deepR1(q.fiftyTwoWeekChangePercent),
-      price: q.regularMarketPrice != null ? q.regularMarketPrice : null
-    };
-  }) };
+  return { total: Math.max(total, quotes.length), quotes, list: quotes.map(q => triageData(q, fund[q.symbol])) };
+}
+
+// Ett bolags rad i bruttolistan (det AI:n läser och korten visar): Yahoo-quote + fundamenta.
+function triageData(q, f) {
+  f = f || {};
+  const cur = q.currency || f.currency || null;
+  const netDebt = (f.debt != null && f.cash != null) ? f.debt - f.cash : null;
+  return {
+    ticker: q.symbol, name: q.longName || q.shortName || q.symbol,
+    sector: f.sector || q.sector || null, industry: f.industry || null,
+    market: (q.market || '').split('_')[0] || null, currency: cur,
+    market_cap_bn: q.marketCap != null ? deepR1(q.marketCap / 1e9) : null,
+    pe_ttm: deepR1(q.trailingPE), pe_forward: deepR1(q.forwardPE), ev_ebitda: deepR1(f.evEbitda),
+    roe_pct: deepR1(f.roe), operating_margin_pct: deepR1(f.opMargin), revenue_growth_pct: deepR1(f.revenueGrowth),
+    fcf_mn: deepMn(f.fcf),
+    fcf_yield_pct: (f.fcf != null && f.mcap && f.finCurrency && f.finCurrency === cur) ? deepR1(f.fcf / f.mcap * 100) : null,
+    net_debt_to_ebitda: (netDebt != null && f.ebitda > 0) ? deepR2(netDebt / f.ebitda) : null,
+    dividend_yield_pct: deepR2(f.div), chg_52w_pct: deepR1(q.fiftyTwoWeekChangePercent),
+    price: q.regularMarketPrice != null ? q.regularMarketPrice : null
+  };
 }
 
 function parseTriageResult(text) {
@@ -560,9 +563,10 @@ function renderTriageCards() {
       </div>
     </div>`;
   }).join('');
-  const cio = s.cio ? `CIO-direktiv: ${s.cio.source} (${s.cio.date})` : 'ingen CIO-analys hittades – urvalet bygger på nyckeltalen';
+  const cio = s.cioText || (s.cio ? `CIO-direktiv: ${s.cio.source} (${s.cio.date})` : 'ingen CIO-analys hittades – urvalet bygger på nyckeltalen');
+  const when = s.restored ? ` <span class="muted" style="font-weight:400">· körd ${escHtml(new Date(s.restored).toLocaleString('sv-SE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</span>` : '';
   out.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
-      <div style="font-size:13px"><b>✦ AI-triage: ${s.picks.length} av ${s.grossCount} bolag</b>
+      <div style="font-size:13px"><b>✦ AI-triage: ${s.picks.length} av ${s.grossCount} bolag</b>${when}
         <span class="muted" style="font-size:12px">· ${escHtml(s.filters)} · ${escHtml(cio)}</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="ghost-btn" id="triage-only-btn" onclick="setTriageOnly(!triageOnly)">${triageOnly ? 'Visa hela listan' : '✦ Visa bara triagens val'}</button>
@@ -571,7 +575,7 @@ function renderTriageCards() {
     </div>
     ${s.note ? `<div class="info-msg">${escHtml(s.note)}</div>` : ''}
     <div class="triage-grid">${cards}</div>
-    <div class="deep-meta" style="margin-top:0;margin-bottom:14px">Sparad i Sparade analyser · ${escHtml(s.costMeta)} · ${triageOnly ? 'listan nedan visar bara triagens val' : 'triagens val är markerade med ✦ i listan nedan'}</div>`;
+    <div class="deep-meta" style="margin-top:0;margin-bottom:14px">${s.restored ? 'Hämtad ur Sparade analyser – kurser och nyckeltal är dagens' : 'Sparad i Sparade analyser · ' + escHtml(s.costMeta)} · ${triageOnly ? 'listan nedan visar bara triagens val' : 'triagens val är markerade med ✦ i listan nedan'}</div>`;
 }
 
 // ✦ Visa bara triagens val: tabellen visar de utvalda bolagen (i AI:ns ordning, tills du
@@ -591,6 +595,82 @@ async function setTriageOnly(on) {
   });
   s.rowsEnriched = true;
   if(triageState === s) paintScreener();
+}
+
+// ── ✦ Visa senaste triagen: senaste "AI-triage: …" i Sparade analyser (lokalt + molnet) blir
+// kort och lista igen, med dagens kurser och nyckeltal – utan att köra om AI:n.
+// Den sparade texten har formen "1. **Namn (TICKER)**, Sektor – motivering" per bolag.
+function parseSavedTriage(a) {
+  if(!a || !/^AI-triage:/.test(a.title || '')) return null;
+  const picks = [];
+  for(const line of String(a.answer || '').split('\n')) {
+    const m = line.match(/^\d+\.\s+\*\*(.+)\s+\(([^()]+)\)\*\*,\s*(.*?)\s+–\s+(.*)$/);
+    if(m) picks.push({ ticker: m[2].trim(), name: m[1].trim(), sector: m[3] === '–' ? null : m[3], justification: m[4] });
+  }
+  if(!picks.length) return null;
+  const t = a.title.match(/av (\d+) bolag(?: \((.*)\))?$/), c = String(a.answer).match(/(CIO-direktiv: .*|utan CIO-direktiv)$/m);
+  return { ts: a.ts, picks, grossCount: t ? +t[1] : picks.length, filters: (t && t[2]) || '', cioText: c ? c[1] : '' };
+}
+async function lastSavedTriage() {
+  const list = aiAnalyses.filter(a => /^AI-triage:/.test(a.title || ''));
+  if(sb && currentUser) {
+    try {
+      const { data } = await sb.from('analyses').select('created_at,title,answer').like('title', 'AI-triage:%').order('created_at', { ascending: false }).limit(1);
+      (data || []).forEach(r => list.push({ ts: new Date(r.created_at).getTime(), title: r.title, answer: r.answer }));
+    } catch(e) {}
+  }
+  list.sort((a, b) => b.ts - a.ts);
+  for(const a of list) { const t = parseSavedTriage(a); if(t) return t; }
+  return null;
+}
+
+// En Yahoo-quote (samma fält som /api/screener ger) ur /api/quote:s quoteSummary.
+const YAHOO_REC = { strong_buy: 'Strong Buy', buy: 'Buy', hold: 'Hold', underperform: 'Underperform', sell: 'Sell' };
+function quoteFromSummary(symbol, res) {
+  const pr = res.price || {}, sd = res.summaryDetail || {}, ks = res.defaultKeyStatistics || {}, fd = res.financialData || {};
+  const raw = o => (o && typeof o.raw === 'number') ? o.raw : (typeof o === 'number' ? o : null);
+  const pct = o => raw(o) != null ? raw(o) * 100 : null;
+  const first = (...v) => v.find(x => x != null);
+  const rec = raw(fd.recommendationMean);
+  return { symbol, shortName: pr.shortName || null, longName: pr.longName || null, currency: pr.currency || sd.currency || null,
+    market: pr.market || null, sector: (res.assetProfile || {}).sector || null,
+    regularMarketPrice: raw(pr.regularMarketPrice), regularMarketChangePercent: pct(pr.regularMarketChangePercent),
+    regularMarketVolume: first(raw(pr.regularMarketVolume), raw(sd.volume)), averageDailyVolume3Month: first(raw(pr.averageDailyVolume3Month), raw(sd.averageVolume)),
+    fiftyTwoWeekChangePercent: pct(ks['52WeekChange']), fiftyTwoWeekHigh: raw(sd.fiftyTwoWeekHigh), fiftyTwoWeekLow: raw(sd.fiftyTwoWeekLow),
+    trailingPE: raw(sd.trailingPE), forwardPE: first(raw(sd.forwardPE), raw(ks.forwardPE)), priceToBook: raw(ks.priceToBook),
+    epsTrailingTwelveMonths: raw(ks.trailingEps), epsForward: raw(ks.forwardEps),
+    trailingAnnualDividendYield: raw(sd.trailingAnnualDividendYield), dividendYield: pct(sd.dividendYield),
+    marketCap: first(raw(pr.marketCap), raw(sd.marketCap)),
+    averageAnalystRating: rec != null ? `${rec.toFixed(1)} - ${YAHOO_REC[fd.recommendationKey] || ''}` : null };
+}
+
+async function showLastTriage() {
+  const out = document.getElementById('triage-out'), btn = document.getElementById('triage-last-btn');
+  if(btn) btn.disabled = true;
+  const id = ++triageRunId, live = () => id === triageRunId; // en pågående triage ritar inte över
+  try {
+    memoStatus(out, 'Hämtar senaste triagen ur Sparade analyser…');
+    const saved = await lastSavedTriage();
+    if(!live()) return;
+    if(!saved) { out.innerHTML = '<div class="info-msg">Ingen sparad AI-triage hittades. Kör en triage först – den sparas i Sparade analyser.</div>'; return; }
+    memoStatus(out, `Hämtar dagens kurser och nyckeltal för ${saved.picks.length} bolag…`);
+    const got = {};
+    for(let i = 0; i < saved.picks.length; i += 8) {
+      await Promise.all(saved.picks.slice(i, i + 8).map(async p => {
+        const f = await fetchFundamentals(p.ticker);
+        if(f && f.summary) { const q = quoteFromSummary(p.ticker, f.summary); got[p.ticker] = { q, data: triageData(q, f) }; }
+      }));
+    }
+    if(!live()) return;
+    const picks = saved.picks.map(p => ({ ...p, data: got[p.ticker] ? got[p.ticker].data : { ticker: p.ticker, name: p.name } }));
+    const missing = saved.picks.length - Object.keys(got).length;
+    triageState = { key: screenerFilterKey(), picks, grossCount: saved.grossCount, filters: saved.filters, cio: null, cioText: saved.cioText,
+      costMeta: '', restored: saved.ts, note: missing ? `Kurser saknas för ${missing} av bolagen – de syns bara som kort.` : '',
+      rows: saved.picks.filter(p => got[p.ticker]).map(p => screenerRow(got[p.ticker].q)) };
+    await setTriageOnly(true);
+  } catch(e) {
+    if(live()) out.innerHTML = `<div class="error-msg">Kunde inte visa senaste triagen: ${escHtml(e.message)}</div>`;
+  } finally { if(btn) btn.disabled = false; }
 }
 
 let triageRunId = 0;

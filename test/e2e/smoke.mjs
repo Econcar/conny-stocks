@@ -538,9 +538,12 @@ try {
     // Simulerad bruttolista och AI-svar – inget riktigt anrop görs.
     const r = await evaluate(`
       const real = { gross: triageGrossList, cio: latestCioDirective, claude: callClaudeStream, key: getApiKey, spark: fetchSparkPrices,
-                     dec: recordDecisions, save: saveAnalysis, usage: recordAiUsage, results: screenerResults };
+                     dec: recordDecisions, save: saveAnalysis, usage: recordAiUsage, results: screenerResults,
+                     analyses: aiAnalyses, fund: fetchFundamentals, user: currentUser };
       const q = (symbol, pe, mcap) => ({ symbol, shortName: 'Bolag ' + symbol, regularMarketPrice: 100, currency: 'USD', trailingPE: pe, marketCap: mcap * 1e9, market: 'us_market' });
       const quotes = [q('AAA', 10, 50), q('BBB', 20, 40), q('CCC', 30, 30), q('DDD', 40, 20)];
+      quotes[2].shortName = 'Foo (Holdings) plc'; // parentes i namnet – den sparade texten ska ändå gå att läsa
+      let savedEntry = null;
       const tickers = () => [...document.querySelectorAll('#screener-tbody .td-ticker')].map(e => e.textContent.trim().split(' ')[0]);
       try {
         showSection('screener');
@@ -550,7 +553,7 @@ try {
         getApiKey = () => 'sk-test';
         callClaudeStream = async () => ({ text: '<triage_result>{"top_picks":[{"ticker":"CCC","justification":"a"},{"ticker":"AAA","justification":"b"}]}</triage_result>', usage: { input_tokens: 1, output_tokens: 1 } });
         fetchSparkPrices = async syms => Object.fromEntries(syms.map(s => [s, { ytd: 5, price: 101, currency: 'USD' }]));
-        recordDecisions = () => {}; saveAnalysis = () => {}; recordAiUsage = () => {};
+        recordDecisions = () => {}; saveAnalysis = e => { savedEntry = e; }; recordAiUsage = () => {};
         screenerResults = [screenerRow(q('ZZZ', 5, 99)), screenerRow(q('AAA', 10, 50))];
         document.getElementById('triage-count').value = '3';
         await runTriage();
@@ -563,11 +566,24 @@ try {
         sortCol = 'pe'; sortDir = 'asc'; triageRankSort = false; paintScreener();
         const sorted = tickers();
         closeTriage();
-        return { before, only, sorted, after: tickers(), flag: triageOnly };
+        const after = tickers(), flag = triageOnly;
+        // ✦ Visa senaste triagen: samma sparade text tillbaka som kort + lista, med dagens kurser.
+        aiAnalyses = [{ title: 'Annan analys', ts: Date.now(), answer: '1. **X (Y)**, Z – w' }, savedEntry]; currentUser = null;
+        fetchFundamentals = async t => ({ evEbitda: 7, summary: { price: { shortName: 'Nu ' + t, regularMarketPrice: { raw: 123 }, currency: 'USD', market: 'us_market',
+          regularMarketChangePercent: { raw: 0.012 } }, summaryDetail: { trailingPE: { raw: 12 } }, defaultKeyStatistics: {},
+          financialData: { recommendationMean: { raw: 1.4 }, recommendationKey: 'strong_buy' } } });
+        sortCol = 'mcap'; sortDir = 'desc';
+        const hasBtn = /showLastTriage/.test(document.getElementById('triage-last-btn').getAttribute('onclick'));
+        await showLastTriage();
+        const restored = { hasBtn, tickers: tickers(), header: document.getElementById('triage-out').textContent, only: triageOnly,
+          names: triageState.picks.map(p => p.name).join('|'), why: triageState.picks.map(p => p.justification).join(),
+          rating: triageState.rows[0].rating, dag: triageState.rows[0].dag, pe: triageState.picks[0].data.pe_ttm, ev: triageState.picks[0].data.ev_ebitda };
+        return { before, only, sorted, after, flag, restored };
       } finally {
         triageGrossList = real.gross; latestCioDirective = real.cio; callClaudeStream = real.claude; getApiKey = real.key;
         fetchSparkPrices = real.spark; recordDecisions = real.dec; saveAnalysis = real.save; recordAiUsage = real.usage;
         screenerResults = real.results; sortCol = 'mcap'; sortDir = 'desc'; triageRankSort = true; closeTriage();
+        aiAnalyses = real.analyses; fetchFundamentals = real.fund; currentUser = real.user;
       }`);
     assert(r.before.join() === 'ZZZ,AAA', 'listan ändrades innan knappen trycktes: ' + r.before.join());
     assert(r.only.tickers.join() === 'CCC,AAA', 'visar inte bara valen i AI:ns ordning: ' + r.only.tickers.join());
@@ -575,6 +591,12 @@ try {
     assert(r.only.ytd, 'ÅTD hämtades inte för valen');
     assert(r.sorted.join() === 'AAA,CCC', 'rubriksorteringen gäller inte valen: ' + r.sorted.join());
     assert(r.after.join() === 'ZZZ,AAA' && r.flag === false, 'Stäng korten gav inte tillbaka hela listan: ' + r.after.join());
+    const s = r.restored;
+    assert(s.hasBtn, 'knappen ✦ Visa senaste triagen saknas');
+    assert(s.only && s.tickers.join() === 'CCC,AAA', 'Visa senaste triagen visar inte valen i AI:ns ordning: ' + JSON.stringify(s));
+    assert(s.names === 'Foo (Holdings) plc|Bolag AAA' && s.why === 'a,b', 'den sparade triagen lästes fel: ' + JSON.stringify(s));
+    assert(/körd/.test(s.header) && /Hämtad ur Sparade analyser/.test(s.header), 'rubriken visar inte att triagen är sparad: ' + s.header.slice(0, 200));
+    assert(s.rating === '1.4 - Strong Buy' && s.dag === 1.2 && s.pe === 12 && s.ev === 7, 'dagens kurser/nyckeltal saknas: ' + JSON.stringify(s));
   });
 
   await check('AI-triagens svarstolkning och prompt', async () => {

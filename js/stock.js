@@ -235,6 +235,7 @@ async function fetchFundamentals(ticker) {
     const pct1 = o => raw(o) != null ? raw(o) * 100 : null;
     const dy = raw(sd.dividendYield);
     return {
+      summary: res, // råsvaret – "Visa senaste triagen" bygger screenerns rader ur det
       pe: raw(sd.trailingPE),
       forwardPe: raw(sd.forwardPE) != null ? raw(sd.forwardPE) : raw(ks.forwardPE),
       pb: raw(ks.priceToBook),
