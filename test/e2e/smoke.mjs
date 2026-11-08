@@ -143,6 +143,12 @@ try {
     const html = await evaluate(`return formatMemo('### Rubrik\\nP/E < 15 **fet**\\n<screener_config>{"sectors":["Försvar"]}</screener_config>')`);
     assert(!html.includes('screener_config') && !html.includes('Försvar'), 'blocket syns i texten');
     assert(html.includes('&lt; 15') && html.includes('<strong>fet</strong>'), 'escaping/fetstil fel');
+    // Tabeller radbryter i cellerna i stället för att kapas i kanten (övriga tabeller är nowrap).
+    const wrap = await evaluate(`const d = document.createElement('div'); d.className = 'memo'; d.style.width = '400px';
+      d.innerHTML = formatMemo('| Slag | Kommentar |\\n|---|---|\\n| Aktier | ' + 'lång kommentar '.repeat(30) + '|');
+      document.body.appendChild(d); const td = d.querySelector('td:last-child'), m = d.querySelector('.memo-table');
+      const r = { ws: getComputedStyle(td).whiteSpace, fits: m.scrollWidth <= m.clientWidth + 1 }; d.remove(); return r;`);
+    assert(wrap.ws === 'normal' && wrap.fits, 'tabellcellerna radbryts inte: ' + JSON.stringify(wrap));
   });
 
   await check('⚡ Applicera AI:ns filter fyller i Aktiescreenern', async () => {

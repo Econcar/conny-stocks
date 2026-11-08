@@ -247,8 +247,9 @@ th.sortable:hover { color: var(--text); }
 .memo li { margin: 3px 0; }
 .memo hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .memo .memo-table { overflow-x: auto; margin: 0 0 12px; }
-.memo table { border-collapse: collapse; font-size: 12.5px; }
-.memo th, .memo td { border: 1px solid var(--border2); padding: 5px 10px; text-align: left; }
+.memo table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+/* AI:ns tabeller har ofta långa kommentarer – radbryt i cellerna (tabeller i övrigt är nowrap) */
+.memo th, .memo td { border: 1px solid var(--border2); padding: 5px 10px; text-align: left; white-space: normal; vertical-align: top; min-width: 6em; }
 .memo th { background: var(--surface2); font-weight: 600; }
 .memo .memo-src { color: var(--amber); font-size: 12px; white-space: nowrap; }
 .deep-status { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 8px; }
