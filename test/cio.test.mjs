@@ -66,7 +66,40 @@ test('hämtningen: en strulande källa ger null i sitt fält, resten fylls', asy
   assert.deepEqual(raw.spark['^TNX'].closes, [4, 5]);
 });
 
-test('en enda spark-fråga räcker (Yahoo tar max 20 symboler)', () => {
-  const n = Object.values(CIO_SYMBOLS).reduce((a, g) => a + Object.keys(g).length, 0);
-  assert.ok(n <= 20, `${n} symboler`);
+test('spark-frågorna tar max 20 symboler var och täcker alla', async () => {
+  const asked = [];
+  const fetchImpl = async url => {
+    if (url.includes('/api/yahoo')) {
+      const inner = new URL(decodeURIComponent(url.split('url=')[1]));
+      asked.push(inner.searchParams.get('symbols').split(','));
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+  await cioGatherMarketData({ base: 'https://x', fetchImpl });
+  const all = Object.values(CIO_SYMBOLS).flatMap(g => Object.keys(g));
+  assert.ok(asked.every(c => c.length <= 20), asked.map(c => c.length).join('+'));
+  assert.deepEqual(asked.flat().sort(), all.sort());
+});
+
+test('svenska räntor: riskfri SEK-ränta, realränta och räntegap mot USA', async () => {
+  let ratesUrl = null;
+  await cioGatherMarketData({ base: 'https://x', fetchImpl: async url => {
+    if (url.includes('/api/rates')) ratesUrl = url;
+    return { ok: true, json: async () => ({}) };
+  } });
+  assert.ok(/[?&]se=1/.test(ratesUrl), 'CIO-hämtningen ber om svenska räntor');
+
+  const ctx = buildCioContext({
+    spark: { '^IRX': series(4, 4), '^TNX': series(4, 4.5) },
+    rates: { se: { tbill_3m: { rate: 2.171, date: '2026-11-20' }, gov_10y: { rate: 3.004, date: '2026-11-20' } } },
+    macro: { se_kpif: { value: 1.1, date: '2026-10' } }
+  });
+  assert.deepEqual(ctx.swedish_rates.se_tbill_3m_pct, { value: 2.17, as_of: '2026-11-20' });
+  assert.equal(ctx.swedish_rates.se_curve_10y_minus_3m_pp, 0.83);
+  assert.equal(ctx.sek_perspective.riskfree_sek_3m_pct, 2.17);
+  assert.equal(ctx.sek_perspective.real_riskfree_sek_3m_pp, 1.07);
+  assert.equal(ctx.sek_perspective.us_minus_se_3m_pp, 1.83);
+  assert.equal(ctx.sek_perspective.us_minus_se_10y_pp, 1.5);
+  // utan svenska räntor: null, inte fel
+  assert.equal(buildCioContext({}).sek_perspective.riskfree_sek_3m_pct, null);
 });

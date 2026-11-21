@@ -7,10 +7,22 @@
 
 const CIO_MODEL = 'claude-sonnet-5';
 
-const CIO_SYSTEM_PROMPT = `Du är en världsledande makroekonom och Chief Investment Officer (CIO) på en global
-allokeringsfond. Din expertis ligger i att läsa av makroekonomiska regimer, geopolitik,
-långsiktiga megatrender och centralbankers likviditetsflöden, för att sedan översätta
-detta till konkret och benhård tillgångsallokering (aktier, räntor, råvaror, guld).
+const CIO_SYSTEM_PROMPT = `Du är en världsledande makroekonom och Chief Investment Officer (CIO). Din expertis ligger
+i att läsa av makroekonomiska regimer, geopolitik, långsiktiga megatrender och centralbankers
+likviditetsflöden, för att sedan översätta detta till konkret och benhård tillgångsallokering
+(aktier, räntor, råvaror, guld).
+
+DIN KLIENT: en svensk privatperson som räknar i kronor (SEK) och handlar via Avanza, främst
+på ISK (investeringssparkonto). Allt du rekommenderar ska gå att genomföra därifrån.
+- Den riskfria räntan är den SVENSKA korta räntan (statsskuldväxlar, se swedish_rates), inte
+  amerikanska T-bills. Amerikanska räntor, Fed och dollarn är signaler om det globala läget –
+  inte klientens avkastning.
+- All avkastning i utländsk valuta ska bedömas i SEK. En dollarränta på 4 % är värd noll om
+  dollarn faller 4 % mot kronan. Valutasäkring kostar ungefär räntedifferensen mot Sverige
+  (sek_perspective.us_minus_se_3m_pp för USD), så säkrad dollarränta ≈ svensk ränta.
+- Amerikanska fonder och ETF:er (t.ex. SGOV, BIL, SPY, QQQ) får inte säljas till privatpersoner
+  i EU (saknar faktablad enligt PRIIPs). Rekommendera dem aldrig – peka på UCITS-fonder och
+  europeiskt noterade ETF:er i stället.
 
 TEKNISKA RAMVILLKOR:
 1. Du har tillgång till realtidsdata i prompten gällande räntor, råvaror, riskindikatorer
@@ -18,6 +30,9 @@ TEKNISKA RAMVILLKOR:
 2. Ditt språk ska vara extremt professionellt, analytiskt och fritt från klyschor
    ("spännande tider", "marknaden är osäker"). Marknaden är alltid osäker – din uppgift
    är att tolka oddsen.
+3. Hitta inte på fondnamn, avgifter eller räntor du inte vet. Ange hellre fondtyp (t.ex.
+   "kort svensk räntefond", "global indexfond, valutasäkrad andelsklass") och be klienten
+   kontrollera utbudet i Avanza.
 
 REGEL 1: DU SKALL ALLTID GE SVARET FÖRST OCH SEDAN ANALYSEN.
 Du måste inleda med en tydlig taktisk allokering och slutsats.
@@ -28,13 +43,18 @@ Strukturera analysen strikt enligt följande rubriker:
 - Vilken makroregim befinner vi oss i just nu? (t.ex. Stagflation, Reflation, Goldilocks,
   Kreditchock eller Likviditetsexpansion).
 - Konkret allokeringsråd: Övervikt / Neutral / Undervikt för de fyra huvudklasserna:
-  1) Aktier, 2) Långa/korta räntor, 3) Guld/Ädelmetaller, 4) Likvider/Cash.
-- Kort motivering: Varför är denna positionering optimal just nu baserat på risk/reward?
+  1) Aktier, 2) Långa/korta räntor, 3) Guld/Ädelmetaller, 4) Likvider/Cash (i SEK, med
+  dagens svenska 3-månadersränta som riktmärke).
+- Kort motivering: Varför är denna positionering optimal just nu baserat på risk/reward
+  för en investerare som räknar i kronor?
 
 ### 2. Centralbanker, Räntor & Likviditet
 - Tolka rörelserna i 10-årsräntan, Fed Funds och inflationsdatan.
+- Riksbanken och Sverige: styrränta, svensk räntekurva (statsskuldväxlar och
+  statsobligationer) och KPIF. Vad betyder det för svenska räntefonder och sparkonton?
 - Drar centralbankerna in eller pumpar ut likviditet i systemet?
-- Hur påverkar USD-indexets utveckling det globala kapitalflödet?
+- Hur påverkar USD-indexets utveckling det globala kapitalflödet – och vart är kronan
+  (USD/SEK, EUR/SEK) på väg?
 
 ### 3. Riskbarometern & Sentiment
 - Analysera marknadens dolda riskaptit utifrån VIX, SKEW och High Yield (HYG).
@@ -55,12 +75,23 @@ Strukturera analysen strikt enligt följande rubriker:
 
 ### 6. Den Svarta Svanen (Systemisk Risk)
 - Identifiera den största systemiska risken just nu som marknaden felprissätter.
-- Vad skulle få din allokeringstes i punkt 1 att fundamentalt haverera den kommande månaden?`;
+- Vad skulle få din allokeringstes i punkt 1 att fundamentalt haverera den kommande månaden?
 
-// Yahoo-symboler → fältnamn i underlaget. En enda spark-fråga (Yahoo tar max 20).
+### 7. Så gör du i Sverige (Avanza, ISK)
+- Översätt allokeringen i punkt 1 till sådant klienten faktiskt kan köpa på Avanza, en rad
+  per tillgångsklass: t.ex. sparkonto med insättningsgaranti, likviditetsfond eller kort
+  svensk räntefond, svensk statsobligationsfond, global indexfond, Sverigefond, europeiskt
+  noterade UCITS-ETF:er, guld via ETC/guldfond.
+- Likvider: vilken ränta i SEK ger det ungefär (utgå från swedish_rates), jämfört med
+  inflationen (KPIF)?
+- Valutarisk: hur stor andel av rekommendationen är exponerad mot USD/EUR, vilket håll du
+  tror kronan tar, och om valutasäkrade andelsklasser är värda kostnaden just nu.
+- Avsluta med 2–3 konkreta åtgärder i punktform ("Flytta …", "Öka …", "Behåll …").`;
+
+// Yahoo-symboler → fältnamn i underlaget. Hämtas i spark-frågor om max 20 (Yahoos gräns).
 const CIO_SYMBOLS = {
   yields:      { '^IRX': 'us_3m_tbill_pct', '^TNX': 'us_10y_pct', '^TYX': 'us_30y_pct' },
-  fx:          { 'DX-Y.NYB': 'usd_index_dxy', 'EURUSD=X': 'eurusd', 'SEK=X': 'usdsek' },
+  fx:          { 'DX-Y.NYB': 'usd_index_dxy', 'EURUSD=X': 'eurusd', 'SEK=X': 'usdsek', 'EURSEK=X': 'eursek' },
   commodities: { 'BZ=F': 'brent_usd', 'GC=F': 'gold_usd_oz', 'SI=F': 'silver_usd_oz', 'HG=F': 'copper_usd_lb' },
   risk:        { '^VIX': 'vix', '^VXN': 'vxn', '^SKEW': 'skew', 'HYG': 'hyg_high_yield_etf', 'IEF': 'ief_7_10y_treasury_etf' },
   equities:    { '^GSPC': 'sp500', '^IXIC': 'nasdaq', '^OMX': 'omxs30', 'EEM': 'msci_em_eem', 'BTC-USD': 'bitcoin_usd' }
@@ -123,15 +154,18 @@ async function cioGatherMarketData({ base = '', fetchImpl = fetch } = {}) {
   const soft = p => p.catch(() => null);
   const num = j => (j && typeof j.value === 'number' && isFinite(j.value)) ? { value: j.value, date: j.date || null } : null;
   const syms = Object.values(CIO_SYMBOLS).flatMap(g => Object.keys(g));
-  const sparkUrl = 'https://query1.finance.yahoo.com/v7/finance/spark?symbols=' +
-    encodeURIComponent(syms.join(',')) + '&range=6mo&interval=1d';
+  const sparkChunks = [];
+  for (let i = 0; i < syms.length; i += 20) sparkChunks.push(syms.slice(i, i + 20));
+  const sparkPath = chunk => '/api/yahoo?url=' + encodeURIComponent('https://query1.finance.yahoo.com/v7/finance/spark?symbols=' +
+    encodeURIComponent(chunk.join(',')) + '&range=6mo&interval=1d');
   const kpifQs = new URLSearchParams({
     path: 'tables/TAB6445/data', lang: 'sv', outputFormat: 'json-stat2',
     'valueCodes[PrelAggr]': 'SKPI02', 'valueCodes[ContentsCode]': '000007PM', 'valueCodes[Tid]': 'top(1)'
   });
   const [spark, rates, cpi, core, kpif] = await Promise.all([
-    soft(getJson('/api/yahoo?url=' + encodeURIComponent(sparkUrl)).then(cioParseSpark)),
-    soft(getJson('/api/rates')),
+    Promise.all(sparkChunks.map(c => soft(getJson(sparkPath(c)).then(cioParseSpark))))
+      .then(parts => Object.assign({}, ...parts.filter(Boolean))),
+    soft(getJson('/api/rates?se=1')),
     soft(getJson('/api/fred?series=CPIAUCSL&units=pc1').then(num)),
     soft(getJson('/api/fred?series=CPILFESL&units=pc1').then(num)),
     soft(getJson('/api/scb?' + kpifQs).then(j => {
@@ -171,6 +205,10 @@ function buildCioContext({ spark = {}, rates = {}, macro = {}, megatrends = [], 
   const group = (g, fn) => Object.fromEntries(Object.entries(g).map(([sym, key]) => [key, fn(spark[sym], sym)]));
   const tnx = spark['^TNX'], irx = spark['^IRX'];
   const stat = (x, dec = 1) => x ? { value: cioRound(x.value, dec), period: x.date } : null;
+  const se = rates.se || {};
+  const seRate = k => se[k] ? { value: cioRound(se[k].rate, 2), as_of: se[k].date || null } : null;
+  const seTb3 = se.tbill_3m ? se.tbill_3m.rate : null, se10 = se.gov_10y ? se.gov_10y.rate : null;
+  const kpif = macro.se_kpif ? macro.se_kpif.value : null;
   return {
     as_of: new Date().toISOString().slice(0, 10),
     central_banks_and_inflation: {
@@ -181,9 +219,20 @@ function buildCioContext({ spark = {}, rates = {}, macro = {}, megatrends = [], 
       us_core_cpi_yoy_pct: stat(macro.us_core_cpi),
       se_kpif_yoy_pct: stat(macro.se_kpif)
     },
+    swedish_rates: {
+      se_tbill_1m_pct: seRate('tbill_1m'), se_tbill_3m_pct: seRate('tbill_3m'), se_tbill_6m_pct: seRate('tbill_6m'),
+      se_gov_2y_pct: seRate('gov_2y'), se_gov_5y_pct: seRate('gov_5y'), se_gov_10y_pct: seRate('gov_10y'),
+      se_curve_10y_minus_3m_pp: (seTb3 != null && se10 != null) ? cioRound(se10 - seTb3, 2) : null
+    },
+    sek_perspective: {
+      riskfree_sek_3m_pct: seTb3 != null ? cioRound(seTb3, 2) : null,
+      real_riskfree_sek_3m_pp: (seTb3 != null && kpif != null) ? cioRound(seTb3 - kpif, 2) : null,
+      us_minus_se_3m_pp: (seTb3 != null && irx) ? cioRound(irx.price - seTb3, 2) : null,
+      us_minus_se_10y_pp: (se10 != null && tnx) ? cioRound(tnx.price - se10, 2) : null
+    },
     us_treasury_yields: group(CIO_SYMBOLS.yields, cioYield),
     yield_curve_10y_minus_3m_pp: (tnx && irx) ? cioRound(tnx.price - irx.price, 2) : null,
-    fx: group(CIO_SYMBOLS.fx, (d, sym) => cioTrend(d, sym === 'DX-Y.NYB' ? 2 : 4)),
+    fx: group(CIO_SYMBOLS.fx, (d, sym) => cioTrend(d, sym === 'DX-Y.NYB' ? 2 : 4)), // usdsek/eursek: stigande = svagare krona
     commodities: { ...group(CIO_SYMBOLS.commodities, d => cioTrend(d)),
       copper_gold_ratio_x1000: cioRatio(spark['HG=F'], spark['GC=F'], 1000) },
     risk_and_credit: { ...group(CIO_SYMBOLS.risk, d => cioTrend(d)),
@@ -197,8 +246,13 @@ function buildCioContext({ spark = {}, rates = {}, macro = {}, megatrends = [], 
 function cioUserMessage(ctx) {
   return `Dagens datum: ${ctx.as_of}. Nedan följer dagens underlag, hämtat automatiskt (Yahoo Finance, Fed/Riksbanken/ECB, FRED, SCB, plattformens megatrendanalyser och AI-triagerade nyhetsflöde).
 
+Klienten är en svensk privatperson som räknar i SEK och handlar via Avanza (ISK).
+
 Om underlaget:
 - Serierna visar senaste värde, förändring 1/3/6 månader och läge mot 50-dagarssnitt. Räntor anges i procent och deras förändring i procentenheter (_pp).
+- swedish_rates är Riksbankens noteringar för svenska statsskuldväxlar (1/3/6 mån) och statsobligationer (2/5/10 år) – senaste värde, utan historik.
+- sek_perspective: riskfree_sek_3m_pct = klientens riskfria ränta. real_riskfree_sek_3m_pp = den minus KPIF. us_minus_se_3m_pp ≈ årlig kostnad för att valutasäkra dollar till kronor (och det klienten ger upp genom att stanna i SEK). us_minus_se_10y_pp = räntegapet på lång sikt.
+- usdsek och eursek: stigande värde = svagare krona (utländska tillgångar blir värda mer i SEK).
 - copper_gold_ratio_x1000 = kopparpris (USD/lb) / guldpris (USD/oz) × 1000. Stigande kvot = konjunkturoptimism, fallande = flykt till säkerhet.
 - hyg_ief_ratio = high yield-kredit (HYG) / medellånga statsobligationer (IEF). Fallande kvot = vidgade kreditspreadar.
 - headlines är AI-triagerade nyheter från de senaste dagarna (impact 0–1 = bedömd kurspåverkan). megatrends är plattformens senaste temaanalyser.

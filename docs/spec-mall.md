@@ -189,7 +189,7 @@ som inte fanns i den ursprungliga listan.
 |-------|-------------|-----|
 | **Yahoo Finance** (inofficiellt API) | Hela aktieuniversumet via screener, kurser, sektorer/industrier, fundamenta, insynshandel (SEC Form 4), årsbokslut 4–5 år bakåt (`ws/fundamentals-timeseries`: FCF, nettoresultat, capex, SBC, EBITDA, nettoskuld, EPS – underlag för Institutionell djupanalys) | `functions/api/screener.js`, `yahoo.js`, `quote.js` |
 | **Avanza** (inofficiellt `_api`) | Svenska fonder: sök, fonddetaljer, graf | `functions/api/avanza.js` |
-| **Riksbank/Fed/ECB** | Styrräntor | `functions/api/rates.js` |
+| **Riksbank/Fed/ECB** | Styrräntor; med `?se=1` även svenska statsskuldväxlar (1/3/6 mån) och statsobligationer (2/5/10 år) från Riksbankens SWEA – underlag för CIO-analysen | `functions/api/rates.js` |
 | **Finansinspektionen** (insynsregistret, CSV-export) | Insynshandel i svensknoterade bolag | `functions/api/insider-se.js` |
 
 ### Insynshandel: två källor, för att ingen täcker båda

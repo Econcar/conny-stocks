@@ -809,10 +809,11 @@ Ton och format:
 const pmR = (v, dec = 1) => (v == null || !isFinite(v)) ? null : Math.round(v * 10 ** dec) / 10 ** dec;
 
 // Slutsatserna ur en CIO-analys: 1 (allokering & regim), 4 (megatrender & geopolitik),
-// 5 (sektorallokering), 6 (svart svan). 2–3 är resonemanget bakom och skickas inte med.
+// 5 (sektorallokering), 6 (svart svan), 7 (så gör du i Sverige). 2–3 är resonemanget
+// bakom och skickas inte med.
 function cioConclusions(text) {
   const parts = (text || '').replace(/\r/g, '').split(/\n(?=#{1,3}\s)/);
-  const keep = parts.filter(p => /^#{1,3}\s*[1456][.)]?\s/.test(p.trim()));
+  const keep = parts.filter(p => /^#{1,3}\s*[14567][.)]?\s/.test(p.trim()));
   return (keep.length ? keep.join('\n\n') : text || '').trim();
 }
 

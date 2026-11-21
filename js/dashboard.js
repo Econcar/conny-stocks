@@ -76,15 +76,20 @@ function aiGuideHtml(here) {
   </details>`;
 }
 
-// Sektion 1 (allokeringen) syns direkt, resten fälls ut på begäran.
+// Sektion 1 (allokeringen) och 7 (Så gör du i Sverige) syns direkt, resten fälls ut på
+// begäran. Äldre analyser utan sektion 7 visar bara sektion 1 överst.
 function cioHtml(text) {
   const lines = text.replace(/\r/g, '').split('\n');
   const heads = lines.map((l, i) => /^#{1,3}\s/.test(l.trim()) ? i : -1).filter(i => i >= 0);
   if(heads.length < 2) return `<div class="memo">${formatMemo(text)}</div>`;
-  const head = lines.slice(0, heads[1]).join('\n'), rest = lines.slice(heads[1]).join('\n');
-  return `<div class="memo">${formatMemo(head)}</div>
-    <details class="cio-more"><summary>Visa hela analysen – centralbanker, riskbarometer, geopolitik, sektorer, svart svan ▾</summary>
-    <div class="memo">${formatMemo(rest)}</div></details>`;
+  const sections = heads.map((h, k) => lines.slice(h, heads[k + 1]).join('\n'));
+  const intro = lines.slice(0, heads[0]).join('\n');
+  const se = sections.findIndex(s => /^#{1,3}\s*7[.)]?\s/.test(s.trim()) || /Så gör du i Sverige/i.test(s.split('\n')[0]));
+  const top = intro + '\n' + sections[0] + (se > 0 ? '\n' + sections[se] : '');
+  const rest = sections.filter((_, k) => k !== 0 && k !== se).join('\n');
+  return `<div class="memo">${formatMemo(top)}</div>
+    ${rest.trim() ? `<details class="cio-more"><summary>Visa hela analysen – centralbanker, riskbarometer, geopolitik, sektorer, svart svan ▾</summary>
+    <div class="memo">${formatMemo(rest)}</div></details>` : ''}`;
 }
 
 // Din senaste egna CIO-analys ur Sparade analyser (molnet om inloggad, annars lokalt) –

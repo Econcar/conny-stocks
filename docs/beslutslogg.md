@@ -9,6 +9,26 @@ Nyast först. Poster som ångrats stryks inte — de får en rad om vad som ersa
 
 ---
 
+### 2026-11-21 · CIO-analysen skrivs för en svensk investerare på Avanza/ISK
+
+CIO-analysen (motorns dagliga och knappen på Översikt, båda via `shared/cio.js`) var skriven ur
+en global fonds perspektiv med amerikanska T-bills som riskfri ränta. Nu är klienten en svensk
+privatperson som räknar i SEK: riskfri ränta = svensk 3-månaders statsskuldväxel, USA-räntor och
+dollarn är signaler om världsläget, och en ny sektion **7. Så gör du i Sverige** översätter
+allokeringen till sådant som går att köpa på Avanza, med valutarisk och valutasäkring.
+Underlaget fick svenska statsskuldväxlar och statsobligationer (Riksbankens SWEA), EUR/SEK och
+räntegapet USA–Sverige (≈ kostnaden för att valutasäkra dollar).
+
+**Varför:** en dollarränta på 4 % säger inget om vad en kronsparare får. Amerikanska ränte-ETF:er
+får dessutom inte säljas till privatpersoner i EU (PRIIPs), så råd som pekade dit gick inte att följa.
+
+**Kostnad:** SWEA utan nyckel tål bara några anrop per minut, så de svenska räntorna hämtas med
+två gruppanrop och bara på begäran (`/api/rates?se=1`), som senaste värde utan historik.
+Sektion 7 visas överst på Översikt och följer med slutsatserna till portföljgenomlysning,
+AI-triage och chatt.
+
+---
+
 ### 2026-10-03 · AI:ns beslutslogg räknas fram i webbläsaren, inte av motorn
 
 AI-triagen, portföljgenomlysningen och djupanalysen loggar varje rekommendation (åtgärd, kurs,

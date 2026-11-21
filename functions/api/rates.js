@@ -4,9 +4,20 @@
 //   Riksbanken: SWEA-API, serie SECBREPOEFF = styrräntan
 //   ECB:        ECB Data Portal, MRO (huvudsakliga refinansieringsräntan)
 // Varje källa hämtas oberoende – en som strular slår inte ut de andra.
-export async function onRequest() {
+//
+// ?se=1 lägger till svenska marknadsräntor (CIO-analysen): statsskuldväxlar
+// (SWEA-grupp 6) och statsobligationer (grupp 7), två anrop för alla serier.
+// Bara på begäran – SWEA utan nyckel tål bara några få anrop per minut.
+const SE_SERIES = {
+  SETB1MBENCHC: 'tbill_1m', SETB3MBENCH: 'tbill_3m', SETB6MBENCH: 'tbill_6m',
+  SEGVB2YC: 'gov_2y', SEGVB5YC: 'gov_5y', SEGVB10YC: 'gov_10y'
+};
+
+export async function onRequest({ request }) {
   const UA = { 'User-Agent': 'Mozilla/5.0 (conny-stocks rates)' };
+  const withSe = new URL(request.url).searchParams.get('se') === '1';
   const out = { fed: null, riksbank: null, ecb: null };
+  if (withSe) out.se = null;
 
   async function getJson(url) {
     const r = await fetch(url, { headers: UA });
@@ -38,6 +49,21 @@ export async function onRequest() {
       if (val != null) out.ecb = { rate: val, date };
     })(),
   ];
+
+  if (withSe) tasks.push((async () => {
+    const groups = await Promise.allSettled([6, 7].map(g =>
+      getJson('https://api.riksbank.se/swea/v1/Observations/Latest/ByGroup/' + g)));
+    const se = {};
+    const stale = Date.now() - 30 * 86400000; // nedlagda serier (t.ex. 12-månadersväxeln) hoppas över
+    for (const g of groups) {
+      if (g.status !== 'fulfilled' || !Array.isArray(g.value)) continue;
+      for (const o of g.value) {
+        const key = SE_SERIES[o.seriesId];
+        if (key && typeof o.value === 'number' && new Date(o.date).getTime() > stale) se[key] = { rate: o.value, date: o.date };
+      }
+    }
+    if (Object.keys(se).length) out.se = se;
+  })());
 
   await Promise.allSettled(tasks);
 
